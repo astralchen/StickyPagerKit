@@ -1,0 +1,267 @@
+import UIKit
+import StickyPagerKit
+
+@main
+@MainActor
+final class AppDelegate: UIResponder, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        configuration.delegateClass = SceneDelegate.self
+        return configuration
+    }
+}
+
+@MainActor
+final class DemoLauncher: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "StickyPagerKit"
+        view.backgroundColor = .systemBackground
+        let button = UIButton(type: .system)
+        button.setTitle("打开演示", for: .normal)
+        button.titleLabel?.font = .preferredFont(forTextStyle: .title2)
+        button.accessibilityIdentifier = "demo.open"
+        button.addAction(UIAction { [weak self] _ in self?.navigationController?.pushViewController(DemoPager(), animated: true) }, for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(button)
+        NSLayoutConstraint.activate([button.centerXAnchor.constraint(equalTo: view.centerXAnchor), button.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
+    }
+}
+
+@MainActor
+final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPPageViewControllerDelegate {
+    private var pageIDs = ["grid", "list", "short", "empty", "plain", "async"]
+    private let names = ["grid": "网格", "list": "列表", "short": "短列表", "empty": "空列表", "plain": "普通页", "async": "异步页"]
+    private let status = UILabel()
+    private var controllerHeader = false
+    private var generation = 0
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "StickyPagerKit"
+        if ProcessInfo.processInfo.arguments.contains("--rtl") { view.semanticContentAttribute = .forceRightToLeft }
+        dataSource = self
+        delegate = self
+        headerView = DemoHeaderView()
+        layout = SPPageLayout(headerHeight: 220)
+        let header = UIBarButtonItem(title: "Header", primaryAction: UIAction { [weak self] _ in self?.toggleHeader() })
+        header.accessibilityIdentifier = "demo.header"
+        let height = UIBarButtonItem(title: "高度", primaryAction: UIAction { [weak self] _ in
+            guard let self else { return }
+            self.layout.headerHeight = self.layout.headerHeight == 220 ? 300 : 220
+            self.updateStatus()
+        })
+        height.accessibilityIdentifier = "demo.height"
+        let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
+            UIAction(title: "重排页面") { [weak self] _ in guard let self else { return }; self.pageIDs.reverse(); self.reloadData(); self.updateStatus() },
+            UIAction(title: "删除当前页") { [weak self] _ in guard let self, let i = self.selectedIndex else { return }; self.pageIDs.remove(at: i); self.reloadData(); self.updateStatus() },
+            UIAction(title: "添加页面") { [weak self] _ in guard let self else { return }; self.generation += 1; self.pageIDs.append("new\(self.generation)"); self.reloadData() },
+            UIAction(title: "清空页面") { [weak self] _ in self?.pageIDs = []; self?.reloadData(); self?.updateStatus() }
+        ]))
+        pages.accessibilityIdentifier = "demo.pages"
+        navigationItem.rightBarButtonItems = [pages, height, header]
+        status.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        status.accessibilityIdentifier = "demo.status"
+        status.textAlignment = .center
+        toolbarItems = [UIBarButtonItem(customView: status)]
+        reloadData()
+        updateStatus()
+    }
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setToolbarHidden(false, animated: animated)
+    }
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        navigationController?.setToolbarHidden(true, animated: animated)
+    }
+    private func toggleHeader() {
+        controllerHeader.toggle()
+        if controllerHeader { headerViewController = DemoHeaderController() }
+        else { headerView = DemoHeaderView() }
+        updateStatus()
+    }
+    private func updateStatus(progress: CGFloat? = nil) {
+        let page = selectedIndex.map { pageIDs[$0] } ?? "none"
+        let oldProgress = status.accessibilityValue?.components(separatedBy: "progress=").last ?? "0.00"
+        status.text = "\(names[page] ?? page) · \(controllerHeader ? "Controller" : "View") · H\(Int(layout.headerHeight))"
+        status.accessibilityValue = "direction=\(view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? "rtl" : "ltr");page=\(page);header=\(controllerHeader ? "controller" : "view");height=\(Int(layout.headerHeight));progress=\(progress.map { String(format: "%.2f", Double($0)) } ?? oldProgress)"
+        status.sizeToFit()
+    }
+    func numberOfPages(in pageViewController: SPPageViewController) -> Int { pageIDs.count }
+    func pageViewController(_ pageViewController: SPPageViewController, identifierForPageAt index: Int) -> AnyHashable { pageIDs[index] }
+    func pageViewController(_ pageViewController: SPPageViewController, tabBarItemAt index: Int) -> SPTabBarItem { SPTabBarItem(title: names[pageIDs[index]] ?? "新增") }
+    func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController {
+        switch pageIDs[index] {
+        case "grid": return DemoGrid()
+        case "list": return DemoList(count: 80)
+        case "short": return DemoList(count: 3)
+        case "empty": return DemoList(count: 0)
+        case "plain": return DemoPlain()
+        case "async":
+            let page = DemoAsync()
+            page.onReplace = { [weak self, weak page] in
+                guard let self, let page, let index = self.pageIDs.firstIndex(of: "async"), page.parent === self else { return }
+                self.rediscoverScrollView(forPageAt: index)
+            }
+            return page
+        default: return DemoList(count: 10)
+        }
+    }
+    func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) { updateStatus() }
+    func pageViewController(_ pageViewController: SPPageViewController, didChangeHeaderState state: SPHeaderState, progress: CGFloat) { updateStatus(progress: progress) }
+}
+
+@MainActor
+final class DemoHeaderView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .systemIndigo
+        accessibilityIdentifier = "demo.headerView"
+        let title = UILabel()
+        title.text = "StickyPagerKit\n纵向联动 · 横向分页"
+        title.numberOfLines = 0
+        title.font = .preferredFont(forTextStyle: .title1)
+        title.adjustsFontForContentSizeCategory = true
+        title.textColor = .white
+        title.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(title)
+        NSLayoutConstraint.activate([title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24), title.centerYAnchor.constraint(equalTo: centerYAnchor)])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+@MainActor
+final class DemoHeaderController: UIViewController {
+    override func loadView() {
+        let header = DemoHeaderView()
+        header.backgroundColor = .systemTeal
+        view = header
+    }
+}
+
+@MainActor
+final class DemoList: UITableViewController {
+    let count: Int
+    private var refreshCount = 0
+    init(count: Int) { self.count = count; super.init(style: .plain) }
+    required init?(coder: NSCoder) { fatalError() }
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        tableView.accessibilityIdentifier = "demo.list"
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 84
+        if #available(iOS 15.0, *) { tableView.sectionHeaderTopPadding = 0 }
+        let refresh = UIRefreshControl()
+        refresh.accessibilityIdentifier = "demo.refresh"
+        refresh.addTarget(self, action: #selector(refreshContent), for: .valueChanged)
+        refreshControl = refresh
+        if count == 0 {
+            let label = UILabel(); label.text = "暂无内容 · 仍可折叠 Header"; label.textAlignment = .center
+            tableView.backgroundView = label
+        }
+    }
+    @objc private func refreshContent() {
+        refreshCount += 1
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self else { return }
+            self.tableView.reloadData()
+            self.refreshControl?.endRefreshing()
+        }
+    }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { count }
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
+        var content = cell.defaultContentConfiguration()
+        content.text = "内容 \(indexPath.row + 1)"
+        content.secondaryText = "原生 UITableView · 已刷新 \(refreshCount) 次"
+        cell.contentConfiguration = content
+        return cell
+    }
+}
+
+@MainActor
+final class DemoGrid: UICollectionViewController {
+    init() {
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 8; layout.minimumLineSpacing = 8
+        layout.sectionInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        super.init(collectionViewLayout: layout)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        collectionView.backgroundColor = .systemBackground
+        collectionView.accessibilityIdentifier = "demo.grid"
+        collectionView.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "cell")
+    }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if let layout = collectionViewLayout as? UICollectionViewFlowLayout {
+            let side = max(40, floor((collectionView.bounds.width - 40) / 3))
+            if layout.itemSize.width != side { layout.itemSize = CGSize(width: side, height: side * 1.25) }
+        }
+    }
+    override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { 90 }
+    override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "cell", for: indexPath)
+        cell.backgroundColor = [UIColor.systemIndigo, .systemTeal, .systemOrange, .systemPink][indexPath.item % 4].withAlphaComponent(0.7)
+        var content = UIListContentConfiguration.cell()
+        content.text = "\(indexPath.item + 1)"
+        cell.contentConfiguration = content
+        cell.accessibilityLabel = "作品 \(indexPath.item + 1)"
+        return cell
+    }
+}
+
+@MainActor
+final class DemoPlain: UIViewController {
+    override func loadView() {
+        let label = UILabel()
+        label.text = "普通 UIViewController\n没有 UIScrollView\nHeader 保持共享状态"
+        label.numberOfLines = 0; label.textAlignment = .center
+        label.backgroundColor = .secondarySystemBackground
+        label.accessibilityIdentifier = "demo.plain"
+        view = label
+    }
+}
+
+@MainActor
+final class DemoAsync: UIViewController {
+    var onReplace: (() -> Void)?
+    private var scroll: UIScrollView?
+    private let button = UIButton(type: .system)
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        button.setTitle("创建或替换滚动视图", for: .normal)
+        button.accessibilityIdentifier = "demo.replaceScroll"
+        button.addAction(UIAction { [weak self] _ in self?.replaceScroll() }, for: .touchUpInside)
+        view.addSubview(button)
+    }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        scroll?.frame = view.bounds
+        let safeFrame = view.safeAreaLayoutGuide.layoutFrame
+        button.frame = CGRect(x: safeFrame.minX + 20, y: max(safeFrame.minY + 24, safeFrame.maxY - 64),
+                              width: max(0, safeFrame.width - 40), height: 44)
+    }
+    private func replaceScroll() {
+        scroll?.removeFromSuperview()
+        let scroll = UIScrollView(frame: view.bounds)
+        scroll.contentSize = CGSize(width: view.bounds.width, height: 1600)
+        scroll.accessibilityIdentifier = "demo.asyncScroll"
+        let label = UILabel(frame: CGRect(x: 24, y: 24, width: 260, height: 60))
+        label.text = "已重新发现 UIScrollView"
+        scroll.addSubview(label)
+        view.insertSubview(scroll, belowSubview: button)
+        self.scroll = scroll
+        onReplace?()
+    }
+}

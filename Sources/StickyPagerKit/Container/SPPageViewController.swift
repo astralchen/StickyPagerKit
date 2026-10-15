@@ -1,0 +1,555 @@
+import UIKit
+
+/// 提供共享折叠 Header、标签栏与横向分页的 UIKit 容器。
+@MainActor
+open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+    public weak var dataSource: (any SPPageViewControllerDataSource)?
+    public weak var delegate: (any SPPageViewControllerDelegate)?
+    public private(set) var selectedIndex: Int?
+    public var isPagingEnabled = true { didSet { pagingView.isScrollEnabled = isPagingEnabled } }
+    public var maximumCachedPageCount = 3 { didSet { evictPages() } }
+    public var layout = SPPageLayout() { didSet { updateLayoutConfiguration() } }
+
+    public var headerView: UIView? {
+        get { storedHeaderView }
+        set { replaceHeader(view: newValue, controller: nil) }
+    }
+    public var headerViewController: UIViewController? {
+        get { storedHeaderController }
+        set { replaceHeader(view: nil, controller: newValue) }
+    }
+    public var tabBar: SPTabBar {
+        get { storedTabBar }
+        set {
+            guard newValue !== storedTabBar else { return }
+            storedTabBar.onSelect = nil
+            storedTabBar.removeFromSuperview()
+            storedTabBar = newValue
+            if isViewLoaded { configureTabBar(); view.setNeedsLayout() }
+        }
+    }
+
+    internal let pagingView = SPPagingScrollView()
+    internal private(set) var collapseOffset: CGFloat = 0
+    internal private(set) var records: [AnyHashable: SPPageRecord] = [:]
+    internal var currentScrollView: UIScrollView? { currentRecord?.binding?.scrollView }
+    private var identifiers: [AnyHashable] = []
+    private var items: [SPTabBarItem] = []
+    private var positions: [AnyHashable: CGFloat] = [:]
+    private let headerHost = UIView()
+    private var storedHeaderView: UIView?
+    private var storedHeaderController: UIViewController?
+    private var storedTabBar = SPTabBar()
+    private var isVisible = false
+    private var parentAppearance: [UIViewController] = []
+    private var parentIsAppearing: Bool?
+    private var transitionTarget: Int?
+    private var transitionAppearance = false
+    private var suppressPaging = false
+    private var previousSize: CGSize = .zero
+    private var accessCounter: UInt = 0
+    private var isReloading = false
+    private var headerPan: UIPanGestureRecognizer!
+    private var tabPan: UIPanGestureRecognizer!
+    private var dragStart: CGFloat = 0
+    private var animationVelocity: CGFloat = 0
+    private var displayLink: CADisplayLink?
+    private let displayTarget = SPDisplayLinkTarget()
+    private weak var returnGesture: UIGestureRecognizer?
+
+    private var currentRecord: SPPageRecord? {
+        guard let selectedIndex, identifiers.indices.contains(selectedIndex) else { return nil }
+        return records[identifiers[selectedIndex]]
+    }
+    private var effectiveLayout: SPPageLayout {
+        var value = layout.normalized
+        if storedHeaderView == nil && storedHeaderController == nil { value.headerHeight = 0; value.minimumHeaderHeight = 0 }
+        return value
+    }
+    private var isRTL: Bool { view.effectiveUserInterfaceLayoutDirection == .rightToLeft }
+
+    open override var shouldAutomaticallyForwardAppearanceMethods: Bool { false }
+
+    open override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        pagingView.isPagingEnabled = true
+        pagingView.bounces = false
+        pagingView.showsHorizontalScrollIndicator = false
+        pagingView.contentInsetAdjustmentBehavior = .never
+        pagingView.delegate = self
+        pagingView.isScrollEnabled = isPagingEnabled
+        pagingView.accessibilityIdentifier = "sp.pages"
+        view.addSubview(pagingView)
+        headerHost.clipsToBounds = true
+        view.addSubview(headerHost)
+        configureTabBar()
+        mountHeader()
+        headerPan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
+        tabPan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
+        for (host, pan) in [(headerHost, headerPan!), (storedTabBar, tabPan!)] {
+            pan.delegate = self
+            host.addGestureRecognizer(pan)
+        }
+        displayTarget.tick = { [weak self] link in self?.stepAnimation(link) }
+    }
+
+    open override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        if let gesture = navigationController?.interactivePopGestureRecognizer, gesture !== returnGesture {
+            pagingView.panGestureRecognizer.require(toFail: gesture)
+            headerPan.require(toFail: gesture)
+            tabPan.require(toFail: gesture)
+            returnGesture = gesture
+        }
+        endParentAppearance()
+        parentIsAppearing = true
+        parentAppearance = [storedHeaderController, currentRecord?.controller].compactMap { $0 }
+        parentAppearance.forEach { $0.beginAppearanceTransition(true, animated: animated) }
+    }
+    open override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        endParentAppearance()
+        isVisible = true
+    }
+    open override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        cancelPaging()
+        stopAnimation()
+        isVisible = false
+        endParentAppearance()
+        parentIsAppearing = false
+        parentAppearance = [storedHeaderController, currentRecord?.controller].compactMap { $0 }
+        parentAppearance.forEach { $0.beginAppearanceTransition(false, animated: animated) }
+    }
+    open override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        endParentAppearance()
+    }
+    open override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let safe = view.safeAreaInsets
+        let l = effectiveLayout
+        // 页面延伸至容器底边；底部安全区域由子页面的布局或自动滚动 inset 处理。
+        let pageFrame = CGRect(x: safe.left, y: safe.top + l.minimumHeaderHeight + l.tabBarHeight,
+                               width: max(0, view.bounds.width - safe.left - safe.right),
+                               height: max(0, view.bounds.height - safe.top - l.minimumHeaderHeight - l.tabBarHeight))
+        if pageFrame.size != previousSize {
+            cancelPaging()
+            stopAnimation()
+            previousSize = pageFrame.size
+        }
+        suppressPaging = true
+        pagingView.frame = pageFrame
+        pagingView.contentSize = CGSize(width: pageFrame.width * CGFloat(identifiers.count), height: pageFrame.height)
+        for (id, record) in records {
+            guard let index = identifiers.firstIndex(of: id) else { continue }
+            let inset = record.binding == nil ? max(0, l.collapseRange - collapseOffset) : 0
+            record.controller.view.frame = CGRect(x: physicalIndex(index) * pageFrame.width, y: inset, width: pageFrame.width, height: max(0, pageFrame.height - inset))
+            record.controller.view.layoutIfNeeded()
+            record.binding?.setRange(l.collapseRange)
+        }
+        if !pagingView.isDragging && !pagingView.isDecelerating && transitionTarget == nil { alignPaging() }
+        suppressPaging = false
+        layoutHeader()
+    }
+    open override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        view.setNeedsLayout()
+    }
+    open override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        evictPages(limit: 1)
+    }
+
+    isolated deinit {
+        displayLink?.invalidate()
+        records.values.forEach { $0.binding?.detach() }
+    }
+
+    /// 同步更新页面快照。重复标识拒绝整次更新；相同标识复用已有控制器。
+    public func reloadData() {
+        guard !isReloading else { return }
+        isReloading = true
+        defer { isReloading = false }
+        loadViewIfNeeded()
+        let count = max(0, dataSource?.numberOfPages(in: self) ?? 0)
+        var newIDs: [AnyHashable] = [], newItems: [SPTabBarItem] = []
+        for index in 0..<count {
+            guard let source = dataSource else { return }
+            newIDs.append(source.pageViewController(self, identifierForPageAt: index))
+            newItems.append(source.pageViewController(self, tabBarItemAt: index))
+        }
+        guard Set(newIDs).count == newIDs.count else {
+            NSLog("StickyPagerKit: reloadData 拒绝重复页面标识")
+            return
+        }
+        cancelPaging()
+        stopAnimation()
+        let oldIndex = selectedIndex
+        let oldID = oldIndex.flatMap { identifiers.indices.contains($0) ? identifiers[$0] : nil }
+        let next = SPScrollGeometry.selectedIndex(oldID: oldID, oldIndex: oldIndex, identifiers: newIDs)
+        let nextID = next.map { newIDs[$0] }
+        if oldID != nextID, let old = currentRecord { appear(old.controller, false) }
+        for id in Array(records.keys) where !newIDs.contains(id) { removeRecord(id) }
+        positions = positions.filter { newIDs.contains($0.key) }
+        identifiers = newIDs
+        items = newItems
+        selectedIndex = next
+        storedTabBar.setItems(items)
+        if let next {
+            let record = loadPage(next)
+            align(record)
+            if oldID != nextID, let record { appear(record.controller, true) }
+        }
+        storedTabBar.setSelectedIndex(next, animated: false)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        evictPages()
+        if let next, oldID != nextID || oldIndex != next { delegate?.pageViewController(self, didSelectPageAt: next) }
+    }
+
+    /// 越界请求不改变状态。新请求取消尚未完成的旧转场。
+    public func setSelectedIndex(_ index: Int, animated: Bool) {
+        guard identifiers.indices.contains(index) else { return }
+        loadViewIfNeeded()
+        cancelPaging()
+        guard index != selectedIndex else { return }
+        stopAnimation()
+        currentRecord?.binding?.stopDeceleration()
+        view.layoutIfNeeded()
+        beginTransition(to: index)
+        let point = CGPoint(x: physicalIndex(index) * pagingView.bounds.width, y: 0)
+        if animated && isVisible && pagingView.bounds.width > 0 {
+            pagingView.setContentOffset(point, animated: true)
+        } else {
+            suppressPaging = true
+            pagingView.setContentOffset(point, animated: false)
+            suppressPaging = false
+            finishTransition(commit: true)
+        }
+    }
+
+    /// 指定页面内的滚动视图；nil 恢复自动发现。视图必须属于该页面视图树。
+    public func setScrollView(_ scrollView: UIScrollView?, forPageAt index: Int) {
+        guard let record = loadPage(index) else { return }
+        if let scrollView, !scrollView.isDescendant(of: record.controller.view) && scrollView !== record.controller.view { return }
+        record.explicitScrollView = scrollView
+        bind(record)
+    }
+
+    /// 页面异步创建或替换视图后调用。显式指定仍然有效时优先使用它。
+    public func rediscoverScrollView(forPageAt index: Int) {
+        guard let record = loadPage(index) else { return }
+        bind(record)
+    }
+
+    private func configureTabBar() {
+        view.addSubview(storedTabBar)
+        storedTabBar.onSelect = { [weak self] index in self?.setSelectedIndex(index, animated: true) }
+        storedTabBar.setItems(items)
+        storedTabBar.setSelectedIndex(selectedIndex, animated: false)
+        if let tabPan { storedTabBar.addGestureRecognizer(tabPan) }
+    }
+
+    private func replaceHeader(view newView: UIView?, controller newController: UIViewController?) {
+        if newView === storedHeaderView && newController === storedHeaderController { return }
+        if let newController, newController.parent != nil { return }
+        if let old = storedHeaderController {
+            appear(old, false)
+            old.willMove(toParent: nil)
+            old.view.removeFromSuperview()
+            old.removeFromParent()
+        }
+        storedHeaderView?.removeFromSuperview()
+        storedHeaderView = newView
+        storedHeaderController = newController
+        if isViewLoaded { mountHeader(); updateLayoutConfiguration() }
+    }
+    private func mountHeader() {
+        if let controller = storedHeaderController {
+            if controller.parent == nil { addChild(controller); headerHost.addSubview(controller.view); controller.didMove(toParent: self); appear(controller, true) }
+        } else if let storedHeaderView { headerHost.addSubview(storedHeaderView) }
+    }
+    private func updateLayoutConfiguration() {
+        guard isViewLoaded else { return }
+        cancelPaging()
+        stopAnimation()
+        collapseOffset = min(collapseOffset, effectiveLayout.collapseRange)
+        records.values.forEach { $0.binding?.setRange(effectiveLayout.collapseRange) }
+        if let record = currentRecord {
+            let content = positions[record.identifier] ?? 0
+            record.binding?.setPosition(SPScrollGeometry.position(collapse: collapseOffset, content: content, range: effectiveLayout.collapseRange))
+        }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        publishHeader()
+    }
+    private func layoutHeader() {
+        let l = effectiveLayout, safe = view.safeAreaInsets
+        let width = max(0, view.bounds.width - safe.left - safe.right)
+        headerHost.frame = CGRect(x: safe.left, y: safe.top, width: width, height: max(0, l.headerHeight - collapseOffset))
+        let contentFrame = CGRect(x: 0, y: -collapseOffset, width: width, height: l.headerHeight)
+        storedHeaderView?.frame = contentFrame
+        storedHeaderController?.view.frame = contentFrame
+        storedTabBar.frame = CGRect(x: safe.left, y: headerHost.frame.maxY, width: width, height: l.tabBarHeight)
+        for record in records.values where record.binding == nil {
+            let inset = max(0, l.collapseRange - collapseOffset)
+            var frame = record.controller.view.frame
+            frame.origin.y = inset
+            frame.size.height = max(0, pagingView.bounds.height - inset)
+            record.controller.view.frame = frame
+        }
+        view.bringSubviewToFront(headerHost)
+        view.bringSubviewToFront(storedTabBar)
+    }
+    private func publishHeader() {
+        layoutHeader()
+        let range = effectiveLayout.collapseRange
+        let progress = range == 0 ? 0 : collapseOffset / range
+        let state: SPHeaderState = progress <= 0 ? .expanded : (progress >= 1 ? .collapsed : .collapsing)
+        delegate?.pageViewController(self, didChangeHeaderState: state, progress: progress)
+    }
+
+    @discardableResult private func loadPage(_ index: Int) -> SPPageRecord? {
+        guard identifiers.indices.contains(index) else { return nil }
+        let id = identifiers[index]
+        accessCounter &+= 1
+        if let record = records[id] { record.access = accessCounter; return record }
+        guard let controller = dataSource?.pageViewController(self, viewControllerAt: index), controller.parent == nil else { return nil }
+        let record = SPPageRecord(identifier: id, controller: controller)
+        record.access = accessCounter
+        records[id] = record
+        addChild(controller)
+        pagingView.addSubview(controller.view)
+        controller.view.frame = CGRect(x: physicalIndex(index) * pagingView.bounds.width, y: 0, width: pagingView.bounds.width, height: pagingView.bounds.height)
+        controller.view.layoutIfNeeded()
+        controller.didMove(toParent: self)
+        bind(record)
+        return record
+    }
+    private func bind(_ record: SPPageRecord) {
+        let root = record.controller.view!
+        let explicit = record.explicitScrollView
+        let validExplicit = explicit.flatMap { $0 === root || $0.isDescendant(of: root) ? $0 : nil }
+        let scroll = validExplicit ?? SPScrollViewDiscovery.find(in: root)
+        if scroll === record.binding?.scrollView { return }
+        if record === currentRecord { stopAnimation() }
+        if let old = record.binding { positions[record.identifier] = SPScrollGeometry.content(old.position, range: effectiveLayout.collapseRange); old.detach() }
+        record.binding = scroll.map(SPScrollBinding.init)
+        record.binding?.setRange(effectiveLayout.collapseRange)
+        record.binding?.onScroll = { [weak self, weak record] binding in
+            guard let self, let record, record === self.currentRecord, self.transitionTarget == nil else { return }
+            self.stopAnimation()
+            self.consume(binding)
+        }
+        align(record)
+        view.setNeedsLayout()
+    }
+    private func align(_ record: SPPageRecord?) {
+        guard let record, let binding = record.binding else { return }
+        if binding.isRefreshing { collapseOffset = 0; publishHeader(); return }
+        binding.setPosition(SPScrollGeometry.position(collapse: collapseOffset, content: positions[record.identifier] ?? 0, range: effectiveLayout.collapseRange))
+    }
+    private func consume(_ binding: SPScrollBinding) {
+        let range = effectiveLayout.collapseRange
+        collapseOffset = binding.isRefreshing ? 0 : SPScrollGeometry.collapse(binding.position, range: range)
+        if binding.isRefreshing && binding.position > 0 { binding.setPosition(0) }
+        if let id = currentRecord?.identifier { positions[id] = SPScrollGeometry.content(binding.position, range: range) }
+        publishHeader()
+    }
+    private func removeRecord(_ id: AnyHashable) {
+        guard let record = records.removeValue(forKey: id) else { return }
+        if let binding = record.binding { positions[id] = SPScrollGeometry.content(binding.position, range: effectiveLayout.collapseRange); binding.detach() }
+        record.controller.willMove(toParent: nil)
+        record.controller.view.removeFromSuperview()
+        record.controller.removeFromParent()
+    }
+    private func evictPages(limit: Int? = nil) {
+        let capacity = max(1, limit ?? maximumCachedPageCount)
+        var protectedIndices = [selectedIndex, transitionTarget].compactMap { $0 }
+        if transitionTarget != nil || pagingView.isDragging || pagingView.isDecelerating {
+            let position = logicalPosition()
+            protectedIndices += [Int(floor(position)), Int(ceil(position))]
+        }
+        let protected = protectedIndices.filter { identifiers.indices.contains($0) }.map { identifiers[$0] }
+        let candidates = records.values.filter { !protected.contains($0.identifier) }.sorted { $0.access < $1.access }
+        for record in candidates where records.count > capacity { removeRecord(record.identifier) }
+    }
+
+    private func physicalIndex(_ logical: Int) -> CGFloat { CGFloat(isRTL ? identifiers.count - 1 - logical : logical) }
+    private func logicalPosition() -> CGFloat {
+        guard pagingView.bounds.width > 0 else { return CGFloat(selectedIndex ?? 0) }
+        let physical = pagingView.contentOffset.x / pagingView.bounds.width
+        return isRTL ? CGFloat(identifiers.count - 1) - physical : physical
+    }
+    private func alignPaging() {
+        pagingView.contentOffset = CGPoint(x: selectedIndex.map { physicalIndex($0) * pagingView.bounds.width } ?? 0, y: 0)
+    }
+    private func endParentAppearance() {
+        parentAppearance.forEach { $0.endAppearanceTransition() }
+        parentAppearance.removeAll()
+        parentIsAppearing = nil
+    }
+    private func appear(_ controller: UIViewController, _ appearing: Bool) {
+        if let index = parentAppearance.firstIndex(where: { $0 === controller }) {
+            parentAppearance.remove(at: index)
+            controller.endAppearanceTransition()
+            if !appearing && parentIsAppearing == true {
+                controller.beginAppearanceTransition(false, animated: false)
+                controller.endAppearanceTransition()
+            }
+            return
+        }
+        if isVisible {
+            controller.beginAppearanceTransition(appearing, animated: false)
+            controller.endAppearanceTransition()
+        } else if appearing && parentIsAppearing == true {
+            controller.beginAppearanceTransition(true, animated: false)
+            parentAppearance.append(controller)
+        }
+    }
+    private func beginTransition(to index: Int) {
+        guard index != selectedIndex, identifiers.indices.contains(index) else { return }
+        if transitionTarget == index { return }
+        if transitionTarget != nil { finishTransition(commit: false) }
+        guard let incoming = loadPage(index) else { return }
+        currentRecord?.binding?.stopDeceleration()
+        align(incoming)
+        transitionTarget = index
+        transitionAppearance = isVisible
+        if transitionAppearance {
+            currentRecord?.controller.beginAppearanceTransition(false, animated: true)
+            incoming.controller.beginAppearanceTransition(true, animated: true)
+        }
+    }
+    private func finishTransition(commit: Bool) {
+        guard let target = transitionTarget else { return }
+        let old = currentRecord?.controller
+        let incoming = records[identifiers[target]]?.controller
+        if transitionAppearance {
+            old?.endAppearanceTransition()
+            incoming?.endAppearanceTransition()
+            if !commit {
+                old?.beginAppearanceTransition(true, animated: false); old?.endAppearanceTransition()
+                incoming?.beginAppearanceTransition(false, animated: false); incoming?.endAppearanceTransition()
+            }
+        }
+        if commit && !transitionAppearance && parentIsAppearing == true {
+            if let old { appear(old, false) }
+            if let incoming { appear(incoming, true) }
+        }
+        transitionTarget = nil
+        transitionAppearance = false
+        if commit {
+            selectedIndex = target
+            align(currentRecord)
+        }
+        storedTabBar.setSelectedIndex(selectedIndex, animated: commit)
+        evictPages()
+        if commit { delegate?.pageViewController(self, didSelectPageAt: target) }
+    }
+    private func cancelPaging() {
+        guard isViewLoaded else { return }
+        suppressPaging = true
+        pagingView.setContentOffset(pagingView.contentOffset, animated: false)
+        finishTransition(commit: false)
+        alignPaging()
+        suppressPaging = false
+    }
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        stopAnimation()
+        currentRecord?.binding?.stopDeceleration()
+    }
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard !suppressPaging, let selectedIndex, !identifiers.isEmpty else { return }
+        let position = min(CGFloat(identifiers.count - 1), max(0, logicalPosition()))
+        // 长距离程序化切页也需要准备可见中间页，避免动画经过空白视口。
+        // 只保留当前、目标及最多两个可见页，不一次性创建整个区间。
+        for index in Set([Int(floor(position)), Int(ceil(position))]) {
+            if records[identifiers[index]] == nil { loadPage(index) }
+        }
+        evictPages()
+        let delta = position - CGFloat(selectedIndex)
+        if abs(delta) > 0.001 {
+            let target = delta > 0 ? Int(ceil(position)) : Int(floor(position))
+            if pagingView.isDragging || pagingView.isDecelerating { beginTransition(to: target) }
+            let end = transitionTarget ?? target
+            let denominator = abs(CGFloat(end - selectedIndex))
+            let progress = denominator == 0 ? 0 : min(1, abs(delta) / denominator)
+            storedTabBar.setTransitionProgress(from: selectedIndex, to: end, progress: progress)
+            delegate?.pageViewController(self, didScrollFrom: selectedIndex, to: end, progress: progress)
+        }
+    }
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { settlePaging() }
+    public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { settlePaging() } }
+    public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { settlePaging() }
+    private func settlePaging() {
+        let index = Int(logicalPosition().rounded())
+        if index == selectedIndex { finishTransition(commit: false) }
+        else { beginTransition(to: index); finishTransition(commit: true) }
+        suppressPaging = true; alignPaging(); suppressPaging = false
+    }
+
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let binding = currentRecord?.binding,
+              !binding.isRefreshing, transitionTarget == nil else { return false }
+        let v = pan.velocity(in: view)
+        return abs(v.y) > abs(v.x)
+    }
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var target = touch.view
+        while let candidate = target, candidate !== gestureRecognizer.view {
+            // 默认标签按钮允许父级纵向拖动，其他 Header 控件保留自身交互。
+            if gestureRecognizer === headerPan && (candidate is UIControl || candidate is UITextView) { return false }
+            if gestureRecognizer === headerPan && candidate.gestureRecognizers?.contains(where: { $0.isEnabled && $0 !== gestureRecognizer && !($0 is UITapGestureRecognizer) }) == true { return false }
+            target = candidate.superview
+        }
+        return true
+    }
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === tabPan && otherGestureRecognizer.view?.isDescendant(of: storedTabBar) == true
+    }
+    @objc private func handleHeaderPan(_ pan: UIPanGestureRecognizer) {
+        guard let binding = currentRecord?.binding else { return }
+        switch pan.state {
+        case .began:
+            stopAnimation(); binding.stopDeceleration(); dragStart = binding.position
+        case .changed:
+            let raw = dragStart - pan.translation(in: view).y
+            let bound = min(max(0, raw), binding.maximumPosition)
+            binding.setPosition(bound + (raw - bound) * 0.35)
+            consume(binding)
+        case .ended:
+            animationVelocity = -pan.velocity(in: view).y
+            startAnimation()
+        case .cancelled, .failed:
+            animationVelocity = 0; startAnimation()
+        default: break
+        }
+    }
+    private func startAnimation() {
+        displayLink?.invalidate()
+        let link = CADisplayLink(target: displayTarget, selector: #selector(SPDisplayLinkTarget.step(_:)))
+        displayLink = link
+        link.add(to: .main, forMode: .common)
+    }
+    private func stopAnimation() { displayLink?.invalidate(); displayLink = nil }
+    private func stepAnimation(_ link: CADisplayLink) {
+        guard let binding = currentRecord?.binding, !binding.isRefreshing else { stopAnimation(); return }
+        let dt = min(1.0 / 30, max(1.0 / 240, link.targetTimestamp - link.timestamp))
+        var position = binding.position
+        let target = min(max(0, position), binding.maximumPosition)
+        if abs(position - target) > 0.1 {
+            animationVelocity += (-180 * (position - target) - 26 * animationVelocity) * dt
+        } else {
+            animationVelocity *= pow(binding.scrollView.decelerationRate.rawValue, dt * 1000)
+        }
+        position += animationVelocity * dt
+        if abs(animationVelocity) < 2 && abs(position - target) < 0.5 {
+            binding.setPosition(target); consume(binding); stopAnimation(); return
+        }
+        binding.setPosition(position)
+        consume(binding)
+    }
+}

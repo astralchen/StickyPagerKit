@@ -60,3 +60,10 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Local validation products
+DerivedData/
+Validation/Products/
+Validation/Results/
+.swiftpm/
+__pycache__/
