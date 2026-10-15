@@ -2,6 +2,23 @@
 
 验证日期：2026-10-15。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 滚动同步、手势归属与控制器生命周期审查
+
+本次审查从干净的 `beb8520` 工作区开始，确认并修复以下问题：
+
+1. Header 高度变化后，后台页仍保留旧范围下的原始偏移；淘汰时重新换算会污染内容位置。复现中 Header 减少 60 pt 后，重新加载页的归一化位置为 500 pt，而正确值为 440 pt。现同步缓存页布局，并仅由当前页滚动更新内容位置记录，后台临时对齐、解绑和淘汰不再覆盖记录。
+2. 后台刷新页在 Safe Area 布局或切页准备时调用 `align`，会将共享 Header 错误展开；取消切页后也无法恢复原折叠状态。现只有已选中的刷新页可以展开 Header，提交选择后再应用刷新布局，正向偏移同步回到展开起点。
+3. Header 拖动只按页面和绑定判断归属，第二个识别器可覆盖或结束第一个识别器的交互。现记录实际 pan，只允许所属识别器继续或结束；退出后允许新拖动开始。
+4. 替换标签栏没有终止旧拖动，旧触摸仍可改变共享 Header。现替换时清理拖动和惯性状态，新手势仍可正常开始。
+5. 父控制器正在消失时切页并淘汰旧页，会先解除 containment，再调用旧页 `viewDidDisappear`。现先在父子关系有效时结束该页未完成的 appearance，再移除页面，避免重复回调与延迟保留。
+
+- **修复前复现：** 原实现执行新增 6 项用例，**0 通过、6 失败、0 跳过**，共 14 处断言失败。已读取终态 `.xcresult`，修改实现之前校验 `sourceChangedSinceRun` 为空。见 [失败结果](Results/interaction-review-before/Result.xcresult) · [失败摘要](Results/interaction-review-before/summary.json)。
+- **新增覆盖：** 共 7 项真实 UIWindow 夹具测试，覆盖高度变化与缓存淘汰、后台刷新与 Safe Area、刷新目标切页取消及提交、两个 pan 的归属和新交互恢复、标签栏替换、消失期间缓存淘汰时的父子关系，以及后台临时对齐后替换滚动视图的历史位置保留。断言包括实际偏移、页面与标签栏坐标、绑定恢复及回调时父控制器身份。
+- **最终库通过：** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro / iOS 26.5，完整 **68 通过、0 失败、0 跳过**。已读取终态 `.xcresult`，`sourceChangedSinceRun` 为空。见 [库结果](Results/interaction-review-final-library/Result.xcresult) · [库摘要](Results/interaction-review-final-library/summary.json)。
+- **最终 UI 通过：** Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0，完整 **16 通过、0 失败、0 跳过**。覆盖 Header、列表及普通页真实拖动、短内容回弹、纵横手势、长按标签后滚动、快速与非相邻切页、刷新、异步替换、页面重排删除、RTL、旋转及系统侧滑返回。见 [UI 结果](Results/interaction-review-final-ui/Result.xcresult) · [UI 摘要](Results/interaction-review-final-ui/summary.json)。
+- 两组最终结果合计 **84 通过、0 失败、0 跳过**，均已读取完整 `.xcresult`；库与 UI 输入文件 SHA-256 一致，且与最终实现及测试源码匹配，`sourceChangedSinceRun` 均为空。`git diff --check` 通过。
+- **测试边界：** 双识别器归属测试确定性注入 pan 状态，不等同于真机双指同时触摸验证。本次未执行 Release、iPad、iOS 15 实际运行、真机、多指实触、VoiceOver 全流程或性能压力测试。
+
 ## Header 从屏幕顶部展开
 
 Header 改为从容器顶边和左右边界铺开，`headerHeight` 表示包含顶部安全区域的总高度。标签栏仍在 `safeAreaInsets.top + minimumHeaderHeight` 处吸顶；实际折叠范围、列表顶部 inset、普通页顶部占位共用这一几何关系。高度不足吸顶基线时补足，无 Header 时保留安全区域避让。安全区域变化时重算折叠范围，保持已吸顶状态与内容滚动位置。

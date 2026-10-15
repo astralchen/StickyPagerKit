@@ -600,6 +600,135 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(scroll.contentInset.top, 0)
     }
 
+    func testInactivePositionSurvivesHeaderResizeAndEviction() {
+        let pager = mount()
+        let scroll = pager.currentScrollView!
+        scroll.contentOffset.y = 500 - scroll.adjustedContentInset.top
+        pager.setSelectedIndex(1, animated: false)
+        pager.layout.headerHeight -= 60
+        pager.maximumCachedPageCount = 1
+        XCTAssertNil(pager.records[0])
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(pager.records[0]!.binding!.position, 440, accuracy: 0.01)
+        XCTAssertEqual(pager.currentScrollView!.convert(.zero, to: pager.view).y,
+                       pager.tabBar.frame.maxY - 300, accuracy: 0.01)
+    }
+
+    func testInactiveRefreshingPageCannotExpandSharedHeaderDuringLayout() {
+        let pager = mount()
+        let first = pager.currentScrollView!
+        first.refreshControl = UIRefreshControl()
+        first.refreshControl!.beginRefreshing()
+        pager.setSelectedIndex(1, animated: false)
+        let current = pager.currentScrollView!
+        current.contentOffset.y = 350 - current.adjustedContentInset.top
+        pager.additionalSafeAreaInsets.top = 20
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(pager.collapseOffset, 180, accuracy: 0.01)
+        XCTAssertEqual(pager.records[1]!.binding!.position, 330, accuracy: 0.01)
+        XCTAssertEqual(pager.tabBar.frame.maxY, pager.pagingView.frame.minY, accuracy: 0.01)
+    }
+
+    func testInactiveHistorySurvivesTemporaryAlignmentAndRebinding() {
+        let pager = mount()
+        pager.currentScrollView!.contentOffset.y = 500 - pager.currentScrollView!.adjustedContentInset.top
+        pager.setSelectedIndex(1, animated: false)
+        let current = pager.currentScrollView!
+        current.contentOffset.y = -current.adjustedContentInset.top
+        pager.layout.headerHeight -= 60
+        XCTAssertEqual(pager.records[0]!.binding!.position, 0, accuracy: 0.01)
+        let old = pager.records[0]!.binding!.scrollView
+        old.removeFromSuperview()
+        let root = pager.records[0]!.controller.view!
+        let replacement = UIScrollView(frame: root.bounds)
+        replacement.contentSize.height = 1800
+        root.addSubview(replacement)
+        pager.rediscoverScrollView(forPageAt: 0)
+        XCTAssertEqual(old.contentInset.top, 0)
+        XCTAssertEqual(pager.records[0]!.binding!.position, 0, accuracy: 0.01)
+        // 展开时的临时对齐不应抹掉旧页 300 pt 的业务内容位置。
+        current.contentOffset.y = 140 - current.adjustedContentInset.top
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertTrue(pager.currentScrollView === replacement)
+        XCTAssertEqual(pager.records[0]!.binding!.position, 440, accuracy: 0.01)
+        XCTAssertEqual(replacement.convert(.zero, to: pager.view).y,
+                       pager.tabBar.frame.maxY - 300, accuracy: 0.01)
+    }
+
+    func testCancelledPagingToRefreshingPagePreservesCurrentHeader() {
+        let pager = mount()
+        pager.setSelectedIndex(1, animated: false)
+        let refresh = UIRefreshControl()
+        pager.currentScrollView!.refreshControl = refresh
+        refresh.beginRefreshing()
+        pager.setSelectedIndex(0, animated: false)
+        pager.currentScrollView!.contentOffset.y = 350 - pager.currentScrollView!.adjustedContentInset.top
+        pager.setSelectedIndex(1, animated: true)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(pager.selectedIndex, 0)
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
+        XCTAssertEqual(pager.records[0]!.binding!.position, 350, accuracy: 0.01)
+        XCTAssertEqual(pager.tabBar.frame.maxY, pager.pagingView.frame.minY, accuracy: 0.01)
+        pager.setSelectedIndex(1, animated: false)
+        XCTAssertEqual(pager.collapseOffset, 0)
+        XCTAssertLessThanOrEqual(pager.records[1]!.binding!.position, 0)
+    }
+
+    func testOnlyOwningPanCanContinueOrEndHeaderDrag() {
+        let pager = mount(plain: [0])
+        let first = FixturePan(), second = FixturePan()
+        first.send(to: pager, state: .began)
+        first.send(to: pager, state: .changed, y: -60)
+        second.send(to: pager, state: .began)
+        second.send(to: pager, state: .changed, y: -100)
+        second.send(to: pager, state: .cancelled)
+        XCTAssertEqual(pager.collapseOffset, 60)
+        first.send(to: pager, state: .changed, y: -90)
+        XCTAssertEqual(pager.collapseOffset, 90)
+        first.send(to: pager, state: .cancelled)
+        second.send(to: pager, state: .began)
+        second.send(to: pager, state: .changed, y: 40)
+        XCTAssertEqual(pager.collapseOffset, 50)
+        second.send(to: pager, state: .cancelled)
+    }
+
+    func testReplacingTabBarInvalidatesOldDragAndAllowsNewDrag() {
+        let pager = mount(plain: [0])
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -60)
+        pager.tabBar = SPTabBar()
+        pager.view.layoutIfNeeded()
+        pan.send(to: pager, state: .changed, y: -140)
+        XCTAssertEqual(pager.collapseOffset, 60)
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: 20)
+        XCTAssertEqual(pager.collapseOffset, 40)
+        pan.send(to: pager, state: .cancelled)
+    }
+
+    func testEvictionDuringParentDisappearanceFinishesBeforeDetaching() {
+        let pager = mount()
+        pager.maximumCachedPageCount = 1
+        let old = pager.records[0]!.controller as! FixturePage
+        var parentsAtDisappearance: [UIViewController?] = []
+        old.onDisappear = { [weak old] in parentsAtDisappearance.append(old?.parent) }
+        pager.beginAppearanceTransition(false, animated: true)
+        pager.setSelectedIndex(1, animated: false)
+        XCTAssertNil(old.parent)
+        XCTAssertEqual(old.disappearCount, 1)
+        XCTAssertEqual(parentsAtDisappearance.count, 1)
+        XCTAssertTrue(parentsAtDisappearance.contains { $0 === pager })
+        pager.endAppearanceTransition()
+        XCTAssertEqual(old.disappearCount, 1)
+        let incoming = pager.records[1]!.controller as! FixturePage
+        XCTAssertEqual(incoming.appearCount, 0)
+        pager.beginAppearanceTransition(true, animated: false)
+        pager.endAppearanceTransition()
+        XCTAssertEqual(incoming.appearCount, 1)
+        XCTAssertTrue(incoming.view.window === window)
+    }
+
 }
 
 @MainActor
@@ -622,6 +751,7 @@ private final class FixturePage: UIViewController {
     let plain: Bool
     var scroll: UIScrollView?
     var appearCount = 0, disappearCount = 0
+    var onDisappear: (() -> Void)?
     init(height: CGFloat, plain: Bool = false) { self.height = height; self.plain = plain; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError() }
     override func viewDidLoad() {
@@ -634,7 +764,7 @@ private final class FixturePage: UIViewController {
         }
     }
     override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); appearCount += 1 }
-    override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); disappearCount += 1 }
+    override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); disappearCount += 1; onDisappear?() }
 }
 @MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {}
 @MainActor private final class FixturePan: UIPanGestureRecognizer {
