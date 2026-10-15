@@ -44,6 +44,31 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTFail("未找到可点击的标签 \(index)", file: file, line: line)
     }
 
+    func testHeaderStartsAtScreenTopAndPageContentMeetsTabBar() {
+        let header = app.otherElements["demo.headerView"]
+        let tab = app.buttons["sp.tab.0"]
+        expect("progress=0.00")
+        XCTAssertEqual(header.frame.minY, app.frame.minY, accuracy: 1)
+        XCTAssertEqual(header.frame.height, 220, accuracy: 1)
+        XCTAssertTrue(app.staticTexts["demo.headerTitle"].isHittable)
+        XCTAssertEqual(tab.frame.minY, app.frame.minY + 220, accuracy: 1)
+        let grid = app.collectionViews["demo.grid"]
+        XCTAssertEqual(grid.cells.firstMatch.frame.minY, tab.frame.maxY + 12, accuracy: 1)
+        grid.swipeLeft(); expect("page=list"); expect("progress=0.00")
+        app.tables["demo.list"].swipeUp(); expect("progress=1.00")
+        XCTAssertEqual(app.buttons["sp.tab.1"].frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
+        select(4); expect("page=plain"); expect("progress=1.00")
+        let plain = app.staticTexts["demo.plain"]
+        plain.swipeDown(); expect("progress=0.00")
+        XCTAssertEqual(header.frame.minY, app.frame.minY, accuracy: 1)
+        XCTAssertEqual(plain.frame.minY, app.buttons["sp.tab.4"].frame.maxY, accuracy: 1)
+        app.buttons["demo.header"].tap(); expect("header=controller")
+        XCTAssertEqual(header.frame.minY, app.frame.minY, accuracy: 1)
+        app.buttons["demo.height"].tap(); expect("height=300")
+        XCTAssertEqual(header.frame.height, 300, accuracy: 1)
+        XCTAssertEqual(app.buttons["sp.tab.4"].frame.minY, app.frame.minY + 300, accuracy: 1)
+    }
+
     func testCollapsedTabBarStaysAtNavigationBarBottom() {
         func assertPinned(file: StaticString = #filePath, line: UInt = #line) {
             expect("progress=1.00")

@@ -2,8 +2,9 @@ import UIKit
 
 /// Header 与标签栏的高度配置。非法数值在布局时归一化。
 public struct SPPageLayout: Equatable, Sendable {
+    /// 从容器顶部算起的 Header 总高度，包含顶部安全区域；不足吸顶基线时自动补足。
     public var headerHeight: CGFloat
-    /// 完全折叠后保留的 Header 高度；默认 0，标签栏停在容器顶部安全区域边缘。
+    /// 完全折叠后在顶部安全区域下方保留的 Header 高度；默认 0，标签栏停在安全区域边缘。
     public var minimumHeaderHeight: CGFloat
     public var tabBarHeight: CGFloat
 

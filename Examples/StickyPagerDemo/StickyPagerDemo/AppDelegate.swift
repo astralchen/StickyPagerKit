@@ -47,6 +47,17 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         super.viewDidLoad()
         title = "StickyPagerKit"
         if ProcessInfo.processInfo.arguments.contains("--rtl") { view.semanticContentAttribute = .forceRightToLeft }
+        edgesForExtendedLayout = .all
+        extendedLayoutIncludesOpaqueBars = true
+        // iOS 26 使用系统透明导航栏和 scroll edge effect，保留原生玻璃外观。
+        if #unavailable(iOS 26.0) {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithTransparentBackground()
+            navigationItem.standardAppearance = appearance
+            navigationItem.scrollEdgeAppearance = appearance
+            navigationItem.compactAppearance = appearance
+            navigationItem.compactScrollEdgeAppearance = appearance
+        }
         dataSource = self
         delegate = self
         headerView = DemoHeaderView()
@@ -77,6 +88,17 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setToolbarHidden(false, animated: animated)
+    }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateHeaderContentClip()
+    }
+    private func updateHeaderContentClip() {
+        guard let header = (headerView ?? headerViewController?.view) as? DemoHeaderView else { return }
+        if #available(iOS 26.0, *) { header.clipContent(below: 0); return }
+        // 旧系统没有 scroll edge effect，标题在导航栏下缘裁剪。
+        let top = header.convert(CGPoint(x: 0, y: view.safeAreaInsets.top), from: view).y
+        header.clipContent(below: top)
     }
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -116,11 +138,15 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         }
     }
     func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) { updateStatus() }
-    func pageViewController(_ pageViewController: SPPageViewController, didChangeHeaderState state: SPHeaderState, progress: CGFloat) { updateStatus(progress: progress) }
+    func pageViewController(_ pageViewController: SPPageViewController, didChangeHeaderState state: SPHeaderState, progress: CGFloat) {
+        updateHeaderContentClip()
+        updateStatus(progress: progress)
+    }
 }
 
 @MainActor
 final class DemoHeaderView: UIView {
+    private let contentClip = UIView()
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .systemIndigo
@@ -131,9 +157,19 @@ final class DemoHeaderView: UIView {
         title.font = .preferredFont(forTextStyle: .title1)
         title.adjustsFontForContentSizeCategory = true
         title.textColor = .white
+        title.accessibilityIdentifier = "demo.headerTitle"
         title.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(title)
-        NSLayoutConstraint.activate([title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24), title.centerYAnchor.constraint(equalTo: centerYAnchor)])
+        contentClip.clipsToBounds = true
+        addSubview(contentClip)
+        contentClip.addSubview(title)
+        NSLayoutConstraint.activate([
+            title.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            title.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor)
+        ])
+    }
+    func clipContent(below top: CGFloat) {
+        let y = max(0, top)
+        contentClip.frame = CGRect(x: 0, y: y, width: bounds.width, height: max(0, bounds.height - y))
     }
     required init?(coder: NSCoder) { fatalError() }
 }

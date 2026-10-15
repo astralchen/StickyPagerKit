@@ -73,8 +73,9 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 
 数据源和代理均为弱引用；需要由业务方持有。代理方法具有默认空实现。
 
-- `headerView` / `headerViewController`：互斥，设置新内容替换旧内容。设置当前入口为 nil 清空 Header；无 Header 时有效 Header 高度为 0。
+- `headerView` / `headerViewController`：互斥，设置新内容替换旧内容。设置当前入口为 nil 清空 Header；无 Header 时不保留可折叠区域，标签栏直接停在顶部安全区域边缘。
 - `layout`：默认高度为 0、0、44；负数和非有限数归一化，保留高度不超过总高度。
+- `headerHeight`：从容器顶部算起的 Header 总高度，包含顶部安全区域。Header 背景铺到容器顶边及左右边界；内部文字和按钮可使用 Header 自身的 `safeAreaLayoutGuide` 避让系统栏。容器全屏延伸时，初始化 Header 即从屏幕顶部开始。
 - `minimumHeaderHeight`：Header 完全折叠后仍显示的高度。默认 `0`，标签栏停在容器顶部安全区域边缘（导航容器内即导航栏下方）；只有需要保留部分 Header 时才设置非零值。Demo 和快速接入示例使用 `0`。
 - `selectedIndex`：只读；无页面时为 nil。
 - `setSelectedIndex(_:animated:)`：越界请求忽略。相邻选择在 `animated: true` 时滚动切页；非相邻选择直接显示目标页，不加载或滚过中间页，仅标签栏执行同步动画。新请求取消未完成的旧转场；已经直达并提交的页面会正常发送一次选中回调。`animated: false` 同时关闭内容页和标签栏动画。
@@ -96,7 +97,7 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 
 ### 滚动坐标与布局
 
-令 Header 折叠范围 `C = headerHeight - minimumHeaderHeight`，当前页归一化位移 `q = contentOffset.y + adjustedContentInset.top`：
+令顶部安全区域高度为 `S`，Header 折叠范围 `C = max(0, headerHeight - S - minimumHeaderHeight)`，当前页归一化位移 `q = contentOffset.y + adjustedContentInset.top`。实际 Header 总高度至少为 `S + minimumHeaderHeight`，保证短 Header 的标签栏也不会进入系统栏区域；无 Header 时标签栏直接位于 `S`：
 
 - `Header 折叠量 = clamp(q, 0...C)`。
 - `内容位移 = max(0, q - C)`。
@@ -104,6 +105,12 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 - 负位移为列表自身回弹，Header 不额外拉伸。
 
 页面视口固定在折叠后标签栏下方，框架添加 `C` 的顶部 inset，Header 与标签栏覆盖预留区域。页面内部应以自身 bounds 布局列表，避免再次加入同一 Header 占位。业务自有 inset 和 Safe Area 调整保留；短内容额外补足可折叠范围，不修改业务 contentSize。
+
+展开时 Header 从容器 `y = 0` 开始，标签栏紧接 Header；折叠后标签栏位于 `S + minimumHeaderHeight`。旋转或安全区域变化会重新计算 `C`，保留已吸顶状态和页面内容滚动位置。嵌入其他控制器时，应把容器约束到父视图边界；若约束到父视图安全区域，Header 只能从该容器顶边开始。
+
+Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset` 由共享折叠逻辑驱动，并通过 `setContentScrollView(_:for: .top)` 关联导航栏。iOS 26+ 使用 `topEdgeEffect.style = .soft`，在导航栏后方提供系统渐变模糊效果；Header 的 UIView / UIViewController 接入方式不变。
+
+在导航容器内展示全屏 Header 时，宿主需允许根视图向顶部延伸。iOS 26+ 保留系统导航栏外观即可，避免透明 `UIBarAppearance` 定制干扰原生效果；旧系统可配置当前页面的透明导航外观，并按需求处理 Header 前景内容在导航栏下方的裁剪。Demo 已实现这两条路径，框架不修改业务导航栏外观。
 
 `viewControllerAt` 返回的内容页根视图延伸至容器底边，不扣除底部 Safe Area；容器全屏显示时即与屏幕底边对齐。Header 展开、折叠及切页时保持这一底部边界。滚动内容通过 UIKit 的 `adjustedContentInset` 避开底部安全区域及系统栏，普通页面可用 `safeAreaLayoutGuide` 布局需避让的控件；框架保留业务指定的 inset 调整策略。
 

@@ -2,6 +2,25 @@
 
 验证日期：2026-10-15。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## Header 从屏幕顶部展开
+
+Header 改为从容器顶边和左右边界铺开，`headerHeight` 表示包含顶部安全区域的总高度。标签栏仍在 `safeAreaInsets.top + minimumHeaderHeight` 处吸顶；实际折叠范围、列表顶部 inset、普通页顶部占位共用这一几何关系。高度不足吸顶基线时补足，无 Header 时保留安全区域避让。安全区域变化时重算折叠范围，保持已吸顶状态与内容滚动位置。
+
+Header 使用禁用用户滚动的 UIScrollView 宿主，通过共享折叠量更新 contentOffset，再通过 `setContentScrollView(_:for: .top)` 关联导航栏。iOS 26+ 设置 `topEdgeEffect.style = .soft`，Demo 保留系统导航外观，由原生边缘效果柔化导航栏后方的 Header 内容。旧系统使用当前页面的透明导航外观，并裁剪导航栏后方的标题。Header 的文字按自身安全区域布局，背景保持延伸到屏幕顶部。
+
+- **原问题复现：** 新增 UI 测试在 iPhone 18 Pro Max / iOS 27.0 上失败，初始 Header 的屏幕顶部坐标为 `116 pt`，期望 `0`。见 [修复前结果](Results/header-top-before/Result.xcresult) 和 [摘要](Results/header-top-before/summary.json)。
+- **修复后专项：** 同一 UI 用例通过，验证初始顶部为 0、总高度为 220、网格首项与标签栏间距为 12 pt、横向翻页、吸顶后非相邻切页、普通页下拉展开，以及 UIView / UIViewController Header 替换和 300 pt 高度更新。见 [专项结果](Results/header-top-ui/Result.xcresult)。
+- **新增库覆盖：** 在真实 UIWindow + UINavigationController 中验证 0 / 40 pt 保留高度、展开 / 部分折叠 / 完整折叠 / 内容滚动时的物理位置、业务 inset 保留、普通页切换、页面底边、安全区域变化后的内容位置、短 Header 及无 Header。
+- **验证中补修：** 新增库用例发现普通页首次装载时没有立即应用 Header 占位，位置为 160 pt 而标签栏底部为 284 pt。原因是无滚动视图时绑定路径提前返回；现已在装载后立即更新 Header 与普通页几何。中间库运行日志记录 60 通过、1 失败，但 xcodebuild 在结果收集阶段持续解析 Package Graph，已终止；该运行不作为完整结果包验收。见 [中间日志](Results/header-top-library/xcodebuild.log)。
+- **几何修复阶段库通过：** Xcode 26.6 / Debug，iPhone 17 Pro / iOS 26.5，完整 **61 通过、0 失败、0 跳过**；已读取终态 `.xcresult`。此结果早于原生边缘效果接入。见 [库结果](Results/header-top-library-final/Result.xcresult) 和 [摘要](Results/header-top-library-final/summary.json)。
+- **中间完整 UI：** Xcode 27.1 / Debug，iPhone 18 Pro Max / iOS 27.0，16 通过、0 失败、0 跳过。此轮构建早于普通页首次占位补修，仅作为中间证据。工具在 300 秒超时后，继续读取同一次运行的日志和 `.xcresult`，确认最终成功。见 [中间 UI 结果](Results/header-top-full-ui.xcresult)。
+- **视觉复查与方案调整：** 纯透明导航栏使折叠 Header 的大标题与导航按钮重叠。按用户指出的 iOS 26 `topEdgeEffect` API 改为上述原生滚动宿主；取消新系统上的手动裁剪。运行时截图已确认系统柔化效果与吸顶位置，见 [展开](header-top-expanded.jpg) 和 [折叠](header-top-collapsed.jpg)。新增库断言检查导航栏关联的滚动视图、禁用用户滚动及 contentOffset 与真实折叠量一致。
+- **原生效果最终验收通过：** 完整 **61 项库测试 + 16 项 UI 测试 = 77 通过、0 失败、0 跳过**。库测试为 Xcode 26.6 / Debug / iPhone 17 Pro / iOS 26.5；UI 测试为 Xcode 27.1 / Debug / iPhone 18 Pro Max / iOS 27.0。UI 工具等待超时后已读取同一次运行的 `TEST EXECUTE SUCCEEDED` 终态和 `.xcresult`，没有重启该轮测试。
+  - [最终库结果](Results/header-native-library/Result.xcresult) · [库摘要](Results/header-native-library/summary.json)
+  - [最终 UI 结果](Results/header-native-ui/Result.xcresult) · [UI 摘要](Results/header-native-ui/summary.json)
+- 两组 18 个源码、工程及测试输入文件的 SHA-256 一致，并与当前文件匹配；`sourceChangedSinceRun` 均为空。UI 覆盖初始 Header 与网格占位、列表与普通页纵向拖动、吸顶和旋转、横向分页、远距离标签切换、RTL、刷新、页面更新、Header 替换、异步滚动视图发现及返回手势。`git diff --check` 通过，最终 Demo 已重新打开至初始展开状态。
+- **未执行：** 本次 Release、iPad、iOS 15–25 兼容分支的实际运行、真机、VoiceOver 全流程和性能基准。
+
 ## 标签按钮阻止横向拖动修复
 
 原有屏幕外标签查找失败的直接原因是标签按钮的触摸跟踪阻止滚动接管。标签 Cell 使用 UIButton；UIKit 的默认 `touchesShouldCancel(in:)` 对 UIControl 返回 false。触摸先交付给按钮后再横向移动，标签栏没有滚动，重复拖动也无法使屏幕外标签进入视口。

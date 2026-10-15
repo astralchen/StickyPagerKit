@@ -14,7 +14,7 @@ final class StickyPagerKitTests: XCTestCase {
             window = nil; pager = nil; source = nil
     }
 
-    private func mount(ids: [Int] = [0, 1, 2, 3], plain: Set<Int> = [], height: CGFloat = 1800) -> SPPageViewController {
+    private func mount(ids: [Int] = [0, 1, 2, 3], plain: Set<Int> = [], height: CGFloat = 1800, inNavigation: Bool = false) -> SPPageViewController {
         let source = FixtureSource(ids: ids, plain: plain, contentHeight: height)
         let pager = SPPageViewController()
         pager.dataSource = source
@@ -22,10 +22,12 @@ final class StickyPagerKitTests: XCTestCase {
         pager.layout = SPPageLayout(headerHeight: 240, minimumHeaderHeight: 40)
         pager.reloadData()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.rootViewController = pager
+        window.rootViewController = inNavigation ? UINavigationController(rootViewController: pager) : pager
         window.makeKeyAndVisible()
         pager.view.layoutIfNeeded()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        // 通用交互夹具保留 200 pt 折叠距离；总高度现在包含顶部安全区域。
+        pager.layout.headerHeight = 240 + pager.view.safeAreaInsets.top
         self.window = window; self.source = source; self.pager = pager
         return pager
     }
@@ -113,6 +115,74 @@ final class StickyPagerKitTests: XCTestCase {
         scroll.contentOffset.y = 50 - scroll.adjustedContentInset.top
         XCTAssertEqual(pager.collapseOffset, 50, accuracy: 0.01)
     }
+
+    func testFullBleedHeaderAndContentGeometryInNavigation() throws {
+        let pager = mount(plain: [1], inNavigation: true)
+        let header = try XCTUnwrap(pager.headerView)
+        let headerScroll = try XCTUnwrap(header.superview as? UIScrollView)
+        XCTAssertTrue(pager.contentScrollView(for: .top) === headerScroll)
+        XCTAssertFalse(headerScroll.isScrollEnabled)
+        let scroll = try XCTUnwrap(pager.currentScrollView)
+        scroll.contentInset.top = 13
+        let safeTop = pager.view.safeAreaInsets.top
+        XCTAssertGreaterThan(safeTop, 0)
+        for minimum: CGFloat in [0, 40] {
+            pager.layout = SPPageLayout(headerHeight: 240, minimumHeaderHeight: minimum)
+            let range = 240 - safeTop - minimum
+            for position in [CGFloat(0), range / 2, range, range + 150] {
+                scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+                let collapse = min(position, range)
+                XCTAssertEqual(headerScroll.convert(headerScroll.bounds, to: window).minY, 0, accuracy: 0.01)
+                XCTAssertEqual(headerScroll.contentOffset.y, collapse, accuracy: 0.01)
+                XCTAssertEqual(header.frame.height, 240, accuracy: 0.01)
+                XCTAssertEqual(pager.tabBar.frame.minY, 240 - collapse, accuracy: 0.01)
+                XCTAssertEqual(scroll.contentInset.top, range + 13, accuracy: 0.01)
+                let contentTop = scroll.convert(CGPoint.zero, to: pager.view).y
+                XCTAssertEqual(contentTop, pager.tabBar.frame.maxY + 13 - max(0, position - range), accuracy: 0.01)
+                XCTAssertEqual(pager.pagingView.frame.maxY, pager.view.bounds.maxY, accuracy: 0.01)
+                pager.setSelectedIndex(1, animated: false)
+                pager.view.layoutIfNeeded()
+                let plain = try XCTUnwrap(pager.records[1]?.controller.view)
+                XCTAssertEqual(plain.convert(.zero, to: pager.view).y, pager.tabBar.frame.maxY, accuracy: 0.01)
+                pager.setSelectedIndex(0, animated: false)
+                XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+            }
+        }
+    }
+
+    func testTopSafeAreaChangesPreservePinnedContentAndExpandedOrigin() throws {
+        let pager = mount(inNavigation: true)
+        pager.layout = SPPageLayout(headerHeight: 300)
+        let scroll = try XCTUnwrap(pager.currentScrollView)
+        let range = 300 - pager.view.safeAreaInsets.top
+        scroll.contentOffset.y = range + 150 - scroll.adjustedContentInset.top
+        let before = scroll.convert(CGPoint.zero, to: pager.view).y - pager.tabBar.frame.maxY
+        for top: CGFloat in [40, 0] {
+            pager.additionalSafeAreaInsets.top = top
+            pager.view.setNeedsLayout()
+            pager.view.layoutIfNeeded()
+            XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top, accuracy: 0.01)
+            XCTAssertEqual(scroll.convert(CGPoint.zero, to: pager.view).y - pager.tabBar.frame.maxY, before, accuracy: 0.01)
+        }
+        scroll.contentOffset.y = -scroll.adjustedContentInset.top
+        pager.additionalSafeAreaInsets.top = 30
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(pager.collapseOffset, 0)
+        XCTAssertEqual(pager.headerView!.convert(.zero, to: window).y, 0, accuracy: 0.01)
+        XCTAssertEqual(pager.tabBar.frame.minY, 300, accuracy: 0.01)
+    }
+
+    func testShortOrMissingHeaderKeepsTabBarBelowSafeArea() throws {
+        let pager = mount(inNavigation: true)
+        pager.layout = SPPageLayout(headerHeight: 10)
+        let scroll = try XCTUnwrap(pager.currentScrollView)
+        scroll.contentOffset.y = 100 - scroll.adjustedContentInset.top
+        XCTAssertEqual(pager.collapseOffset, 0)
+        XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top, accuracy: 0.01)
+        pager.headerView = nil
+        XCTAssertEqual(scroll.contentInset.top, 0, accuracy: 0.01)
+        XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top, accuracy: 0.01)
+    }
     func testPageBottomFillsContainerAndPreservesSafeAreaInsets() {
         let pager = mount(plain: [1])
         let scroll = pager.currentScrollView!
@@ -189,7 +259,7 @@ final class StickyPagerKitTests: XCTestCase {
         let plain = try XCTUnwrap(pager.records[1]?.controller.view)
         let pan = FixturePan()
         for minimum: CGFloat in [0, 40] {
-            pager.layout = SPPageLayout(headerHeight: 240, minimumHeaderHeight: minimum)
+            pager.layout = SPPageLayout(headerHeight: 240 + pager.view.safeAreaInsets.top, minimumHeaderHeight: minimum)
             pan.send(to: pager, state: .began)
             pan.send(to: pager, state: .changed, y: 1000)
             pan.send(to: pager, state: .cancelled)
@@ -254,7 +324,7 @@ final class StickyPagerKitTests: XCTestCase {
         let pan = FixturePan()
         pan.send(to: pager, state: .began)
         pan.send(to: pager, state: .changed, y: -180)
-        pager.layout = SPPageLayout(headerHeight: 100, minimumHeaderHeight: 20)
+        pager.layout = SPPageLayout(headerHeight: 100 + pager.view.safeAreaInsets.top, minimumHeaderHeight: 20)
         XCTAssertEqual(pager.collapseOffset, 80)
         pan.send(to: pager, state: .changed, y: 180)
         XCTAssertEqual(pager.collapseOffset, 80)
@@ -343,7 +413,7 @@ final class StickyPagerKitTests: XCTestCase {
         let pager = mount()
         let scroll = pager.currentScrollView!
         scroll.contentOffset.y = 500 - scroll.adjustedContentInset.top
-        pager.layout = SPPageLayout(headerHeight: 180, minimumHeaderHeight: 40)
+        pager.layout = SPPageLayout(headerHeight: 180 + pager.view.safeAreaInsets.top, minimumHeaderHeight: 40)
         XCTAssertEqual(pager.collapseOffset, 140)
         XCTAssertEqual(pager.records[0]!.binding!.position, 440, accuracy: 0.01)
     }

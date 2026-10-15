@@ -36,7 +36,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var identifiers: [AnyHashable] = []
     private var items: [SPTabBarItem] = []
     private var positions: [AnyHashable: CGFloat] = [:]
-    private let headerHost = UIView()
+    private let headerHost = UIScrollView()
     private var storedHeaderView: UIView?
     private var storedHeaderController: UIViewController?
     private var storedTabBar = SPTabBar()
@@ -49,6 +49,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var previousSize: CGSize = .zero
     private var accessCounter: UInt = 0
     private var isReloading = false
+    private var previousCollapseRange: CGFloat?
+    private var isLayingOutPages = false
     private var headerPan: UIPanGestureRecognizer!
     private var tabPan: UIPanGestureRecognizer!
     private var plainPagePan: UIPanGestureRecognizer!
@@ -67,6 +69,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var effectiveLayout: SPPageLayout {
         var value = layout.normalized
         if storedHeaderView == nil && storedHeaderController == nil { value.headerHeight = 0; value.minimumHeaderHeight = 0 }
+        // Header 从容器顶部铺开，标签栏仍在安全区域下方吸顶。
+        // 高度不足时补足吸顶基线，避免标签栏进入导航栏或产生负折叠距离。
+        value.minimumHeaderHeight += isViewLoaded ? view.safeAreaInsets.top : 0
+        value.headerHeight = max(value.headerHeight, value.minimumHeaderHeight)
         return value
     }
     private var isRTL: Bool { view.effectiveUserInterfaceLayoutDirection == .rightToLeft }
@@ -85,7 +91,15 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         pagingView.accessibilityIdentifier = "sp.pages"
         view.addSubview(pagingView)
         headerHost.clipsToBounds = true
+        // Header 的位移仍由共享折叠逻辑驱动；原生滚动宿主为导航栏提供边缘效果。
+        headerHost.isScrollEnabled = false
+        headerHost.scrollsToTop = false
+        headerHost.contentInsetAdjustmentBehavior = .never
+        headerHost.showsHorizontalScrollIndicator = false
+        headerHost.showsVerticalScrollIndicator = false
+        if #available(iOS 26.0, *) { headerHost.topEdgeEffect.style = .soft }
         view.addSubview(headerHost)
+        setContentScrollView(headerHost, for: .top)
         configureTabBar()
         mountHeader()
         headerPan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
@@ -135,10 +149,20 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         super.viewDidLayoutSubviews()
         let safe = view.safeAreaInsets
         let l = effectiveLayout
+        isLayingOutPages = true
+        defer { isLayingOutPages = false }
+        let rangeChanged = previousCollapseRange != l.collapseRange
+        if rangeChanged {
+            // 旋转、导航栏显隐或安全区域变化时，已吸顶的页面继续吸顶。
+            let wasCollapsed = previousCollapseRange.map { $0 > 0 && collapseOffset >= $0 } ?? false
+            collapseOffset = wasCollapsed ? l.collapseRange : min(collapseOffset, l.collapseRange)
+            previousCollapseRange = l.collapseRange
+            stopAnimation()
+        }
         // 页面延伸至容器底边；底部安全区域由子页面的布局或自动滚动 inset 处理。
-        let pageFrame = CGRect(x: safe.left, y: safe.top + l.minimumHeaderHeight + l.tabBarHeight,
+        let pageFrame = CGRect(x: safe.left, y: l.minimumHeaderHeight + l.tabBarHeight,
                                width: max(0, view.bounds.width - safe.left - safe.right),
-                               height: max(0, view.bounds.height - safe.top - l.minimumHeaderHeight - l.tabBarHeight))
+                               height: max(0, view.bounds.height - l.minimumHeaderHeight - l.tabBarHeight))
         if pageFrame.size != previousSize {
             cancelPaging()
             stopAnimation()
@@ -153,10 +177,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             record.controller.view.frame = CGRect(x: physicalIndex(index) * pageFrame.width, y: inset, width: pageFrame.width, height: max(0, pageFrame.height - inset))
             record.controller.view.layoutIfNeeded()
             record.binding?.setRange(l.collapseRange)
+            if rangeChanged { align(record) }
         }
         if !pagingView.isDragging && !pagingView.isDecelerating && transitionTarget == nil { alignPaging() }
         suppressPaging = false
-        layoutHeader()
+        if rangeChanged { publishHeader() } else { layoutHeader() }
     }
     open override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
@@ -283,6 +308,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         cancelPaging()
         stopAnimation()
         collapseOffset = min(collapseOffset, effectiveLayout.collapseRange)
+        previousCollapseRange = effectiveLayout.collapseRange
         records.values.forEach { $0.binding?.setRange(effectiveLayout.collapseRange) }
         if let record = currentRecord {
             let content = positions[record.identifier] ?? 0
@@ -295,8 +321,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private func layoutHeader() {
         let l = effectiveLayout, safe = view.safeAreaInsets
         let width = max(0, view.bounds.width - safe.left - safe.right)
-        headerHost.frame = CGRect(x: safe.left, y: safe.top, width: width, height: max(0, l.headerHeight - collapseOffset))
-        let contentFrame = CGRect(x: 0, y: -collapseOffset, width: width, height: l.headerHeight)
+        headerHost.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: max(0, l.headerHeight - collapseOffset))
+        headerHost.contentSize = CGSize(width: view.bounds.width, height: l.headerHeight)
+        headerHost.contentOffset = CGPoint(x: 0, y: collapseOffset)
+        let contentFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: l.headerHeight)
         storedHeaderView?.frame = contentFrame
         storedHeaderController?.view.frame = contentFrame
         storedTabBar.frame = CGRect(x: safe.left, y: headerHost.frame.maxY, width: width, height: l.tabBarHeight)
@@ -333,6 +361,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         controller.view.layoutIfNeeded()
         controller.didMove(toParent: self)
         bind(record)
+        // 普通页没有滚动绑定，首次装载也要立即应用展开 Header 的占位。
+        layoutHeader()
         return record
     }
     private func bind(_ record: SPPageRecord) {
@@ -346,7 +376,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         record.binding = scroll.map(SPScrollBinding.init)
         record.binding?.setRange(effectiveLayout.collapseRange)
         record.binding?.onScroll = { [weak self, weak record] binding in
-            guard let self, let record, record === self.currentRecord, self.transitionTarget == nil else { return }
+            guard let self, let record, !self.isLayingOutPages, record === self.currentRecord, self.transitionTarget == nil else { return }
             self.stopAnimation()
             self.consume(binding)
         }
