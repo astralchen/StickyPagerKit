@@ -16,6 +16,17 @@ open class SPTabBar: UIView {
     private let collectionAdapter = TabAdapter()
     private let collectionView: UICollectionView
     private var transition: (from: Int, to: Int, progress: CGFloat)?
+    private var transitionOrigin: (indicator: CGRect, offset: CGFloat)?
+    private struct SelectionAnimation {
+        let fromIndicator: CGRect
+        let toIndicator: CGRect
+        let fromOffset: CGFloat
+        let toOffset: CGFloat
+        let startTime: CFTimeInterval
+    }
+    private var selectionAnimation: SelectionAnimation?
+    private var displayLink: CADisplayLink?
+    private let displayTarget = SPDisplayLinkTarget()
     private var needsSelectionAlignment = true
     private var previousSize: CGSize = .zero
     private var previousDirection: UIUserInterfaceLayoutDirection?
@@ -24,6 +35,10 @@ open class SPTabBar: UIView {
     public override init(frame: CGRect) {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: tabLayout)
         super.init(frame: frame)
+        displayTarget.tick = { [weak self] link in
+            guard let self, let animation = self.selectionAnimation else { return }
+            self.advanceSelectionAnimation(to: CGFloat((link.timestamp - animation.startTime) / 0.25))
+        }
         backgroundColor = .secondarySystemBackground
         collectionView.backgroundColor = .clear
         collectionView.showsHorizontalScrollIndicator = false
@@ -43,11 +58,25 @@ open class SPTabBar: UIView {
     }
     public required init?(coder: NSCoder) { fatalError("请使用 init(frame:)") }
 
+    isolated deinit { displayLink?.invalidate() }
+
+    open override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            stopSelectionAnimation()
+            updateIndicator()
+            needsSelectionAlignment = true
+        }
+        setNeedsLayout()
+    }
+
     open func setItems(_ items: [SPTabBarItem]) {
+        stopSelectionAnimation()
         collectionView.setContentOffset(collectionView.contentOffset, animated: false)
         self.items = items
         if let selectedIndex, !items.indices.contains(selectedIndex) { self.selectedIndex = nil }
         transition = nil
+        transitionOrigin = nil
         updateMetrics()
         collectionView.reloadData()
         needsSelectionAlignment = true
@@ -55,23 +84,49 @@ open class SPTabBar: UIView {
     }
 
     open func setSelectedIndex(_ index: Int?, animated: Bool) {
-        selectedIndex = index.flatMap { items.indices.contains($0) ? $0 : nil }
-        transition = nil
-        // 先完成待处理的尺寸和数据更新，再执行本次选择的滚动动画。
-        needsSelectionAlignment = false
         layoutIfNeeded()
         collectionView.layoutIfNeeded()
+        // 中断时从当前实际呈现的位置继续，不回跳到上次动画的起点或终点。
+        stopSelectionAnimation()
+        let fromIndicator = indicator.frame
+        let fromOffset = collectionView.contentOffset.x
+        selectedIndex = index.flatMap { items.indices.contains($0) ? $0 : nil }
+        transition = nil
+        transitionOrigin = nil
+        needsSelectionAlignment = false
         updateVisibleCells()
-        updateIndicator()
-        alignSelection(animated: animated)
+        let targetIndicator = selectedIndex.map(indicatorFrame) ?? .zero
+        let targetOffset = centeredOffset(for: selectedIndex)
+        if animated, window != nil, bounds.width > 0, bounds.height > 0,
+           !fromIndicator.isEmpty, !targetIndicator.isEmpty,
+           fromIndicator != targetIndicator || abs(fromOffset - targetOffset) > 0.5 {
+            collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+            selectionAnimation = SelectionAnimation(fromIndicator: fromIndicator, toIndicator: targetIndicator,
+                                                    fromOffset: fromOffset, toOffset: targetOffset,
+                                                    startTime: CACurrentMediaTime())
+            let link = CADisplayLink(target: displayTarget, selector: #selector(SPDisplayLinkTarget.step(_:)))
+            displayLink = link
+            link.add(to: .main, forMode: .common)
+        } else {
+            updateIndicator()
+            alignSelection()
+        }
     }
 
     open func setTransitionProgress(from fromIndex: Int, to toIndex: Int, progress: CGFloat) {
         guard items.indices.contains(fromIndex), items.indices.contains(toIndex), progress.isFinite else { return }
+        if transition?.from != fromIndex || transition?.to != toIndex {
+            // 分页接管尚未完成的标签动画时，保留当前呈现位置，避免突然跳到旧目标。
+            transitionOrigin = selectionAnimation == nil ? nil : (indicator.frame, collectionView.contentOffset.x)
+        }
+        stopSelectionAnimation()
         transition = (fromIndex, toIndex, min(1, max(0, progress)))
         layoutIfNeeded()
         collectionView.layoutIfNeeded()
         updateIndicator()
+        let p = min(1, max(0, progress))
+        let from = transitionOrigin?.offset ?? centeredOffset(for: fromIndex), to = centeredOffset(for: toIndex)
+        collectionView.setContentOffset(CGPoint(x: from + (to - from) * p, y: 0), animated: false)
     }
 
     open override func layoutSubviews() {
@@ -83,11 +138,13 @@ open class SPTabBar: UIView {
         tabLayout.isRightToLeft = direction == .rightToLeft
         collectionView.frame = bounds
         collectionView.layoutIfNeeded()
-        updateIndicator()
         if geometryChanged || needsSelectionAlignment {
+            transitionOrigin = nil
+            stopSelectionAnimation()
             needsSelectionAlignment = false
-            alignSelection(animated: false)
+            alignSelection()
         }
+        updateIndicator()
     }
 
     open override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -124,26 +181,46 @@ open class SPTabBar: UIView {
         }
     }
 
-    private func alignSelection(animated: Bool) {
+    private func alignSelection() {
         guard bounds.width > 0, bounds.height > 0 else {
             needsSelectionAlignment = true
             return
         }
+        collectionView.setContentOffset(CGPoint(x: centeredOffset(for: selectedIndex), y: 0), animated: false)
+    }
+
+    private func centeredOffset(for index: Int?) -> CGFloat {
         let maximumOffset = max(0, tabLayout.collectionViewContentSize.width - collectionView.bounds.width)
-        let target: CGFloat
-        if let selectedIndex, let frame = tabLayout.layoutAttributesForItem(at: IndexPath(item: selectedIndex, section: 0))?.frame {
-            target = min(maximumOffset, max(0, frame.midX - collectionView.bounds.width / 2))
-        } else {
-            target = tabLayout.isRightToLeft ? maximumOffset : 0
+        guard let index, let frame = tabLayout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame else {
+            return tabLayout.isRightToLeft ? maximumOffset : 0
         }
-        // 取消上一次滚动或减速，连续选择始终以最新目标为准。
-        collectionView.setContentOffset(collectionView.contentOffset, animated: false)
-        collectionView.setContentOffset(CGPoint(x: target, y: 0), animated: animated)
+        return min(maximumOffset, max(0, frame.midX - collectionView.bounds.width / 2))
+    }
+
+    private func stopSelectionAnimation() {
+        displayLink?.invalidate()
+        displayLink = nil
+        selectionAnimation = nil
+    }
+
+    /// 指示器和内容偏移使用同一帧、同一进度；也允许测试确定性采样动画中间态。
+    internal func advanceSelectionAnimation(to progress: CGFloat) {
+        guard let animation = selectionAnimation, progress.isFinite else { return }
+        let p = min(1, max(0, progress))
+        let eased = p * p * (3 - 2 * p)
+        let a = animation.fromIndicator, b = animation.toIndicator
+        indicator.frame = CGRect(x: a.minX + (b.minX - a.minX) * eased,
+                                 y: a.minY + (b.minY - a.minY) * eased,
+                                 width: a.width + (b.width - a.width) * eased,
+                                 height: a.height + (b.height - a.height) * eased)
+        collectionView.setContentOffset(CGPoint(x: animation.fromOffset + (animation.toOffset - animation.fromOffset) * eased, y: 0), animated: false)
+        if p == 1 { stopSelectionAnimation() }
     }
 
     private func updateIndicator() {
+        guard selectionAnimation == nil else { return }
         if let transition {
-            let a = indicatorFrame(transition.from), b = indicatorFrame(transition.to)
+            let a = transitionOrigin?.indicator ?? indicatorFrame(transition.from), b = indicatorFrame(transition.to)
             let p = transition.progress
             indicator.frame = CGRect(x: a.minX + (b.minX - a.minX) * p, y: a.minY,
                                      width: a.width + (b.width - a.width) * p, height: a.height)
@@ -161,6 +238,10 @@ open class SPTabBar: UIView {
 
     private final class TabAdapter: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {
         weak var owner: SPTabBar?
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            owner?.stopSelectionAnimation()
+            owner?.updateIndicator()
+        }
         func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
             owner?.items.count ?? 0
         }

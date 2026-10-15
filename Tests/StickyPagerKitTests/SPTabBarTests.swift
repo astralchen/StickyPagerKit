@@ -174,6 +174,114 @@ final class SPTabBarTests: XCTestCase {
         XCTAssertTrue(button(5, in: collection)?.accessibilityTraits.contains(.selected) == true)
     }
 
+    func testIndicatorAndCenteringShareAnimationProgressAndRetargetFromCurrentPosition() {
+        for rtl in [false, true] {
+            let (bar, collection) = mount(rtl: rtl)
+            let indicator = collection.subviews.first { $0.layer.zPosition == 1 }!
+            let startFrame = indicator.frame
+            let startOffset = collection.contentOffset.x
+            bar.setSelectedIndex(6, animated: true)
+            XCTAssertEqual(indicator.frame, startFrame)
+            XCTAssertEqual(collection.contentOffset.x, startOffset)
+            bar.advanceSelectionAnimation(to: 0.5)
+            let targetX = frame(6, in: collection).minX + 12
+            let targetOffset = frame(6, in: collection).midX - 160
+            XCTAssertEqual(indicator.frame.minX, (startFrame.minX + targetX) / 2, accuracy: 0.01)
+            XCTAssertEqual(collection.contentOffset.x, (startOffset + targetOffset) / 2, accuracy: 0.5)
+            let halfway = indicator.frame
+            let offset = collection.contentOffset.x
+            bar.setNeedsLayout(); bar.layoutIfNeeded()
+            XCTAssertEqual(indicator.frame, halfway)
+            bar.setSelectedIndex(3, animated: true)
+            XCTAssertEqual(indicator.frame, halfway)
+            XCTAssertEqual(collection.contentOffset.x, offset)
+            bar.advanceSelectionAnimation(to: 1)
+            XCTAssertEqual(indicator.frame.minX, frame(3, in: collection).minX + 12, accuracy: 0.01)
+            XCTAssertEqual(collection.contentOffset.x, frame(3, in: collection).midX - 160, accuracy: 0.5)
+        }
+    }
+
+    func testPagingProgressSynchronizesTabOffsetAndCancellation() {
+        let (bar, collection) = mount()
+        let indicator = collection.subviews.first { $0.layer.zPosition == 1 }!
+        bar.setSelectedIndex(4, animated: false)
+        let startOffset = collection.contentOffset.x
+        let startX = indicator.frame.minX
+        bar.setTransitionProgress(from: 4, to: 5, progress: 0.5)
+        XCTAssertEqual(indicator.frame.minX, (startX + frame(5, in: collection).minX + 12) / 2, accuracy: 0.01)
+        XCTAssertEqual(collection.contentOffset.x, (startOffset + frame(5, in: collection).midX - 160) / 2, accuracy: 0.5)
+        bar.setSelectedIndex(4, animated: false)
+        XCTAssertEqual(indicator.frame.minX, startX, accuracy: 0.01)
+        XCTAssertEqual(collection.contentOffset.x, startOffset, accuracy: 0.5)
+    }
+
+    func testPagingTakesOverAnUnfinishedTabAnimationWithoutJumping() {
+        let (bar, collection) = mount()
+        let indicator = collection.subviews.first { $0.layer.zPosition == 1 }!
+        bar.setSelectedIndex(6, animated: true)
+        bar.advanceSelectionAnimation(to: 0.5)
+        let startFrame = indicator.frame
+        let startOffset = collection.contentOffset.x
+        bar.setTransitionProgress(from: 6, to: 7, progress: 0)
+        XCTAssertEqual(indicator.frame, startFrame)
+        XCTAssertEqual(collection.contentOffset.x, startOffset, accuracy: 0.5)
+        bar.advanceSelectionAnimation(to: 1)
+        XCTAssertEqual(indicator.frame, startFrame)
+        bar.setTransitionProgress(from: 6, to: 7, progress: 0.5)
+        XCTAssertEqual(indicator.frame.minX, (startFrame.minX + frame(7, in: collection).minX + 12) / 2, accuracy: 0.01)
+        XCTAssertEqual(collection.contentOffset.x, (startOffset + frame(7, in: collection).midX - 160) / 2, accuracy: 0.5)
+        bar.setTransitionProgress(from: 6, to: 7, progress: 1)
+        let endFrame = indicator.frame
+        let endOffset = collection.contentOffset.x
+        bar.setSelectedIndex(7, animated: true)
+        bar.advanceSelectionAnimation(to: 0.5)
+        XCTAssertEqual(indicator.frame, endFrame)
+        XCTAssertEqual(collection.contentOffset.x, endOffset, accuracy: 0.5)
+    }
+
+    func testManualDragResizeAndReloadStopSelectionAnimation() {
+        let (bar, collection) = mount()
+        let indicator = collection.subviews.first { $0.layer.zPosition == 1 }!
+        bar.setSelectedIndex(6, animated: true)
+        bar.advanceSelectionAnimation(to: 0.5)
+        collection.delegate?.scrollViewWillBeginDragging?(collection)
+        collection.contentOffset.x = 30
+        bar.advanceSelectionAnimation(to: 1)
+        XCTAssertEqual(collection.contentOffset.x, 30, accuracy: 0.01)
+        XCTAssertEqual(indicator.frame.minX, frame(6, in: collection).minX + 12, accuracy: 0.01)
+        bar.setSelectedIndex(3, animated: true)
+        bar.frame.size.width = 400
+        bar.layoutIfNeeded()
+        let resized = indicator.frame
+        bar.advanceSelectionAnimation(to: 1)
+        XCTAssertEqual(indicator.frame, resized)
+        XCTAssertEqual(collection.contentOffset.x, frame(3, in: collection).midX - 200, accuracy: 0.5)
+        bar.setSelectedIndex(7, animated: true)
+        bar.advanceSelectionAnimation(to: 0.5)
+        bar.removeFromSuperview()
+        window!.rootViewController!.view.addSubview(bar)
+        bar.layoutIfNeeded()
+        bar.advanceSelectionAnimation(to: 1)
+        XCTAssertEqual(collection.contentOffset.x, frame(7, in: collection).midX - 200, accuracy: 0.5)
+        XCTAssertEqual(indicator.frame.minX, frame(7, in: collection).minX + 12, accuracy: 0.01)
+        bar.setSelectedIndex(9, animated: true)
+        bar.setItems([]); bar.layoutIfNeeded()
+        bar.advanceSelectionAnimation(to: 1)
+        XCTAssertEqual(indicator.frame, .zero)
+        XCTAssertEqual(collection.contentOffset, .zero)
+    }
+
+    func testAnimatedTabBarCanBeReleased() {
+        weak var reference: SPTabBar?
+        autoreleasepool {
+            let (bar, _) = mount()
+            reference = bar
+            bar.setSelectedIndex(7, animated: true)
+            bar.removeFromSuperview()
+        }
+        XCTAssertNil(reference)
+    }
+
     func testDynamicTypeUpdatesWidthsAndCentering() {
         let (bar, collection) = mount()
         bar.setItems((0..<12).map { SPTabBarItem(title: "较长的标签标题 \($0)") })

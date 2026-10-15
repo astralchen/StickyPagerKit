@@ -306,34 +306,63 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.selectedIndex, 1)
         XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width * 2, accuracy: 0.01)
     }
-    func testInterruptedAnimatedSelectionCommitsOnlyLastTarget() {
+    func testInterruptedAdjacentAnimationAndImmediateSelectionsCommitOnceEach() {
         let pager = mount()
         let delegate = PageDelegate(); pager.delegate = delegate
         pager.setSelectedIndex(1, animated: true)
         pager.setSelectedIndex(2, animated: true)
+        XCTAssertEqual(pager.selectedIndex, 2)
+        XCTAssertEqual(delegate.selected, [2])
         pager.setSelectedIndex(3, animated: false)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
         XCTAssertEqual(pager.selectedIndex, 3)
-        XCTAssertEqual(delegate.selected, [3])
+        XCTAssertEqual(delegate.selected, [2, 3])
         XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width * 3, accuracy: 0.01)
     }
-    func testLongAnimatedJumpLoadsOnlyVisibleIntermediatePages() {
-        let pager = mount(ids: Array(0..<10))
-        pager.maximumCachedPageCount = 2
-        pager.setSelectedIndex(9, animated: true)
-        pager.pagingView.contentOffset.x = pager.pagingView.bounds.width * 4.5
-        XCTAssertNotNil(pager.records[4])
-        XCTAssertNotNil(pager.records[5])
-        XCTAssertNil(pager.records[2])
-        XCTAssertLessThanOrEqual(pager.records.count, 4)
-        pager.setSelectedIndex(9, animated: false)
-        XCTAssertEqual(pager.selectedIndex, 9)
-        XCTAssertLessThanOrEqual(pager.records.count, 2)
+    func testNonAdjacentSelectionSkipsIntermediatePagesAndCommitsOnce() {
+        for rtl in [false, true] {
+            let pager = mount(ids: Array(0..<10))
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+            pager.maximumCachedPageCount = 2
+            let delegate = PageDelegate(); pager.delegate = delegate
+            let first = pager.records[0]!.controller as! FixturePage
+            pager.currentScrollView!.contentOffset.y = 120 - pager.currentScrollView!.adjustedContentInset.top
+            pager.setSelectedIndex(9, animated: true)
+            XCTAssertEqual(pager.selectedIndex, 9)
+            XCTAssertEqual(source!.createdIDs, [0, 9])
+            XCTAssertEqual(delegate.progressEvents, 0)
+            XCTAssertEqual(delegate.selected, [9])
+            XCTAssertEqual(pager.pagingView.contentOffset.x, rtl ? 0 : pager.pagingView.bounds.width * 9, accuracy: 0.01)
+            XCTAssertEqual(pager.collapseOffset, 120, accuracy: 0.01)
+            XCTAssertEqual(first.disappearCount, 1)
+            XCTAssertEqual((pager.records[9]!.controller as! FixturePage).appearCount, 1)
+            XCTAssertLessThanOrEqual(pager.records.count, 2)
+            pager.scrollViewDidEndScrollingAnimation(pager.pagingView)
+            XCTAssertEqual(delegate.selected, [9])
+            pager.setSelectedIndex(0, animated: true)
+            XCTAssertEqual(pager.selectedIndex, 0)
+            XCTAssertEqual(delegate.selected, [9, 0])
+            XCTAssertEqual(source!.createdIDs, [0, 9])
+        }
     }
+    func testSelectionAnimationFlagIsForwardedToCustomTabBar() {
+        let pager = mount()
+        let tabs = RecordingTabBar()
+        pager.tabBar = tabs
+        pager.view.layoutIfNeeded()
+        pager.setSelectedIndex(3, animated: false)
+        XCTAssertEqual(tabs.lastAnimated, false)
+        XCTAssertEqual(pager.selectedIndex, 3)
+        pager.setSelectedIndex(0, animated: true)
+        XCTAssertEqual(tabs.lastAnimated, true)
+        XCTAssertEqual(pager.selectedIndex, 0)
+    }
+
     func testResizeCancelsPendingTransitionWithoutSelectionEvent() {
         let pager = mount()
         let delegate = PageDelegate(); pager.delegate = delegate
-        pager.setSelectedIndex(2, animated: true)
+        pager.setSelectedIndex(1, animated: true)
         pager.view.frame.size.width = 600
         pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
@@ -410,12 +439,16 @@ final class StickyPagerKitTests: XCTestCase {
 @MainActor
 private final class FixtureSource: SPPageViewControllerDataSource {
     var ids: [Int]
+    var createdIDs: [Int] = []
     let plain: Set<Int>
     let contentHeight: CGFloat
     init(ids: [Int], plain: Set<Int>, contentHeight: CGFloat) { self.ids = ids; self.plain = plain; self.contentHeight = contentHeight }
     func numberOfPages(in pageViewController: SPPageViewController) -> Int { ids.count }
     func pageViewController(_ pageViewController: SPPageViewController, identifierForPageAt index: Int) -> AnyHashable { ids[index] }
-    func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController { FixturePage(height: contentHeight, plain: plain.contains(ids[index])) }
+    func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController {
+        createdIDs.append(ids[index])
+        return FixturePage(height: contentHeight, plain: plain.contains(ids[index]))
+    }
 }
 @MainActor
 private final class FixturePage: UIViewController {
@@ -440,5 +473,15 @@ private final class FixturePage: UIViewController {
 @MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {}
 @MainActor private final class PageDelegate: SPPageViewControllerDelegate {
     var selected: [Int] = []
+    var progressEvents = 0
+    func pageViewController(_ pageViewController: SPPageViewController, didScrollFrom fromIndex: Int, to toIndex: Int, progress: CGFloat) { progressEvents += 1 }
     func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) { selected.append(index) }
+}
+
+@MainActor private final class RecordingTabBar: SPTabBar {
+    var lastAnimated: Bool?
+    override func setSelectedIndex(_ index: Int?, animated: Bool) {
+        lastAnimated = animated
+        super.setSelectedIndex(index, animated: animated)
+    }
 }

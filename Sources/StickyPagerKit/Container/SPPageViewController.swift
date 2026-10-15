@@ -218,15 +218,17 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         stopAnimation()
         currentRecord?.binding?.stopDeceleration()
         view.layoutIfNeeded()
-        beginTransition(to: index)
+        let isAdjacent = selectedIndex.map { abs(index - $0) == 1 } ?? false
+        let animatePage = animated && isVisible && isAdjacent && pagingView.bounds.width > 0
+        beginTransition(to: index, animated: animatePage)
         let point = CGPoint(x: physicalIndex(index) * pagingView.bounds.width, y: 0)
-        if animated && isVisible && pagingView.bounds.width > 0 {
+        if animatePage {
             pagingView.setContentOffset(point, animated: true)
         } else {
             suppressPaging = true
             pagingView.setContentOffset(point, animated: false)
             suppressPaging = false
-            finishTransition(commit: true)
+            finishTransition(commit: true, animated: animated && isVisible)
         }
     }
 
@@ -409,7 +411,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             parentAppearance.append(controller)
         }
     }
-    private func beginTransition(to index: Int) {
+    private func beginTransition(to index: Int, animated: Bool = true) {
         guard index != selectedIndex, identifiers.indices.contains(index) else { return }
         if transitionTarget == index { return }
         if transitionTarget != nil { finishTransition(commit: false) }
@@ -419,11 +421,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         transitionTarget = index
         transitionAppearance = isVisible
         if transitionAppearance {
-            currentRecord?.controller.beginAppearanceTransition(false, animated: true)
-            incoming.controller.beginAppearanceTransition(true, animated: true)
+            currentRecord?.controller.beginAppearanceTransition(false, animated: animated)
+            incoming.controller.beginAppearanceTransition(true, animated: animated)
         }
     }
-    private func finishTransition(commit: Bool) {
+    private func finishTransition(commit: Bool, animated: Bool = true) {
         guard let target = transitionTarget else { return }
         let old = currentRecord?.controller
         let incoming = records[identifiers[target]]?.controller
@@ -445,7 +447,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             selectedIndex = target
             align(currentRecord)
         }
-        storedTabBar.setSelectedIndex(selectedIndex, animated: commit)
+        storedTabBar.setSelectedIndex(selectedIndex, animated: commit && animated)
         evictPages()
         if commit { delegate?.pageViewController(self, didSelectPageAt: target) }
     }
@@ -464,8 +466,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !suppressPaging, let selectedIndex, !identifiers.isEmpty else { return }
         let position = min(CGFloat(identifiers.count - 1), max(0, logicalPosition()))
-        // 长距离程序化切页也需要准备可见中间页，避免动画经过空白视口。
-        // 只保留当前、目标及最多两个可见页，不一次性创建整个区间。
+        // 手势或相邻切页期间按需准备可见页；非相邻选择直接定位，不进入此路径。
+        // 只保留当前、目标及最多两个可见页。
         for index in Set([Int(floor(position)), Int(ceil(position))]) {
             if records[identifiers[index]] == nil { loadPage(index) }
         }

@@ -77,7 +77,7 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 - `layout`：默认高度为 0、0、44；负数和非有限数归一化，保留高度不超过总高度。
 - `minimumHeaderHeight`：Header 完全折叠后仍显示的高度。默认 `0`，标签栏停在容器顶部安全区域边缘（导航容器内即导航栏下方）；只有需要保留部分 Header 时才设置非零值。Demo 和快速接入示例使用 `0`。
 - `selectedIndex`：只读；无页面时为 nil。
-- `setSelectedIndex(_:animated:)`：越界请求忽略，快速连续请求以最后目标为准。
+- `setSelectedIndex(_:animated:)`：越界请求忽略。相邻选择在 `animated: true` 时滚动切页；非相邻选择直接显示目标页，不加载或滚过中间页，仅标签栏执行同步动画。新请求取消未完成的旧转场；已经直达并提交的页面会正常发送一次选中回调。`animated: false` 同时关闭内容页和标签栏动画。
 - `isPagingEnabled`：控制横向滑动，标签点击和程序化切页仍然可用。
 - `maximumCachedPageCount`：默认 3，最小有效值为 1；转场期间保护当前页、目标页及最多两个可见中间页，允许暂时超过限制。
 - `reloadData()`：同步读取完整快照，稳定标识相同则复用已有控制器。
@@ -85,6 +85,8 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 - `rediscoverScrollView(forPageAt:)`：内容页异步创建或替换滚动视图后调用。
 
 ### 自定义标签栏
+
+非相邻选择时，标签栏居中偏移与指示器位置由同一帧进度驱动；相邻动画和手势翻页时，两者跟随分页进度，切页结束后不再补一段居中滚动。连续选择从当前动画位置继续；用户手动拖动标签栏时停止自动动画，尺寸、字体、方向或数据变化时结束旧动画并按新布局对齐。
 
 默认 `SPTabBar` 使用 `UICollectionView` 和自定义等宽 Layout：标签不足一屏时均分可用宽度，超出一屏时横向滚动。选中项尽量滚动到中央，首尾受内容边界限制，不添加额外留白。旋转、容器尺寸和 Dynamic Type 变化后重新计算宽度并对齐选中项；普通布局刷新保留用户手动滚动的位置。RTL 反转视觉顺序，逻辑索引保持不变。Cell 在创建及显示前同步当前状态，保留 `sp.tab.<index>` 按钮无障碍标识和选中态，分页过渡指示器使用 Layout 几何信息，支持屏幕外目标。
 

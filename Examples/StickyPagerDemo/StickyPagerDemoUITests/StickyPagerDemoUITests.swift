@@ -103,6 +103,23 @@ final class StickyPagerDemoUITests: XCTestCase {
         app.buttons["demo.replaceScroll"].tap()
         XCTAssertTrue(app.scrollViews["demo.asyncScroll"].exists)
     }
+    func testNonAdjacentSelectionPreservesHeaderAndAllowsPaging() {
+        select(1)
+        app.tables["demo.list"].swipeUp()
+        expect("progress=1.00")
+        select(4)
+        expect("page=plain")
+        expect("progress=1.00")
+        app.scrollViews["sp.pages"].swipeRight()
+        expect("page=empty")
+        expect("progress=1.00")
+        select(0)
+        expect("page=grid")
+        app.collectionViews["demo.grid"].swipeLeft()
+        expect("page=list")
+        expect("progress=1.00")
+    }
+
     func testScrollableTabSelectionCentersAndHorizontalDragPreservesPage() {
         // 增加一个标签，让中间项有足够的左右滚动余量；首尾边界另由库测试覆盖。
         app.buttons["demo.pages"].tap()
