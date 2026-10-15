@@ -24,7 +24,25 @@ final class StickyPagerDemoUITests: XCTestCase {
         expectation(for: predicate, evaluatedWith: status)
         waitForExpectations(timeout: 5)
     }
-    private func select(_ index: Int) { app.buttons["sp.tab.\(index)"].tap() }
+    private func select(_ index: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let target = app.buttons["sp.tab.\(index)"]
+        // 标签可能尚未创建 Cell；先滚动至可见，避免依赖 XCTest 对屏幕外元素的隐式滚动。
+        for _ in 0..<20 {
+            if target.isHittable { target.tap(); return }
+            let visible = tabs.buttons.allElementsBoundByIndex.filter(\.isHittable)
+                .compactMap { Int($0.identifier.replacingOccurrences(of: "sp.tab.", with: "")) }
+            guard let first = visible.min() else { break }
+            let towardStart = index < first
+            let rtl = (status.value as? String)?.contains("direction=rtl") == true
+            // 短标签容易被快速 swipe 的惯性整段越过；使用小幅拖动逐步查找。
+            let movesRight = towardStart != rtl
+            let start = tabs.coordinate(withNormalizedOffset: CGVector(dx: movesRight ? 0.3 : 0.7, dy: 0.5))
+            let end = tabs.coordinate(withNormalizedOffset: CGVector(dx: movesRight ? 0.7 : 0.3, dy: 0.5))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        }
+        XCTFail("未找到可点击的标签 \(index)", file: file, line: line)
+    }
 
     func testCollapsedTabBarStaysAtNavigationBarBottom() {
         func assertPinned(file: StaticString = #filePath, line: UInt = #line) {
@@ -121,22 +139,23 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     func testScrollableTabSelectionCentersAndHorizontalDragPreservesPage() {
-        // 增加一个标签，让中间项有足够的左右滚动余量；首尾边界另由库测试覆盖。
-        app.buttons["demo.pages"].tap()
-        app.buttons["添加页面"].tap()
+        // Demo 的长短标题与更多标签为中间项提供足够的左右滚动余量。
         let tabs = app.collectionViews["sp.tabBar.collection"]
-        select(3)
-        expect("page=empty")
-        let selected = app.buttons["sp.tab.3"]
-        let centered = NSPredicate { _, _ in abs(selected.frame.midX - tabs.frame.midX) < 1 }
-        expectation(for: centered, evaluatedWith: selected)
-        waitForExpectations(timeout: 5)
-        XCTAssertTrue(selected.isSelected)
+        for (index, page) in [(3, "empty"), (9, "weekly"), (6, "hot")] {
+            select(index)
+            expect("page=\(page)")
+            let selected = app.buttons["sp.tab.\(index)"]
+            let centered = NSPredicate { _, _ in abs(selected.frame.midX - tabs.frame.midX) < 1 }
+            expectation(for: centered, evaluatedWith: selected)
+            waitForExpectations(timeout: 5)
+            XCTAssertTrue(selected.isSelected)
+        }
+        select(0)
         tabs.swipeLeft()
-        expect("page=empty")
-        XCTAssertTrue(app.buttons["sp.tab.6"].isHittable)
+        expect("page=grid")
+        XCTAssertFalse(app.buttons["sp.tab.0"].isHittable)
         tabs.swipeRight()
-        expect("page=empty")
+        expect("page=grid")
         XCTAssertTrue(app.buttons["sp.tab.0"].isHittable)
         select(1)
         expect("page=list")
@@ -157,6 +176,12 @@ final class StickyPagerDemoUITests: XCTestCase {
         app.collectionViews["demo.grid"].swipeRight()
         expect("page=list")
         select(0); expect("page=grid")
+        select(9); expect("page=weekly")
+        let selected = app.buttons["sp.tab.9"]
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let centered = NSPredicate { _, _ in abs(selected.frame.midX - tabs.frame.midX) < 1 }
+        expectation(for: centered, evaluatedWith: selected)
+        waitForExpectations(timeout: 5)
     }
     func testRotationAndBackGesture() {
         select(1)

@@ -12,7 +12,7 @@ final class SPTabBarTests: XCTestCase {
         window = nil
     }
 
-    private func mount(count: Int = 12, width: CGFloat = 320, rtl: Bool = false) -> (SPTabBar, UICollectionView) {
+    private func mount(count: Int = 12, width: CGFloat = 320, rtl: Bool = false, titles: [String]? = nil) -> (SPTabBar, UICollectionView) {
         let controller = UIViewController()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = controller
@@ -20,7 +20,7 @@ final class SPTabBarTests: XCTestCase {
         let bar = SPTabBar(frame: CGRect(x: 0, y: 100, width: width, height: 44))
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         controller.view.addSubview(bar)
-        bar.setItems((0..<count).map { SPTabBarItem(title: "标签 \($0)") })
+        bar.setItems((titles ?? (0..<count).map { "标签 \($0)" }).map { SPTabBarItem(title: $0) })
         bar.setSelectedIndex(0, animated: false)
         bar.layoutIfNeeded()
         self.window = window
@@ -37,6 +37,113 @@ final class SPTabBarTests: XCTestCase {
         return collection.cellForItem(at: IndexPath(item: index, section: 0))?.contentView.subviews.compactMap { $0 as? UIButton }.first
     }
 
+    private let variedTitles = ["热", "推荐内容", "关注", "本周热门精选", "收藏", "更多专题与活动",
+                                "新", "附近的人", "视频", "开发者讨论专区", "图", "全部"]
+
+    func testUnspecifiedDirectionFollowsContainerAndExplicitOverrideWins() {
+        let (bar, collection) = mount(titles: variedTitles)
+        let host = window!.rootViewController!.view!
+        bar.semanticContentAttribute = .unspecified
+        for direction in [UISemanticContentAttribute.forceRightToLeft, .forceLeftToRight] {
+            host.semanticContentAttribute = direction
+            bar.setNeedsLayout(); bar.layoutIfNeeded()
+            XCTAssertEqual(frame(0, in: collection).minX > frame(11, in: collection).minX,
+                           direction == .forceRightToLeft)
+            let expected = direction == .forceRightToLeft ? collection.contentSize.width - collection.bounds.width : 0
+            XCTAssertEqual(collection.contentOffset.x, expected, accuracy: 0.5)
+        }
+        host.semanticContentAttribute = .forceRightToLeft
+        bar.semanticContentAttribute = .forceLeftToRight
+        bar.setNeedsLayout(); bar.layoutIfNeeded()
+        XCTAssertLessThan(frame(0, in: collection).minX, frame(11, in: collection).minX)
+    }
+
+    func testVariableWidthsAndVisibleQueriesUseActualGeometryInBothDirections() {
+        for rtl in [false, true] {
+            let (bar, collection) = mount(rtl: rtl, titles: variedTitles)
+            let font = UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: bar.traitCollection)
+            let widths = variedTitles.map { ceil(($0 as NSString).size(withAttributes: [.font: font]).width) + 32 }
+            let total = widths.reduce(0, +)
+            XCTAssertEqual(collection.contentSize.width, total, accuracy: 0.01)
+            var x: CGFloat = 0
+            for index in variedTitles.indices {
+                let item = frame(index, in: collection)
+                XCTAssertEqual(item.width, widths[index], accuracy: 0.01)
+                XCTAssertEqual(item.minX, rtl ? total - x - widths[index] : x, accuracy: 0.01)
+                x += widths[index]
+                bar.setSelectedIndex(index, animated: false)
+                let expected = min(total - collection.bounds.width, max(0, item.midX - collection.bounds.width / 2))
+                XCTAssertEqual(collection.contentOffset.x, expected, accuracy: 0.5)
+            }
+            let allFrames = variedTitles.indices.map { frame($0, in: collection) }
+            // 包括恰好位于项边缘的查询，验证可见项检索既不遗漏也不返回不相交的项。
+            for item in allFrames {
+                for rect in [item, CGRect(x: item.maxX, y: 0, width: 1, height: 44)] {
+                    let expected = Set(allFrames.indices.filter { allFrames[$0].intersects(rect) })
+                    let actual = Set(collection.collectionViewLayout.layoutAttributesForElements(in: rect)!.map { $0.indexPath.item })
+                    XCTAssertEqual(actual, expected)
+                }
+            }
+        }
+    }
+
+    func testResizeSwitchesBetweenIntrinsicWidthsAndEqualDistribution() {
+        for rtl in [false, true] {
+            let (bar, collection) = mount(width: 200, rtl: rtl, titles: ["热", "本周热门精选", "关注"])
+            let widths = (0..<3).map { frame($0, in: collection).width }
+            let total = widths.reduce(0, +)
+            XCTAssertGreaterThan(total, 200)
+            bar.setSelectedIndex(1, animated: false)
+            for width in [total, total + 120, 200] {
+                bar.frame.size.width = width
+                bar.layoutIfNeeded()
+                for index in 0..<3 {
+                    XCTAssertEqual(frame(index, in: collection).width, width >= total ? width / 3 : widths[index], accuracy: 0.01)
+                }
+                let target = frame(1, in: collection)
+                let offset = min(max(0, total - width), max(0, target.midX - width / 2))
+                XCTAssertEqual(collection.contentOffset.x, offset, accuracy: 0.5)
+            }
+        }
+    }
+
+    func testVariableWidthIndicatorAndOffsetStaySynchronizedDuringAnimationAndGestureTakeover() {
+        for rtl in [false, true] {
+            let (bar, collection) = mount(rtl: rtl, titles: variedTitles)
+            let indicator = collection.subviews.first { $0.layer.zPosition == 1 }!
+            let start = indicator.frame
+            let startOffset = collection.contentOffset.x
+            bar.setSelectedIndex(5, animated: true)
+            bar.advanceSelectionAnimation(to: 0.5)
+            let target = frame(5, in: collection)
+            XCTAssertEqual(indicator.frame.minX, (start.minX + target.minX + 12) / 2, accuracy: 0.01)
+            XCTAssertEqual(indicator.frame.width, (start.width + target.width - 24) / 2, accuracy: 0.01)
+            XCTAssertEqual(collection.contentOffset.x, (startOffset + target.midX - 160) / 2, accuracy: 0.5)
+
+            let halfway = indicator.frame
+            let halfwayOffset = collection.contentOffset.x
+            bar.setTransitionProgress(from: 5, to: 6, progress: 0)
+            XCTAssertEqual(indicator.frame, halfway)
+            XCTAssertEqual(collection.contentOffset.x, halfwayOffset, accuracy: 0.5)
+            bar.setTransitionProgress(from: 5, to: 6, progress: 0.5)
+            let neighbor = frame(6, in: collection)
+            XCTAssertEqual(indicator.frame.minX, (halfway.minX + neighbor.minX + 12) / 2, accuracy: 0.01)
+            XCTAssertEqual(indicator.frame.width, (halfway.width + neighbor.width - 24) / 2, accuracy: 0.01)
+            XCTAssertEqual(collection.contentOffset.x, (halfwayOffset + neighbor.midX - 160) / 2, accuracy: 0.5)
+            bar.setSelectedIndex(5, animated: false)
+            XCTAssertEqual(indicator.frame.width, target.width - 24, accuracy: 0.01)
+            XCTAssertEqual(collection.contentOffset.x, target.midX - 160, accuracy: 0.5)
+
+            bar.setSelectedIndex(9, animated: true)
+            bar.advanceSelectionAnimation(to: 0.5)
+            collection.delegate?.scrollViewWillBeginDragging?(collection)
+            collection.contentOffset.x = 30
+            bar.advanceSelectionAnimation(to: 1)
+            XCTAssertEqual(collection.contentOffset.x, 30, accuracy: 0.01)
+            XCTAssertEqual(bar.selectedIndex, 9)
+        }
+    }
+
     func testOverflowSelectionCentersAndClampsAtEdgesInBothDirections() {
         for rtl in [false, true] {
             let (bar, collection) = mount(rtl: rtl)
@@ -46,7 +153,8 @@ final class SPTabBarTests: XCTestCase {
                 bar.setSelectedIndex(index, animated: false)
                 let item = frame(index, in: collection)
                 let expected = min(collection.contentSize.width - collection.bounds.width, max(0, item.midX - collection.bounds.width / 2))
-                XCTAssertEqual(collection.contentOffset.x, expected, accuracy: 0.01)
+                // 标题宽度不同可能产生半点中心，UIScrollView 会将偏移对齐到屏幕像素。
+                XCTAssertEqual(collection.contentOffset.x, expected, accuracy: 1 / bar.traitCollection.displayScale)
                 XCTAssertEqual(collection.contentOffset.y, 0)
             }
             XCTAssertEqual(frame(0, in: collection).minX > frame(11, in: collection).minX, rtl)

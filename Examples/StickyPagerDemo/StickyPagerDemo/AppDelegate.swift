@@ -34,8 +34,11 @@ final class DemoLauncher: UIViewController {
 
 @MainActor
 final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPPageViewControllerDelegate {
-    private var pageIDs = ["grid", "list", "short", "empty", "plain", "async"]
-    private let names = ["grid": "网格", "list": "列表", "short": "短列表", "empty": "空列表", "plain": "普通页", "async": "异步页"]
+    private var pageIDs = ["grid", "list", "short", "empty", "plain", "async",
+                           "hot", "recommended", "following", "weekly", "saved", "topics"]
+    private let names = ["grid": "网格", "list": "列表", "short": "短列表", "empty": "空列表",
+                         "plain": "普通页", "async": "异步页", "hot": "热", "recommended": "推荐内容",
+                         "following": "关注", "weekly": "本周热门精选", "saved": "收藏", "topics": "更多专题与活动"]
     private let status = UILabel()
     private var controllerHeader = false
     private var generation = 0

@@ -131,7 +131,10 @@ open class SPTabBar: UIView {
 
     open override func layoutSubviews() {
         super.layoutSubviews()
-        let direction = effectiveUserInterfaceLayoutDirection
+        let direction = UIView.userInterfaceLayoutDirection(
+            for: semanticContentAttribute,
+            relativeTo: superview?.effectiveUserInterfaceLayoutDirection ?? effectiveUserInterfaceLayoutDirection
+        )
         let geometryChanged = previousSize != bounds.size || previousDirection != direction
         previousSize = bounds.size
         previousDirection = direction
@@ -159,9 +162,9 @@ open class SPTabBar: UIView {
 
     private func updateMetrics() {
         let font = titleFont
-        tabLayout.minimumItemWidth = max(72, items.map {
+        tabLayout.itemWidths = items.map {
             ceil(($0.title as NSString).size(withAttributes: [.font: font]).width) + 32
-        }.max() ?? 72)
+        }
     }
 
     private func configure(_ cell: TabCell, at index: Int) {
