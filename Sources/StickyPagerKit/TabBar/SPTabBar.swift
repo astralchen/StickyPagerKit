@@ -33,7 +33,7 @@ open class SPTabBar: UIView {
     private var titleFont: UIFont { .preferredFont(forTextStyle: .subheadline, compatibleWith: traitCollection) }
 
     public override init(frame: CGRect) {
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: tabLayout)
+        collectionView = TabCollectionView(frame: .zero, collectionViewLayout: tabLayout)
         super.init(frame: frame)
         displayTarget.tick = { [weak self] link in
             guard let self, let animation = self.selectionAnimation else { return }
@@ -237,6 +237,14 @@ open class SPTabBar: UIView {
     private func indicatorFrame(_ index: Int) -> CGRect {
         guard let frame = tabLayout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame else { return .zero }
         return CGRect(x: frame.minX + 12, y: max(0, bounds.height - 3), width: max(0, frame.width - 24), height: 3)
+    }
+
+    private final class TabCollectionView: UICollectionView {
+        override func touchesShouldCancel(in view: UIView) -> Bool {
+            // 标签按钮已开始跟踪时，后续拖动仍应交给滚动视图；单击继续由按钮处理。
+            if view is UIButton { return true }
+            return super.touchesShouldCancel(in: view)
+        }
     }
 
     private final class TabAdapter: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {

@@ -94,6 +94,34 @@ final class StickyPagerDemoUITests: XCTestCase {
         select(4); expect("page=plain")
         XCTAssertTrue(app.staticTexts["demo.plain"].exists)
     }
+    func testPlainPageDragCollapsesAndExpandsHeader() {
+        select(4); expect("page=plain")
+        let plain = app.staticTexts["demo.plain"]
+        plain.swipeUp()
+        expect("progress=1.00")
+        let tab = app.buttons["sp.tab.4"]
+        XCTAssertEqual(tab.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
+        XCTAssertEqual(plain.frame.minY, tab.frame.maxY, accuracy: 1)
+        XCTAssertEqual(plain.frame.maxY, app.frame.maxY, accuracy: 1)
+        plain.swipeUp(); expect("progress=1.00")
+        plain.swipeDown(); expect("progress=0.00")
+        XCTAssertEqual(plain.frame.minY, tab.frame.maxY, accuracy: 1)
+        XCTAssertEqual(plain.frame.maxY, app.frame.maxY, accuracy: 1)
+        plain.swipeDown(); expect("progress=0.00")
+
+        let header = app.otherElements["demo.headerView"]
+        header.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.85))
+            .press(forDuration: 0.05, thenDragTo: header.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.1)))
+        expect("progress=1.00")
+        tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+        expect("progress=0.00"); expect("page=plain")
+        plain.swipeUp(); expect("progress=1.00")
+        select(1); expect("page=list"); expect("progress=1.00")
+        select(4); expect("page=plain"); expect("progress=1.00")
+        plain.swipeDown(); expect("progress=0.00")
+        app.scrollViews["sp.pages"].swipeRight(); expect("page=empty")
+    }
     func testPagingAndRapidSelection() {
         app.collectionViews["demo.grid"].swipeLeft()
         expect("page=list")
@@ -159,6 +187,25 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["sp.tab.0"].isHittable)
         select(1)
         expect("page=list")
+    }
+
+    func testHeldTabButtonYieldsToHorizontalDrag() {
+        select(3); expect("page=empty")
+        let tab = app.buttons["sp.tab.3"]
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let centered = NSPredicate { _, _ in abs(tab.frame.midX - tabs.frame.midX) < 1 }
+        expectation(for: centered, evaluatedWith: tab)
+        waitForExpectations(timeout: 5)
+        let before = tab.frame.midX
+        let start = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: before, dy: tab.frame.midY))
+        // 超过触摸延迟后向左拖动；向右会受内容起点约 39 pt 的剩余距离限制。
+        start.press(forDuration: 0.4, thenDragTo: start.withOffset(CGVector(dx: -80, dy: 0)),
+                    withVelocity: .slow, thenHoldForDuration: 0.2)
+        XCTAssertGreaterThan(before - tab.frame.midX, 40, "按钮已按下时仍应能拖动标签栏")
+        expect("page=empty")
+        XCTAssertTrue(tab.isSelected)
+        select(1); expect("page=list")
     }
 
     func testTabBarVerticalDragDoesNotSelectTappedItem() {

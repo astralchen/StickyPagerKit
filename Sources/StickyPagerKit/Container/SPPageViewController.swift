@@ -51,6 +51,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var isReloading = false
     private var headerPan: UIPanGestureRecognizer!
     private var tabPan: UIPanGestureRecognizer!
+    private var plainPagePan: UIPanGestureRecognizer!
+    private weak var dragRecord: SPPageRecord?
+    private weak var dragBinding: SPScrollBinding?
     private var dragStart: CGFloat = 0
     private var animationVelocity: CGFloat = 0
     private var displayLink: CADisplayLink?
@@ -87,7 +90,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         mountHeader()
         headerPan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
         tabPan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
-        for (host, pan) in [(headerHost, headerPan!), (storedTabBar, tabPan!)] {
+        plainPagePan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
+        for (host, pan) in [(headerHost, headerPan!), (storedTabBar, tabPan!), (pagingView, plainPagePan!)] {
             pan.delegate = self
             host.addGestureRecognizer(pan)
         }
@@ -100,6 +104,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             pagingView.panGestureRecognizer.require(toFail: gesture)
             headerPan.require(toFail: gesture)
             tabPan.require(toFail: gesture)
+            plainPagePan.require(toFail: gesture)
             returnGesture = gesture
         }
         endParentAppearance()
@@ -494,8 +499,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let binding = currentRecord?.binding,
-              !binding.isRefreshing, transitionTarget == nil else { return false }
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let record = currentRecord,
+              record.binding?.isRefreshing != true, transitionTarget == nil else { return false }
+        if gestureRecognizer === plainPagePan && record.binding != nil { return false }
+        if record.binding == nil && effectiveLayout.collapseRange <= 0 { return false }
         let v = pan.velocity(in: view)
         return abs(v.y) > abs(v.x)
     }
@@ -503,8 +510,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         var target = touch.view
         while let candidate = target, candidate !== gestureRecognizer.view {
             // 默认标签按钮允许父级纵向拖动，其他 Header 控件保留自身交互。
-            if gestureRecognizer === headerPan && (candidate is UIControl || candidate is UITextView) { return false }
-            if gestureRecognizer === headerPan && candidate.gestureRecognizers?.contains(where: { $0.isEnabled && $0 !== gestureRecognizer && !($0 is UITapGestureRecognizer) }) == true { return false }
+            if gestureRecognizer === headerPan || gestureRecognizer === plainPagePan {
+                if candidate is UIControl || candidate is UITextView { return false }
+                if candidate.gestureRecognizers?.contains(where: { $0.isEnabled && $0 !== gestureRecognizer && !($0 is UITapGestureRecognizer) }) == true { return false }
+            }
             target = candidate.superview
         }
         return true
@@ -512,21 +521,36 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         gestureRecognizer === tabPan && otherGestureRecognizer.view?.isDescendant(of: storedTabBar) == true
     }
-    @objc private func handleHeaderPan(_ pan: UIPanGestureRecognizer) {
-        guard let binding = currentRecord?.binding else { return }
+    @objc internal func handleHeaderPan(_ pan: UIPanGestureRecognizer) {
+        guard let record = currentRecord, transitionTarget == nil,
+              record.binding?.isRefreshing != true else { return }
+        let binding = record.binding
+        // 切页、重新绑定或布局变化后，旧触摸不能继续驱动新的滚动状态。
+        if pan.state != .began && (dragRecord !== record || dragBinding !== binding) { return }
         switch pan.state {
         case .began:
-            stopAnimation(); binding.stopDeceleration(); dragStart = binding.position
+            stopAnimation(); binding?.stopDeceleration()
+            dragRecord = record; dragBinding = binding
+            dragStart = binding?.position ?? collapseOffset
         case .changed:
             let raw = dragStart - pan.translation(in: view).y
-            let bound = min(max(0, raw), binding.maximumPosition)
-            binding.setPosition(bound + (raw - bound) * 0.35)
-            consume(binding)
+            if let binding {
+                let bound = min(max(0, raw), binding.maximumPosition)
+                binding.setPosition(bound + (raw - bound) * 0.35)
+                consume(binding)
+            } else {
+                // 普通页面只消耗 Header 范围，不生成内容位移或越界回弹。
+                collapseOffset = SPScrollGeometry.collapse(raw, range: effectiveLayout.collapseRange)
+                publishHeader()
+            }
         case .ended:
+            dragRecord = nil; dragBinding = nil
             animationVelocity = -pan.velocity(in: view).y
             startAnimation()
         case .cancelled, .failed:
-            animationVelocity = 0; startAnimation()
+            dragRecord = nil; dragBinding = nil
+            animationVelocity = 0
+            if binding != nil { startAnimation() } else { stopAnimation() }
         default: break
         }
     }
@@ -536,10 +560,22 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         displayLink = link
         link.add(to: .main, forMode: .common)
     }
-    private func stopAnimation() { displayLink?.invalidate(); displayLink = nil }
+    private func stopAnimation() {
+        displayLink?.invalidate(); displayLink = nil
+        dragRecord = nil; dragBinding = nil
+    }
     private func stepAnimation(_ link: CADisplayLink) {
-        guard let binding = currentRecord?.binding, !binding.isRefreshing else { stopAnimation(); return }
+        guard let record = currentRecord, transitionTarget == nil,
+              record.binding?.isRefreshing != true else { stopAnimation(); return }
         let dt = min(1.0 / 30, max(1.0 / 240, link.targetTimestamp - link.timestamp))
+        guard let binding = record.binding else {
+            animationVelocity *= pow(UIScrollView.DecelerationRate.normal.rawValue, dt * 1000)
+            let raw = collapseOffset + animationVelocity * dt
+            collapseOffset = SPScrollGeometry.collapse(raw, range: effectiveLayout.collapseRange)
+            publishHeader()
+            if abs(animationVelocity) < 2 || collapseOffset <= 0 || collapseOffset >= effectiveLayout.collapseRange { stopAnimation() }
+            return
+        }
         var position = binding.position
         let target = min(max(0, position), binding.maximumPosition)
         if abs(position - target) > 0.1 {

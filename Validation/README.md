@@ -2,6 +2,36 @@
 
 验证日期：2026-10-15。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 标签按钮阻止横向拖动修复
+
+原有屏幕外标签查找失败的直接原因是标签按钮的触摸跟踪阻止滚动接管。标签 Cell 使用 UIButton；UIKit 的默认 `touchesShouldCancel(in:)` 对 UIControl 返回 false。触摸先交付给按钮后再横向移动，标签栏没有滚动，重复拖动也无法使屏幕外标签进入视口。
+
+标签栏现使用私有 UICollectionView 子类，仅对 UIButton 允许取消触摸跟踪，其他视图保留 UIKit 默认行为。原有 UI 测试的查找次数、拖动方式和断言未放宽。
+
+- **修复前库复现：** 新增 `testTabButtonTrackingCanYieldToScrolling` 失败，验证标签按钮无法让出触摸。见 [库失败结果](Results/tab-touch-before-library/Result.xcresult) 和 [摘要](Results/tab-touch-before-library/summary.json)。
+- **修复前 UI 复现：** 新增 `testHeldTabButtonYieldsToHorizontalDrag`，按住标签 0.4 秒后向左拖动 80 pt，实际标签位移为 0 pt，未达到大于 40 pt 的断言。见 [最终场景 UI 失败结果](Results/tab-touch-before-ui-left/Result.xcresult) 和 [摘要](Results/tab-touch-before-ui-left/summary.json)。
+- 新增测试验证按钮跟踪可由滚动接管、其他控件默认行为、按钮点击回调、真实手势位移、拖动不误选页面及拖动后仍可点击切页。
+- **中间场景修正：** 首次新增 UI 用例向右拖动，修复后标签实际移动约 38.7 pt 并到达内容起点，无法满足大于 40 pt 的断言。将手势改为有足够滚动余量的向左方向，保持位移断言不变；并以最终测试场景再次运行旧实现，仍为 0 pt 失败。此轮原有屏幕外标签查找用例已通过。见 [中间结果](Results/tab-touch-focused-ui/Result.xcresult) 和 [摘要](Results/tab-touch-focused-ui/summary.json)。
+- **构建产物一致性诊断：** 首轮完整 UI 运行中，新增用例的源码与哈希均为向左 `-80 pt`，但实际执行日志仍记录向右 `+80 pt`。因此该轮不能作为最新测试场景的验收结果（14 通过、1 失败），见 [中间结果](Results/tab-touch-final-ui/Result.xcresult)。随后执行 clean 完整重建，同时核对源码哈希和实际手势日志，最终结果如下。
+- **最终完整通过：** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro / iOS 26.5，执行 `clean test` 后完整 **58 项库测试 + 15 项 UI 测试 = 73 通过、0 失败、0 跳过**。原有屏幕外标签查找、LTR / RTL 分页、标签栏纵向拖动及普通页 Header 回归全部通过。
+  - [最终库结果](Results/tab-touch-clean-library/Result.xcresult) · [库摘要](Results/tab-touch-clean-library/summary.json)
+  - [最终 UI 结果](Results/tab-touch-clean-ui/Result.xcresult) · [UI 摘要](Results/tab-touch-clean-ui/summary.json)
+- 两份终态结果均已读取；两组 28 个输入文件的 SHA-256 一致且与当前源码匹配，`sourceChangedSinceRun` 均为空。UI 日志确认测试文件重新编译且实际执行 `-80 pt` 的向左拖动，位移断言与后续页面选择通过；`git diff --check` 通过。
+- **未执行：** Release、iPad、其他系统版本、真机、VoiceOver 全流程及性能基准。
+
+## 普通页 Header 纵向拖动
+
+无滚动视图页面现在可以从内容区、Header 和标签栏上下拖动共享 Header。内容区的纵向手势仅在当前页没有滚动绑定且存在折叠范围时启用；不添加滚动容器，不改变页面业务内容。位移限定在 Header 折叠范围内，惯性到边界停止。控件与独立手势区域保持自身交互；切页、重新绑定和布局更新会终止旧的拖动状态。
+
+- **修复前复现：** 新增 UI 测试在普通页上滑后，等待 `progress=1.00` 超时，实际 1 项失败。失败对应未修复实现，运行结束时源码哈希一致。见 [修复前结果](Results/plain-header-before/Result.xcresult) 和 [摘要](Results/plain-header-before/summary.json)。
+- 新增 4 项库测试在 UIWindow 中验证：部分折叠、完整折叠与展开、0 / 40 pt 保留高度、内容页上下边界、切页共享位置、切页后旧触摸失效、异步绑定滚动视图后旧触摸失效及新拖动恢复、高度变化钳制、无 Header / 无页面时拒绝手势，以及纵横方向判定。
+- 新增 UI 测试验证：内容区连续上滑到吸顶、边界重复上滑、下滑展开、Header 上滑、标签栏下滑、内容页与标签栏及屏幕底边的几何关系、切页状态保留、再次拖动及横向翻页。
+- **通过：** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro / iOS 26.5，完整 57 项库测试，0 失败、0 跳过。终态结果已读取，`sourceChangedSinceRun` 为空。见 [库结果](Results/plain-header-library/Result.xcresult) 和 [摘要](Results/plain-header-library/summary.json)。
+- **完整 UI 回归：13 通过、1 失败、0 跳过。** 普通页新增用例通过，列表、短内容、Header 拖动、刷新、切页、页面更新、RTL、旋转返回和标签栏纵向拖动通过。原有 `testScrollableTabSelectionCentersAndHorizontalDragPreservesPage` 查找屏幕外标签 0 失败。见 [完整 UI 结果](Results/plain-header-ui/Result.xcresult) 和 [摘要](Results/plain-header-ui/summary.json)。
+- **旧实现对照：** 临时仅将容器源码恢复为 HEAD 的修复前实现，以相同测试、工具链和设备单独运行上述失败用例，也因找不到屏幕外标签失败（本次为标签 9）。说明这类定位失败在旧实现上也存在，当时具体根因尚未定位；该次完整 UI 回归不标记为全通过。后续定位和修复见上方“标签按钮阻止横向拖动修复”。对照结束后已恢复修复源码。见 [旧实现对照](Results/plain-header-tabs-baseline/Result.xcresult) 和 [摘要](Results/plain-header-tabs-baseline/summary.json)。
+- **最终专项通过：** 恢复最终源码后重新构建，普通页专项 UI 测试 1 通过、0 失败、0 跳过。见 [专项结果](Results/plain-header-final-focused/Result.xcresult) 和 [摘要](Results/plain-header-final-focused/summary.json)。库测试、完整 UI 测试及最终专项运行的 28 个输入文件哈希一致，并在该阶段核验时与当时源码匹配；`git diff --check` 通过。后续标签栏修复的最终源码结果见上方记录。
+- **未执行：** Release、iPad、iOS 15 实际运行、真机、VoiceOver 全流程和性能基准。
+
 ## 自适应标签宽度
 
 标签固有宽度改为当前 Dynamic Type 字体下的标题测量宽度向上取整，加左右各 16 pt。固有宽度总和不超过容器宽度时均分；超出时使用各项固有宽度。布局缓存按视觉顺序排列的几何信息，并按边界二分检索可见项；RTL 反转逻辑索引映射，标题对应的宽度保持不变。标签栏未指定语义方向时显式采用容器方向，显式指定方向时保留自身设置。

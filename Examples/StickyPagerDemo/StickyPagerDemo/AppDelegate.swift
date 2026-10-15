@@ -227,7 +227,7 @@ final class DemoGrid: UICollectionViewController {
 final class DemoPlain: UIViewController {
     override func loadView() {
         let label = UILabel()
-        label.text = "普通 UIViewController\n没有 UIScrollView\nHeader 保持共享状态"
+        label.text = "普通 UIViewController\n没有 UIScrollView\n上下拖动可折叠 / 展开 Header"
         label.numberOfLines = 0; label.textAlignment = .center
         label.backgroundColor = .secondarySystemBackground
         label.accessibilityIdentifier = "demo.plain"

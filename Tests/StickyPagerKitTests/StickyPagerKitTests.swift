@@ -183,6 +183,102 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertNil(pager.currentScrollView)
         XCTAssertEqual(pager.collapseOffset, 90)
     }
+    func testPlainPageDragGeometryAndSharedPosition() throws {
+        let pager = mount(plain: [1])
+        pager.setSelectedIndex(1, animated: false)
+        let plain = try XCTUnwrap(pager.records[1]?.controller.view)
+        let pan = FixturePan()
+        for minimum: CGFloat in [0, 40] {
+            pager.layout = SPPageLayout(headerHeight: 240, minimumHeaderHeight: minimum)
+            pan.send(to: pager, state: .began)
+            pan.send(to: pager, state: .changed, y: 1000)
+            pan.send(to: pager, state: .cancelled)
+            XCTAssertEqual(pager.collapseOffset, 0)
+            pan.send(to: pager, state: .began)
+            pan.send(to: pager, state: .changed, y: -90)
+            XCTAssertEqual(pager.collapseOffset, 90)
+            XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top + 150, accuracy: 0.01)
+            pan.send(to: pager, state: .changed, y: -1000)
+            XCTAssertEqual(pager.collapseOffset, 240 - minimum)
+            XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top + minimum, accuracy: 0.01)
+            XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+            XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
+            pan.send(to: pager, state: .cancelled)
+            pager.setSelectedIndex(0, animated: false)
+            let scroll = try XCTUnwrap(pager.currentScrollView)
+            XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 240 - minimum, accuracy: 0.01)
+            pager.setSelectedIndex(1, animated: false)
+            pan.send(to: pager, state: .began)
+            pan.send(to: pager, state: .changed, y: 1000)
+            XCTAssertEqual(pager.collapseOffset, 0)
+            XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+            XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
+            pan.send(to: pager, state: .cancelled)
+        }
+        XCTAssertNil(pager.currentScrollView)
+    }
+
+    func testPlainPageOldDragCannotAffectSelectedPageOrNewBinding() throws {
+        let pager = mount(plain: [1])
+        pager.setSelectedIndex(1, animated: false)
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -80)
+        pager.setSelectedIndex(0, animated: false)
+        pan.send(to: pager, state: .changed, y: -190)
+        XCTAssertEqual(pager.collapseOffset, 80)
+        pager.setSelectedIndex(1, animated: false)
+        pan.send(to: pager, state: .changed, y: -190)
+        XCTAssertEqual(pager.collapseOffset, 80)
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: 30)
+        XCTAssertEqual(pager.collapseOffset, 50)
+        let plain = try XCTUnwrap(pager.records[1]?.controller.view)
+        let scroll = UIScrollView(frame: plain.bounds)
+        scroll.contentSize = CGSize(width: 1, height: 1600)
+        plain.addSubview(scroll)
+        pager.rediscoverScrollView(forPageAt: 1)
+        let position = scroll.contentOffset.y + scroll.adjustedContentInset.top
+        pan.send(to: pager, state: .changed, y: -190)
+        XCTAssertEqual(pager.collapseOffset, 50)
+        XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, position, accuracy: 0.01)
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -40)
+        XCTAssertEqual(pager.collapseOffset, 90)
+        pan.send(to: pager, state: .cancelled)
+    }
+
+    func testPlainPageLayoutChangeCancelsDragAndClampsHeader() {
+        let pager = mount(plain: [1])
+        pager.setSelectedIndex(1, animated: false)
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -180)
+        pager.layout = SPPageLayout(headerHeight: 100, minimumHeaderHeight: 20)
+        XCTAssertEqual(pager.collapseOffset, 80)
+        pan.send(to: pager, state: .changed, y: 180)
+        XCTAssertEqual(pager.collapseOffset, 80)
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: 40)
+        XCTAssertEqual(pager.collapseOffset, 40)
+        pan.send(to: pager, state: .cancelled)
+        pager.headerView = nil
+        XCTAssertEqual(pager.collapseOffset, 0)
+        XCTAssertFalse(pager.gestureRecognizerShouldBegin(pan))
+        source?.ids = []
+        pager.reloadData()
+        XCTAssertFalse(pager.gestureRecognizerShouldBegin(pan))
+    }
+
+    func testPlainPageGestureAdmissionUsesVerticalDirection() {
+        let pager = mount(plain: [1])
+        pager.setSelectedIndex(1, animated: false)
+        let pan = FixturePan()
+        pan.testVelocity = CGPoint(x: 10, y: -100)
+        XCTAssertTrue(pager.gestureRecognizerShouldBegin(pan))
+        pan.testVelocity = CGPoint(x: 100, y: 10)
+        XCTAssertFalse(pager.gestureRecognizerShouldBegin(pan))
+    }
     func testReloadReorderReusesControllerAndSelection() {
         let pager = mount()
         pager.setSelectedIndex(1, animated: false)
@@ -471,6 +567,18 @@ private final class FixturePage: UIViewController {
     override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); disappearCount += 1 }
 }
 @MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {}
+@MainActor private final class FixturePan: UIPanGestureRecognizer {
+    private var testState: UIGestureRecognizer.State = .possible
+    private var testTranslation: CGPoint = .zero
+    var testVelocity = CGPoint(x: 0, y: -100)
+    override var state: UIGestureRecognizer.State { get { testState } set { testState = newValue } }
+    override func translation(in view: UIView?) -> CGPoint { testTranslation }
+    override func velocity(in view: UIView?) -> CGPoint { testVelocity }
+    func send(to pager: SPPageViewController, state: UIGestureRecognizer.State, y: CGFloat = 0) {
+        testState = state; testTranslation = CGPoint(x: 0, y: y)
+        pager.handleHeaderPan(self)
+    }
+}
 @MainActor private final class PageDelegate: SPPageViewControllerDelegate {
     var selected: [Int] = []
     var progressEvents = 0

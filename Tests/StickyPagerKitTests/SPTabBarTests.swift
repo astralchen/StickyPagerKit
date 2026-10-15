@@ -40,6 +40,18 @@ final class SPTabBarTests: XCTestCase {
     private let variedTitles = ["热", "推荐内容", "关注", "本周热门精选", "收藏", "更多专题与活动",
                                 "新", "附近的人", "视频", "开发者讨论专区", "图", "全部"]
 
+    func testTabButtonTrackingCanYieldToScrolling() throws {
+        let (bar, collection) = mount()
+        let tab = try XCTUnwrap(button(1, in: collection))
+        XCTAssertTrue(collection.canCancelContentTouches)
+        XCTAssertTrue(collection.touchesShouldCancel(in: tab), "按住标签后移动，滚动视图必须能取消按钮跟踪")
+        XCTAssertFalse(collection.touchesShouldCancel(in: UISlider()), "其他控件保持 UIKit 默认行为")
+        var selected: [Int] = []
+        bar.onSelect = { selected.append($0) }
+        tab.sendActions(for: .touchUpInside)
+        XCTAssertEqual(selected, [1])
+    }
+
     func testUnspecifiedDirectionFollowsContainerAndExplicitOverrideWins() {
         let (bar, collection) = mount(titles: variedTitles)
         let host = window!.rootViewController!.view!
