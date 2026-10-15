@@ -86,6 +86,10 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 
 ### 自定义标签栏
 
+默认 `SPTabBar` 使用 `UICollectionView` 和自定义等宽 Layout：标签不足一屏时均分可用宽度，超出一屏时横向滚动。选中项尽量滚动到中央，首尾受内容边界限制，不添加额外留白。旋转、容器尺寸和 Dynamic Type 变化后重新计算宽度并对齐选中项；普通布局刷新保留用户手动滚动的位置。RTL 反转视觉顺序，逻辑索引保持不变。Cell 在创建及显示前同步当前状态，保留 `sp.tab.<index>` 按钮无障碍标识和选中态，分页过渡指示器使用 Layout 几何信息，支持屏幕外目标。
+
+默认标签栏在数据缩减使原索引失效，或直接收到越界选中索引时清空选中态；`SPPageViewController` 仍按原有页面快照规则决定最终选中页。
+
 继承 `SPTabBar`，重写 `setItems(_:)`、`setSelectedIndex(_:animated:)` 和 `setTransitionProgress(from:to:progress:)`。自定义视图收到用户选择后调用 `onSelect?(index)`。通过 `pager.tabBar = CustomTabBar()` 替换。逻辑索引与数据源一致，RTL 仅改变视觉页序。
 
 ### 滚动坐标与布局

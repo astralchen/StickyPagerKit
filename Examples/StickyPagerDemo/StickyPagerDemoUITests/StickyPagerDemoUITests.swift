@@ -103,6 +103,28 @@ final class StickyPagerDemoUITests: XCTestCase {
         app.buttons["demo.replaceScroll"].tap()
         XCTAssertTrue(app.scrollViews["demo.asyncScroll"].exists)
     }
+    func testScrollableTabSelectionCentersAndHorizontalDragPreservesPage() {
+        // 增加一个标签，让中间项有足够的左右滚动余量；首尾边界另由库测试覆盖。
+        app.buttons["demo.pages"].tap()
+        app.buttons["添加页面"].tap()
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        select(3)
+        expect("page=empty")
+        let selected = app.buttons["sp.tab.3"]
+        let centered = NSPredicate { _, _ in abs(selected.frame.midX - tabs.frame.midX) < 1 }
+        expectation(for: centered, evaluatedWith: selected)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(selected.isSelected)
+        tabs.swipeLeft()
+        expect("page=empty")
+        XCTAssertTrue(app.buttons["sp.tab.6"].isHittable)
+        tabs.swipeRight()
+        expect("page=empty")
+        XCTAssertTrue(app.buttons["sp.tab.0"].isHittable)
+        select(1)
+        expect("page=list")
+    }
+
     func testTabBarVerticalDragDoesNotSelectTappedItem() {
         let tab = app.buttons["sp.tab.1"]
         tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.12)))
