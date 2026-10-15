@@ -2,6 +2,22 @@
 
 验证日期：2026-10-15。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## Release 与 iPad 补充回归
+
+从干净的 `4bb93aa` 工作区开始，使用 iPad Pro 11-inch (M5) (16GB) / iOS 26.5，补跑 Xcode 26.6 / Swift 6.3.3 的 Release 回归。库测试设置 `ENABLE_TESTABILITY=YES`；编译日志确认库及库测试均使用 `-O`。Demo 的库、应用和 UI 测试目标同样使用 `-O`，未启用 testability。具体编译日志行号见首轮库与 UI 运行目录的 `optimization.json`。
+
+- **首轮库通过：** 完整 **68 通过、0 失败、0 跳过**，已读取终态结果，运行后源码哈希一致。该轮早于下述 UI 测试修正。见 [库结果](Results/review-release-ipad-library/Result.xcresult) · [摘要](Results/review-release-ipad-library/summary.json)。
+- **首轮 UI：12 通过、4 失败、0 跳过。** 滚动同步、吸顶后旋转、普通页拖动、刷新、异步替换及系统侧滑返回通过。失败集中在三个标签居中前置断言，以及一个使用屏幕比例终点的纵向拖动用例。原始结果已保留，修改测试前 `sourceChangedSinceRun` 为空。见 [首轮 UI 结果](Results/review-release-ipad-ui/Result.xcresult) · [摘要](Results/review-release-ipad-ui/summary.json)。
+- **居中断言修正：** 失败截图与可访问性记录显示 iPad 视口宽 834 pt，标签 3 的 frame 为 `(201, 220, 77, 44)`，中心为 239.5 pt，内容已停在起点；强制对齐视口中心 417 pt 需要越过内容边界。现按公开约定验证“居中，或对应内容端点与视口边界重合”，保留 1 pt 精度，并要求选中项完整可见。LTR / RTL 共用这一检查，不跳过宽屏用例。长按后的实际位移仍须大于 40 pt，并核验不误切页及新点击恢复。
+- **手势坐标修正：** 原纵向拖动终点为屏幕 `(30%, 12%)`，在 iPad 上横向分量大于纵向分量，未满足纵向识别条件。现保持起点的 x 坐标并向上拖动 180 pt，继续断言页面不变、Header 完全折叠，并新增标签栏紧贴导航栏的几何断言。
+- **返回覆盖加强：** 在列表滚动吸顶后切换横竖屏，核验标签栏、导航栏和列表视口边界；小幅慢拖并停留后取消系统返回，随后新触摸仍须成功翻页；完成侧滑返回后重新进入，验证初始展开状态及再次翻页。
+- **专项通过：** 四项原失败用例及加强的旋转／返回用例，**5 通过、0 失败、0 跳过**；已读取终态 `.xcresult`，`sourceChangedSinceRun` 为空。见 [专项结果](Results/review-release-ipad-focused/Result.xcresult) · [摘要](Results/review-release-ipad-focused/summary.json)。
+- **最终 Release 库通过：** 更新 UI 测试后，在同一 iPad 重新执行完整库测试，**68 通过、0 失败、0 跳过**；已读取终态 `.xcresult`，全部输入哈希与最终源码一致。见 [最终库结果](Results/review-release-ipad-final-library/Result.xcresult) · [摘要](Results/review-release-ipad-final-library/summary.json)。
+- **最终 iPad Release UI 通过：** 同一 iPad / Xcode 26.6，无测试筛选执行完整 **16 通过、0 失败、0 跳过**。见 [最终 iPad UI 结果](Results/review-release-ipad-final-ui/Result.xcresult) · [摘要](Results/review-release-ipad-final-ui/summary.json)。
+- **iPhone Release 对照通过：** Xcode 27.1 / Swift 6.4，iPhone 18 Pro Max / iOS 27.0，完整 **16 通过、0 失败、0 跳过**。同一套边界断言、真实纵向拖动，以及加强的旋转、返回和新触摸恢复测试均通过；编译日志确认框架、Demo、UI 测试均使用 `-O`。见 [iPhone 结果](Results/review-release-iphone-ui/Result.xcresult) · [摘要](Results/review-release-iphone-ui/summary.json) · [优化设置证据](Results/review-release-iphone-ui/optimization.json)。
+- **最终合计：100 通过、0 失败、0 跳过**，不重复计入首轮与专项结果。三组最终结果均读取了终态 `.xcresult`，输入文件 SHA-256 一致且匹配最终源码，`sourceChangedSinceRun` 均为空；`git diff --check` 通过。本轮只修正 UI 测试及验证记录，框架实现与 `4bb93aa` 一致。
+- **未执行：** iPad 分屏及窗口自由缩放、其他 iPad 尺寸、iOS 15 实际运行、真机、多指实触、VoiceOver 全流程和性能压力测试。上述通过结论限定于记录的模拟器、系统、Release 配置和测试场景。
+
 ## 滚动同步、手势归属与控制器生命周期审查
 
 本次审查从干净的 `beb8520` 工作区开始，确认并修复以下问题：

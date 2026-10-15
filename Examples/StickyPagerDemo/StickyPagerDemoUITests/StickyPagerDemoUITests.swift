@@ -44,6 +44,26 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTFail("未找到可点击的标签 \(index)", file: file, line: line)
     }
 
+    private func expectSelectedTabAlignment(_ index: Int) {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let selected = app.buttons["sp.tab.\(index)"]
+        let rtl = (status.value as? String)?.contains("direction=rtl") == true
+        let leftEdge = app.buttons["sp.tab.\(rtl ? 11 : 0)"]
+        let rightEdge = app.buttons["sp.tab.\(rtl ? 0 : 11)"]
+        let aligned = NSPredicate { _, _ in
+            let viewport = tabs.frame, frame = selected.frame
+            guard selected.isSelected, frame.minX >= viewport.minX - 1,
+                  frame.maxX <= viewport.maxX + 1 else { return false }
+            let delta = frame.midX - viewport.midX
+            if abs(delta) < 1 { return true }
+            // 无法继续居中时，必须有对应的真实内容端点与视口边界重合。
+            if delta < 0 { return leftEdge.exists && abs(leftEdge.frame.minX - viewport.minX) < 1 }
+            return rightEdge.exists && abs(rightEdge.frame.maxX - viewport.maxX) < 1
+        }
+        expectation(for: aligned, evaluatedWith: selected)
+        waitForExpectations(timeout: 5)
+    }
+
     func testHeaderStartsAtScreenTopAndPageContentMeetsTabBar() {
         let header = app.otherElements["demo.headerView"]
         let tab = app.buttons["sp.tab.0"]
@@ -192,15 +212,13 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     func testScrollableTabSelectionCentersAndHorizontalDragPreservesPage() {
-        // Demo 的长短标题与更多标签为中间项提供足够的左右滚动余量。
+        // 不同设备的滚动余量不同：验证居中，以及首尾边界的精确钳制。
         let tabs = app.collectionViews["sp.tabBar.collection"]
         for (index, page) in [(3, "empty"), (9, "weekly"), (6, "hot")] {
             select(index)
             expect("page=\(page)")
             let selected = app.buttons["sp.tab.\(index)"]
-            let centered = NSPredicate { _, _ in abs(selected.frame.midX - tabs.frame.midX) < 1 }
-            expectation(for: centered, evaluatedWith: selected)
-            waitForExpectations(timeout: 5)
+            expectSelectedTabAlignment(index)
             XCTAssertTrue(selected.isSelected)
         }
         select(0)
@@ -217,10 +235,7 @@ final class StickyPagerDemoUITests: XCTestCase {
     func testHeldTabButtonYieldsToHorizontalDrag() {
         select(3); expect("page=empty")
         let tab = app.buttons["sp.tab.3"]
-        let tabs = app.collectionViews["sp.tabBar.collection"]
-        let centered = NSPredicate { _, _ in abs(tab.frame.midX - tabs.frame.midX) < 1 }
-        expectation(for: centered, evaluatedWith: tab)
-        waitForExpectations(timeout: 5)
+        expectSelectedTabAlignment(3)
         let before = tab.frame.midX
         let start = app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: before, dy: tab.frame.midY))
@@ -235,9 +250,11 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     func testTabBarVerticalDragDoesNotSelectTappedItem() {
         let tab = app.buttons["sp.tab.1"]
-        tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.12)))
+        let start = tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -180)))
         expect("page=grid")
         expect("progress=1.00")
+        XCTAssertEqual(app.buttons["sp.tab.0"].frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
     }
     func testRTLHorizontalPaging() {
         app.terminate()
@@ -249,20 +266,32 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("page=list")
         select(0); expect("page=grid")
         select(9); expect("page=weekly")
-        let selected = app.buttons["sp.tab.9"]
-        let tabs = app.collectionViews["sp.tabBar.collection"]
-        let centered = NSPredicate { _, _ in abs(selected.frame.midX - tabs.frame.midX) < 1 }
-        expectation(for: centered, evaluatedWith: selected)
-        waitForExpectations(timeout: 5)
+        expectSelectedTabAlignment(9)
     }
     func testRotationAndBackGesture() {
         select(1)
-        XCUIDevice.shared.orientation = .landscapeLeft
-        expect("page=list")
-        XCUIDevice.shared.orientation = .portrait
+        app.tables["demo.list"].swipeUp()
+        expect("progress=1.00")
+        for orientation: UIDeviceOrientation in [.landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            expect("page=list"); expect("progress=1.00")
+            XCTAssertEqual(app.buttons["sp.tab.1"].frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
+            XCTAssertEqual(app.tables["demo.list"].frame.minY, app.buttons["sp.tab.1"].frame.maxY, accuracy: 1)
+        }
         let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 1, dy: app.frame.height * 0.5))
+        // 小幅慢拖并停留后释放，取消系统返回；后续新触摸必须仍能正常翻页。
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 80, dy: 0)),
+                    withVelocity: .slow, thenHoldForDuration: 0.5)
+        expect("page=list"); expect("progress=1.00")
+        XCTAssertFalse(app.buttons["demo.open"].exists)
+        app.tables["demo.list"].swipeLeft()
+        expect("page=short"); expect("progress=1.00")
         start.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
         XCTAssertTrue(app.buttons["demo.open"].waitForExistence(timeout: 5))
+        app.buttons["demo.open"].tap()
+        expect("page=grid"); expect("progress=0.00")
+        app.collectionViews["demo.grid"].swipeLeft()
+        expect("page=list")
     }
     func testDiagonalDragAndShortContentBounce() {
         select(2)
