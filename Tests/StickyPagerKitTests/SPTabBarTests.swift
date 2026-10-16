@@ -14,7 +14,8 @@ final class SPTabBarTests: XCTestCase {
 
     private func mount(count: Int = 12, width: CGFloat = 320, rtl: Bool = false, titles: [String]? = nil) -> (SPTabBar, UICollectionView) {
         let controller = UIViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        // 宽度算法用例会放大标签栏；安全区域由容器集成测试单独验证。
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: max(2048, width), height: 844))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 100, width: width, height: 44))
@@ -106,11 +107,16 @@ final class SPTabBarTests: XCTestCase {
             let total = widths.reduce(0, +)
             XCTAssertGreaterThan(total, 200)
             bar.setSelectedIndex(1, animated: false)
-            for width in [total, total + 120, 200] {
+            for width in [total, total + 30, widths.max()! * 3, 200] {
                 bar.frame.size.width = width
                 bar.layoutIfNeeded()
                 for index in 0..<3 {
-                    XCTAssertEqual(frame(index, in: collection).width, width >= total ? width / 3 : widths[index], accuracy: 0.01)
+                    let item = frame(index, in: collection)
+                    XCTAssertGreaterThanOrEqual(item.width, widths[index], "可用总宽度足够时不能挤压长标题")
+                    if width >= widths.max()! * 3 {
+                        XCTAssertEqual(item.width, width / 3, accuracy: 0.01)
+                    }
+                    if width < total { XCTAssertEqual(item.width, widths[index], accuracy: 0.01) }
                 }
                 let target = frame(1, in: collection)
                 let offset = min(max(0, total - width), max(0, target.midX - width / 2))

@@ -5,6 +5,7 @@ final class StickyPagerDemoUITests: XCTestCase {
     private var app: XCUIApplication!
     override func setUp() async throws {
         continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
         if name.contains("testSystem") { app.launchArguments = ["--window-regression"] }
         app.launch()
@@ -36,14 +37,29 @@ final class StickyPagerDemoUITests: XCTestCase {
         let target = app.buttons["sp.tab.\(index)"]
         // 标签可能尚未创建 Cell；先滚动至可见，避免依赖 XCTest 对屏幕外元素的隐式滚动。
         for _ in 0..<20 {
-            if target.isHittable { target.tap(); return }
-            let visible = tabs.buttons.allElementsBoundByIndex.filter(\.isHittable)
+            let viewport = tabs.frame
+            if target.exists {
+                let visibleFrame = target.frame.intersection(viewport)
+                if !visibleFrame.isNull, visibleFrame.width >= 44, visibleFrame.height >= 20 {
+                    // 点击真实露出的按钮区域；避免 XCTest 在裁切标签上查询无效激活点。
+                    tabs.coordinate(withNormalizedOffset: .zero).withOffset(
+                        CGVector(dx: visibleFrame.midX - viewport.minX, dy: visibleFrame.midY - viewport.minY)
+                    ).tap()
+                    return
+                }
+            }
+            // 仅查询物理可见范围；iOS 27 对裁切按钮的 isHittable 查询可能抛出激活点错误。
+            let visible = tabs.buttons.allElementsBoundByIndex.filter {
+                let visibleFrame = $0.frame.intersection(viewport)
+                return !visibleFrame.isNull && visibleFrame.width > 1 && visibleFrame.height > 1
+            }
                 .compactMap { Int($0.identifier.replacingOccurrences(of: "sp.tab.", with: "")) }
             guard let first = visible.min() else { break }
             let towardStart = index < first
             let rtl = (status.value as? String)?.contains("direction=rtl") == true
             // 短标签容易被快速 swipe 的惯性整段越过；使用小幅拖动逐步查找。
-            let movesRight = towardStart != rtl
+            // 目标已露出一部分时按物理位置补足；它等于首个可见索引，不能按 index < first 判断方向。
+            let movesRight = target.exists ? target.frame.midX < viewport.midX : towardStart != rtl
             let start = tabs.coordinate(withNormalizedOffset: CGVector(dx: movesRight ? 0.3 : 0.7, dy: 0.5))
             let end = tabs.coordinate(withNormalizedOffset: CGVector(dx: movesRight ? 0.7 : 0.3, dy: 0.5))
             start.press(forDuration: 0.1, thenDragTo: end)
@@ -376,6 +392,72 @@ final class StickyPagerDemoUITests: XCTestCase {
         select(9); expect("page=weekly")
         expectSelectedTabAlignment(9)
     }
+    func testSafeAreaTabsLTR() { verifySafeAreaTabs(rtl: false, largeText: false) }
+    func testSafeAreaTabsRTL() { verifySafeAreaTabs(rtl: true, largeText: false) }
+    func testSafeAreaTabsLargeTextLTR() { verifySafeAreaTabs(rtl: false, largeText: true) }
+    func testSafeAreaTabsLargeTextRTL() { verifySafeAreaTabs(rtl: true, largeText: true) }
+
+    private func verifySafeAreaTabs(rtl: Bool, largeText: Bool) {
+        app.terminate()
+        app.launchArguments = ["--open-demo"] + (rtl ? ["--rtl"] : [])
+        if largeText {
+            app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        }
+        app.launch()
+        XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        for orientation: UIDeviceOrientation in [.portrait, .landscapeLeft, .landscapeRight] {
+            XCUIDevice.shared.orientation = orientation
+            expect(orientation == .portrait ? "page=grid" : "page=weekly")
+            expectSelectedTabAlignment(orientation == .portrait ? 0 : 9)
+            select(0); expect("page=grid")
+            expectSelectedTabAlignment(0)
+            let viewport = tabs.frame
+            if orientation == .portrait {
+                XCTAssertEqual(viewport.minX, app.frame.minX, accuracy: 1)
+                XCTAssertEqual(viewport.maxX, app.frame.maxX, accuracy: 1)
+            } else {
+                XCTAssertGreaterThan(viewport.minX, app.frame.minX)
+                XCTAssertLessThan(viewport.maxX, app.frame.maxX)
+                // 安全区域外的背景不应命中标签或切换页面。
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: viewport.minX / 2, dy: viewport.midY)).tap()
+                expect("page=grid")
+            }
+            if largeText { XCTAssertGreaterThan(viewport.height, 44) }
+            else { XCTAssertEqual(viewport.height, 44, accuracy: 1) }
+            select(11); expect("page=topics")
+            expectSelectedTabAlignment(11)
+            select(9); expect("page=weekly")
+            expectSelectedTabAlignment(9)
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "safe-area-\(rtl ? "rtl" : "ltr")-\(largeText ? "axxxl" : "default")-\(orientation.rawValue)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            // 从标签栏内开始纵向拖动，避免横屏时列表的默认 swipe 起点落入底部工具栏。
+            let expandedCenterY = tabs.frame.midY
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let collapseStart = origin.withOffset(CGVector(dx: tabs.frame.midX, dy: expandedCenterY))
+            collapseStart.press(forDuration: 0.05,
+                                thenDragTo: origin.withOffset(CGVector(dx: tabs.frame.midX, dy: app.navigationBars.firstMatch.frame.maxY + 4)),
+                                withVelocity: .slow, thenHoldForDuration: 0.2)
+            expect("progress=1.00")
+            XCTAssertEqual(tabs.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
+            let collapsed = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            collapsed.name = "safe-area-collapsed-\(rtl ? "rtl" : "ltr")-\(largeText ? "axxxl" : "default")-\(orientation.rawValue)"
+            collapsed.lifetime = .keepAlways
+            add(collapsed)
+            // 折叠拖动也可能推进正文；用后续新触摸消耗这段位移，再恢复完全展开。
+            for _ in 0..<3 {
+                if (status.value as? String)?.contains("progress=0.00") == true { break }
+                let expandStart = origin.withOffset(CGVector(dx: tabs.frame.midX, dy: tabs.frame.midY))
+                expandStart.press(forDuration: 0.05,
+                                  thenDragTo: origin.withOffset(CGVector(dx: tabs.frame.midX, dy: min(app.frame.maxY - 90, expandedCenterY + 90))),
+                                  withVelocity: .slow, thenHoldForDuration: 0.2)
+            }
+            expect("progress=0.00")
+        }
+    }
+
     func testRotationAndBackGesture() {
         select(1)
         app.tables["demo.list"].swipeUp()

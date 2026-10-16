@@ -28,7 +28,7 @@ open class SPTabBar: UIView {
     private var displayLink: CADisplayLink?
     private let displayTarget = SPDisplayLinkTarget()
     private var needsSelectionAlignment = true
-    private var previousSize: CGSize = .zero
+    private var previousViewport: CGRect = .zero
     private var previousDirection: UIUserInterfaceLayoutDirection?
     private var titleFont: UIFont { .preferredFont(forTextStyle: .subheadline, compatibleWith: traitCollection) }
 
@@ -59,6 +59,28 @@ open class SPTabBar: UIView {
     public required init?(coder: NSCoder) { fatalError("请使用 init(frame:)") }
 
     isolated deinit { displayLink?.invalidate() }
+
+    /// 背景可延伸至屏幕边缘，文字、指示器和触摸使用同一安全视口。
+    private var contentViewport: CGRect {
+        let left = min(bounds.width, max(0, safeAreaInsets.left))
+        let right = min(bounds.width - left, max(0, safeAreaInsets.right))
+        return CGRect(x: bounds.minX + left, y: bounds.minY,
+                      width: max(0, bounds.width - left - right), height: bounds.height)
+    }
+
+    open override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        setNeedsLayout()
+    }
+
+    open override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        super.point(inside: point, with: event) && contentViewport.contains(point)
+    }
+
+    /// 标题保持垂直居中；上下各留 11 pt，底部扣除 3 pt 指示器后仍有 8 pt。
+    open override func sizeThatFits(_ size: CGSize) -> CGSize {
+        CGSize(width: size.width, height: max(44, ceil(titleFont.lineHeight) + 22))
+    }
 
     open override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -135,11 +157,12 @@ open class SPTabBar: UIView {
             for: semanticContentAttribute,
             relativeTo: superview?.effectiveUserInterfaceLayoutDirection ?? effectiveUserInterfaceLayoutDirection
         )
-        let geometryChanged = previousSize != bounds.size || previousDirection != direction
-        previousSize = bounds.size
+        let viewport = contentViewport
+        let geometryChanged = previousViewport != viewport || previousDirection != direction
+        previousViewport = viewport
         previousDirection = direction
         tabLayout.isRightToLeft = direction == .rightToLeft
-        collectionView.frame = bounds
+        collectionView.frame = viewport
         collectionView.layoutIfNeeded()
         if geometryChanged || needsSelectionAlignment {
             transitionOrigin = nil
@@ -157,13 +180,14 @@ open class SPTabBar: UIView {
             updateVisibleCells()
             needsSelectionAlignment = true
             setNeedsLayout()
+            superview?.setNeedsLayout()
         }
     }
 
     private func updateMetrics() {
         let font = titleFont
         tabLayout.itemWidths = items.map {
-            ceil(($0.title as NSString).size(withAttributes: [.font: font]).width) + 32
+            max(44, ceil(($0.title as NSString).size(withAttributes: [.font: font]).width) + 32)
         }
     }
 

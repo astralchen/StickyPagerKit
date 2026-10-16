@@ -79,6 +79,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
     private var effectiveLayout: SPPageLayout {
         var value = layout.normalized
+        // 配置高度作为下限；辅助字号需要更高的标签栏，0 仍表示隐藏。
+        if value.tabBarHeight > 0 {
+            value.tabBarHeight = max(value.tabBarHeight, storedTabBar.sizeThatFits(.zero).height)
+        }
         if storedHeaderView == nil && storedHeaderController == nil { value.headerHeight = 0; value.minimumHeaderHeight = 0 }
         // Header 从容器顶部铺开，标签栏仍在安全区域下方吸顶。
         // 高度不足时补足吸顶基线，避免标签栏进入导航栏或产生负折叠距离。
@@ -357,15 +361,15 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         publishHeader()
     }
     private func layoutHeader() {
-        let l = effectiveLayout, safe = view.safeAreaInsets
-        let width = max(0, view.bounds.width - safe.left - safe.right)
+        let l = effectiveLayout
         headerHost.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: max(0, l.headerHeight - collapseOffset))
         headerHost.contentSize = CGSize(width: view.bounds.width, height: l.headerHeight)
         headerHost.contentOffset = CGPoint(x: 0, y: collapseOffset)
         let contentFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: l.headerHeight)
         storedHeaderView?.frame = contentFrame
         storedHeaderController?.view.frame = contentFrame
-        storedTabBar.frame = CGRect(x: safe.left, y: headerHost.frame.maxY, width: width, height: l.tabBarHeight)
+        // 背景铺满容器，标签栏内部负责交互内容的左右安全区域避让。
+        storedTabBar.frame = CGRect(x: 0, y: headerHost.frame.maxY, width: view.bounds.width, height: l.tabBarHeight)
         for record in records.values where record.binding == nil {
             let inset = max(0, l.collapseRange - collapseOffset)
             var frame = record.controller.view.frame

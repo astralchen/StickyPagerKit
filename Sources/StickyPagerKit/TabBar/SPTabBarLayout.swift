@@ -1,6 +1,6 @@
 import UIKit
 
-/// 内容超出一屏时使用各项固有宽度，否则均分可用宽度。几何信息不依赖 Cell 是否已显示。
+/// 优先保证标题固有宽度；每项均能容纳时才等宽，超出视口时横向滚动。
 @MainActor
 final class SPTabBarLayout: UICollectionViewLayout {
     var itemWidths: [CGFloat] = [] {
@@ -24,12 +24,13 @@ final class SPTabBarLayout: UICollectionViewLayout {
             return width.isFinite ? max(0, width) : 32
         }
         let totalWidth = widths.reduce(0, +)
-        let fillsWidth = totalWidth <= size.width
         let equalWidth = itemCount > 0 ? size.width / CGFloat(itemCount) : 0
+        let canDistributeEqually = (widths.max() ?? 0) <= equalWidth
+        let extraWidth = itemCount > 0 ? max(0, size.width - totalWidth) / CGFloat(itemCount) : 0
         var x: CGFloat = 0
         frames = (0..<itemCount).map { visualIndex in
             let index = isRightToLeft ? itemCount - 1 - visualIndex : visualIndex
-            let width = fillsWidth ? equalWidth : widths[index]
+            let width = canDistributeEqually ? equalWidth : widths[index] + extraWidth
             defer { x += width }
             return CGRect(x: x, y: 0, width: width, height: size.height)
         }

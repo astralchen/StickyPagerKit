@@ -2,6 +2,18 @@
 
 验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 标签栏安全区域、长标题与 Dynamic Type
+
+2026-10-16，使用 Xcode 27.1 / Debug，完成截图对应 iPhone 18 Pro Max / iOS 27.0 的 UI 验证，并在 iPhone 18 Pro Max / iOS 27.0、iPhone 17 Pro / iOS 26.5 上执行完整库测试。
+
+- **修复：** 标签栏背景使用容器全宽，内部 Collection View、指示器和触摸命中共用左右安全视口；安全区域变化会重新对齐选中项，RTL 不交换物理左右 inset。只有最长标题也能放入均分项时才使用等宽；否则保留标题固有宽度，再分配剩余空间或横向滚动。此策略替代下方历史“自适应标签宽度”记录中的总宽度均分条件。
+- **大字体：** `tabBarHeight` 作为最小高度（0 仍隐藏），默认标签栏通过 `sizeThatFits(_:)` 按字体行高预留上下空间和指示器空间；容器同步调整页面起点。独立使用或自定义子类的高度与安全区域约定已同步到主 README。
+- **修复前：** 两项新增／修订回归均失败，分别覆盖背景宽度与左右安全区域命中，以及不等长标题的均分挤压。见 [基线结果](Results/safe-area-tabs-20261016/baseline/summary.json)。
+- **最终完整库：** iOS 27.0 和 iOS 26.5 各 **83 项通过，0 失败，0 跳过**。真实 UIWindow 断言覆盖非对称 inset 交换、LTR／RTL 首尾按钮命中、背景全宽、字号增大及恢复、文字垂直空间、页面起点和高度 0。见 [iOS 27 摘要](Results/safe-area-tabs-20261016/library-ios27/summary.json) · [iOS 26 摘要](Results/safe-area-tabs-20261016/library-ios26/summary.json)。
+- **最终定向 UI：7 项通过，0 失败，0 跳过。** 其中四项矩阵用例覆盖竖屏、左横屏、右横屏 × LTR／RTL × 默认字号／最大辅助字号，共 12 个组合；每个组合验证首尾切页、选中项对齐、旋转后的选择保持、标签栏纵向拖动吸顶及新触摸恢复展开，保存展开和吸顶共 24 张截图。另三项覆盖按钮按住后横向拖动、系统返回和旋转、纵向拖动不误选。见 [最大字号 RTL](Results/safe-area-tabs-20261016/ui-large-rtl/summary.json) · [其余六项](Results/safe-area-tabs-20261016/ui-matrix/summary.json) · [截图](Results/safe-area-tabs-20261016/screenshots)。
+- **测试夹具修订：** 首轮 UI 暴露了继承初始横屏方向、对裁切按钮查询 `isHittable` 失败，以及默认列表 swipe 路径无法可靠驱动横屏折叠的问题。现每项从竖屏开始，点击安全视口中真实可见的按钮区域，再断言选择与对齐；折叠／展开使用标签栏上的真实纵向拖动，后续触摸继续消耗正文位移。保留首轮 [失败摘要](Results/safe-area-tabs-20261016/initial-ui/summary.json)，未放宽最终几何和状态断言。
+- **证据边界：** 已读取四份最终终态 `.xcresult`，输入文件哈希与当前源文件匹配，`sourceChangedSinceRun` 为空。未执行完整 Demo UI 套件、Release、iPad、真机、VoiceOver 全流程或性能基准。见 [本轮汇总](Results/safe-area-tabs-20261016/summary.json)。
+
 ## 横向分页期间隐藏子页面滚动指示器
 
 2026-10-16，在 `44b5259` 基础上，使用 Xcode 27.1 / Swift 6.4 / Debug、iPhone 18 Pro Max / iOS 27.0 模拟器验证。

@@ -6,6 +6,7 @@ public struct SPPageLayout: Equatable, Sendable {
     public var headerHeight: CGFloat
     /// 完全折叠后在顶部安全区域下方保留的 Header 高度；默认 0，标签栏停在安全区域边缘。
     public var minimumHeaderHeight: CGFloat
+    /// 标签栏最小高度；默认标签栏会为 Dynamic Type 增高。0 表示隐藏。
     public var tabBarHeight: CGFloat
 
     public init(headerHeight: CGFloat = 0, minimumHeaderHeight: CGFloat = 0, tabBarHeight: CGFloat = 44) {

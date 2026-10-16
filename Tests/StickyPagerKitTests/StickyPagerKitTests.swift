@@ -733,6 +733,64 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertLessThanOrEqual(binding.position, binding.maximumPosition + 0.5)
     }
 
+    func testTabBarBackgroundAndHitRegionsRespectSafeArea() throws {
+        let pager = mount()
+        for rtl in [false, true] {
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            for insets in [UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 60),
+                           UIEdgeInsets(top: 0, left: 60, bottom: 0, right: 24), .zero] {
+                pager.additionalSafeAreaInsets = insets
+                pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+                let bar = pager.tabBar
+                bar.setNeedsLayout(); bar.layoutIfNeeded()
+                let collection = try XCTUnwrap(bar.subviews.compactMap { $0 as? UICollectionView }.first)
+                XCTAssertEqual(bar.frame.minX, 0, accuracy: 0.01)
+                XCTAssertEqual(bar.frame.width, pager.view.bounds.width, accuracy: 0.01)
+                XCTAssertEqual(collection.frame.minX, pager.view.safeAreaInsets.left, accuracy: 0.01)
+                XCTAssertEqual(collection.frame.maxX, pager.view.bounds.width - pager.view.safeAreaInsets.right, accuracy: 0.01)
+                if insets.left > 0 {
+                    XCTAssertNil(bar.hitTest(CGPoint(x: 1, y: bar.bounds.midY), with: nil))
+                    XCTAssertNil(bar.hitTest(CGPoint(x: bar.bounds.maxX - 1, y: bar.bounds.midY), with: nil))
+                }
+                for index in [0, 3] {
+                    bar.setSelectedIndex(index, animated: false)
+                    collection.layoutIfNeeded()
+                    let cell = try XCTUnwrap(collection.cellForItem(at: IndexPath(item: index, section: 0)))
+                    let button = try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? UIButton }.first)
+                    let center = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: bar)
+                    XCTAssertTrue(bar.hitTest(center, with: nil) === button)
+                }
+            }
+        }
+    }
+
+    func testTabBarDynamicTypePreservesReadableTitlesAndPageBoundary() throws {
+        let pager = mount(inNavigation: true)
+        let navigation = try XCTUnwrap(pager.navigationController)
+        for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge, .large] {
+            navigation.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: category), forChild: pager)
+            pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+            let bar = pager.tabBar
+            bar.layoutIfNeeded()
+            let collection = try XCTUnwrap(bar.subviews.compactMap { $0 as? UICollectionView }.first)
+            let cell = try XCTUnwrap(collection.cellForItem(at: IndexPath(item: 0, section: 0)))
+            let button = try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? UIButton }.first)
+            button.layoutIfNeeded()
+            let label = try XCTUnwrap(button.titleLabel)
+            XCTAssertGreaterThanOrEqual(label.frame.height + 1, label.font.lineHeight)
+            XCTAssertGreaterThanOrEqual(label.frame.minY, 7)
+            XCTAssertLessThanOrEqual(label.frame.maxY, bar.bounds.height - 10)
+            XCTAssertGreaterThanOrEqual(button.bounds.height, 44)
+            XCTAssertEqual(bar.frame.height, category == .large ? 44 : bar.sizeThatFits(.zero).height, accuracy: 0.01)
+            let scroll = try XCTUnwrap(pager.currentScrollView)
+            XCTAssertEqual(scroll.convert(.zero, to: pager.view).y, bar.frame.maxY, accuracy: 0.5)
+            XCTAssertEqual(pager.selectedIndex, 0)
+        }
+        pager.layout.tabBarHeight = 0
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(pager.tabBar.bounds.height, 0)
+    }
+
     func testResizeAndSafeAreaKeepsSelectionAndFrame() {
         let pager = mount()
         pager.setSelectedIndex(1, animated: false)
