@@ -114,7 +114,7 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 在导航容器内展示全屏 Header 时，宿主需允许根视图向顶部延伸。iOS 26+ 保留系统导航栏外观即可，避免透明 `UIBarAppearance` 定制干扰原生效果；旧系统可配置当前页面的透明导航外观，并按需求处理 Header 前景内容在导航栏下方的裁剪。Demo 已实现这两条路径，框架不修改业务导航栏外观。
 
-`viewControllerAt` 返回的内容页根视图延伸至容器底边，不扣除底部 Safe Area；容器全屏显示时即与屏幕底边对齐。Header 展开、折叠及切页时保持这一底部边界。滚动内容通过 UIKit 的 `adjustedContentInset` 避开底部安全区域及系统栏，普通页面可用 `safeAreaLayoutGuide` 布局需避让的控件；框架保留业务指定的 inset 调整策略。
+`viewControllerAt` 返回的内容页根视图铺满容器宽度并延伸至容器底边，不扣除左右及底部 Safe Area；容器全屏显示时即与屏幕左右边界和底边对齐，嵌入较窄的父容器时以实际容器宽度为准。Header 展开、折叠及切页时保持这些边界。横向分页步长随容器宽度更新。页面背景可铺满根视图，普通页面的文字和按钮应使用 `safeAreaLayoutGuide` 避让安全区域，滚动内容按 UIKit 的 `adjustedContentInset` 及业务指定的 inset 调整策略避让。框架保留业务配置；使用 `.never` 的页面需自行处理安全区域。
 
 框架只持有自己添加的 inset 增量，解绑时移除并恢复原有纵向回弹配置。业务需要更新 inset 时，赋值完整的业务基准值，框架随后重新叠加自身贡献；不要将读取到的、已经含框架贡献的 inset 再作为新基准写回。
 

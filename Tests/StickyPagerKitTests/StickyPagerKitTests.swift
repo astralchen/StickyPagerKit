@@ -328,6 +328,39 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(scroll.contentInset.top, 0, accuracy: 0.01)
         XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top, accuracy: 0.01)
     }
+    func testPageWidthFillsContainerAndPreservesHorizontalSafeArea() {
+        let pager = mount(ids: [0, 1], plain: [1])
+        for rtl in [false, true] {
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            for size in [CGSize(width: 390, height: 844), CGSize(width: 844, height: 390)] {
+                pager.view.frame.size = size
+                for inset in [CGFloat(32), 0, 48] {
+                    pager.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset / 2)
+                    pager.view.setNeedsLayout()
+                    pager.view.layoutIfNeeded()
+                    for index in [0, 1, 0] {
+                        pager.setSelectedIndex(index, animated: false)
+                        pager.view.layoutIfNeeded()
+                        // 切页后 UIKit 会在下一轮布局中更新从屏幕外移入的子页面安全区域。
+                        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                        let child = pager.records[index]!.controller.view!
+                        child.layoutIfNeeded()
+                        let frame = child.convert(child.bounds, to: pager.view)
+                        XCTAssertTrue(child.window === window)
+                        XCTAssertEqual(frame.minX, 0, accuracy: 0.01)
+                        XCTAssertEqual(frame.maxX, pager.view.bounds.width, accuracy: 0.01)
+                        XCTAssertEqual(child.bounds.width, pager.view.bounds.width, accuracy: 0.01)
+                        let safeFrame = child.convert(child.safeAreaLayoutGuide.layoutFrame, to: pager.view)
+                        XCTAssertEqual(safeFrame.minX, pager.view.safeAreaInsets.left, accuracy: 0.01,
+                                       "index=\(index), rtl=\(rtl), size=\(size), inset=\(inset), childSafe=\(child.safeAreaInsets)")
+                        XCTAssertEqual(safeFrame.maxX, pager.view.bounds.width - pager.view.safeAreaInsets.right, accuracy: 0.01)
+                        XCTAssertEqual(pager.selectedIndex, index)
+                    }
+                }
+            }
+        }
+    }
+
     func testPageBottomFillsContainerAndPreservesSafeAreaInsets() {
         let pager = mount(plain: [1])
         let scroll = pager.currentScrollView!
@@ -798,7 +831,7 @@ final class StickyPagerKitTests: XCTestCase {
         pager.view.frame.size = CGSize(width: 700, height: 500)
         pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
         XCTAssertEqual(pager.selectedIndex, 1)
-        XCTAssertEqual(pager.pagingView.bounds.width, pager.view.bounds.width - pager.view.safeAreaInsets.left - pager.view.safeAreaInsets.right, accuracy: 0.01)
+        XCTAssertEqual(pager.pagingView.bounds.width, pager.view.bounds.width, accuracy: 0.01)
         XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width, accuracy: 0.01)
     }
     func testRTLPhysicalOrderKeepsLogicalIndex() {

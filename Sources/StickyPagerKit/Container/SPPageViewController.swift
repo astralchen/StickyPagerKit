@@ -178,7 +178,6 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     open override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        let safe = view.safeAreaInsets
         let l = effectiveLayout
         isLayingOutPages = true
         previousBoundsSize = view.bounds.size
@@ -191,9 +190,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             previousCollapseRange = l.collapseRange
             stopAnimation()
         }
-        // 页面延伸至容器底边；底部安全区域由子页面的布局或自动滚动 inset 处理。
-        let pageFrame = CGRect(x: safe.left, y: l.minimumHeaderHeight + l.tabBarHeight,
-                               width: max(0, view.bounds.width - safe.left - safe.right),
+        // 页面铺满容器宽度并延伸至底边；安全区域由子页面的布局或自动滚动 inset 处理。
+        let pageFrame = CGRect(x: 0, y: l.minimumHeaderHeight + l.tabBarHeight,
+                               width: view.bounds.width,
                                height: max(0, view.bounds.height - l.minimumHeaderHeight - l.tabBarHeight))
         let sizeChanged = pageFrame.size != previousSize
         if sizeChanged {
@@ -204,6 +203,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         suppressPaging = true
         pagingView.frame = pageFrame
         pagingView.contentSize = CGSize(width: pageFrame.width * CGFloat(identifiers.count), height: pageFrame.height)
+        // 先对齐分页视口，再布局子页，避免 RTL 尺寸变化时按旧偏移计算子页安全区域。
+        if !pagingView.isDragging && !pagingView.isDecelerating && transitionTarget == nil { alignPaging() }
         for (id, record) in records {
             guard let index = identifiers.firstIndex(of: id) else { continue }
             let inset = record.binding == nil ? max(0, l.collapseRange - collapseOffset) : 0
@@ -222,7 +223,6 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
                 align(record)
             }
         }
-        if !pagingView.isDragging && !pagingView.isDecelerating && transitionTarget == nil { alignPaging() }
         suppressPaging = false
         if rangeChanged { publishHeader() } else { layoutHeader() }
     }
