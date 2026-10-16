@@ -123,7 +123,9 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
     func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController {
         switch pageIDs[index] {
         case "grid": return DemoGrid()
-        case "list": return DemoList(count: 80)
+        case "list":
+            if ProcessInfo.processInfo.arguments.contains("--mixed-page") { return DemoMixedPage() }
+            return DemoList(count: 80)
         case "short": return DemoList(count: 3)
         case "empty": return DemoList(count: 0)
         case "plain": return DemoPlain()
@@ -216,6 +218,42 @@ private final class RegressionTableView: UITableView {
             return String(data: data, encoding: .utf8)
         }
         set { super.accessibilityValue = newValue }
+    }
+}
+
+@MainActor
+final class DemoMixedPage: UIViewController, UITableViewDataSource {
+    private let label = UILabel()
+    private let table = RegressionTableView(frame: .zero, style: .plain)
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        label.text = "固定说明 · 始终位于标签栏下方"
+        label.accessibilityIdentifier = "demo.mixed.label"
+        label.translatesAutoresizingMaskIntoConstraints = false
+        table.accessibilityIdentifier = "demo.list"
+        table.translatesAutoresizingMaskIntoConstraints = false
+        table.dataSource = self
+        table.rowHeight = 60
+        table.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+        view.addSubview(label)
+        view.addSubview(table)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            label.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            label.heightAnchor.constraint(equalToConstant: 28),
+            table.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
+            table.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            table.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            table.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 80 }
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
+        cell.textLabel?.text = "混合页面内容 \(indexPath.row + 1)"
+        return cell
     }
 }
 

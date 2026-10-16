@@ -207,10 +207,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         if !pagingView.isDragging && !pagingView.isDecelerating && transitionTarget == nil { alignPaging() }
         for (id, record) in records {
             guard let index = identifiers.firstIndex(of: id) else { continue }
-            let inset = record.binding == nil ? max(0, l.collapseRange - collapseOffset) : 0
-            record.controller.view.frame = CGRect(x: physicalIndex(index) * pageFrame.width, y: inset, width: pageFrame.width, height: max(0, pageFrame.height - inset))
-            record.controller.view.layoutIfNeeded()
-            record.binding?.setRange(l.collapseRange)
+            layoutPage(record, at: index, layout: l)
             if rangeChanged || sizeChanged {
                 align(record)
                 // inset 与定位会触发 UITableView 的行高结算；完成布局后再恢复契约中的内容位移。
@@ -370,15 +367,29 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         storedHeaderController?.view.frame = contentFrame
         // 背景铺满容器，标签栏内部负责交互内容的左右安全区域避让。
         storedTabBar.frame = CGRect(x: 0, y: headerHost.frame.maxY, width: view.bounds.width, height: l.tabBarHeight)
-        for record in records.values where record.binding == nil {
-            let inset = max(0, l.collapseRange - collapseOffset)
-            var frame = record.controller.view.frame
-            frame.origin.y = inset
-            frame.size.height = max(0, pagingView.bounds.height - inset)
-            record.controller.view.frame = frame
+        let wasLayingOut = isLayingOutPages
+        isLayingOutPages = true
+        for (id, record) in records {
+            guard let index = identifiers.firstIndex(of: id) else { continue }
+            layoutPage(record, at: index, layout: l)
         }
+        isLayingOutPages = wasLayingOut
         view.bringSubviewToFront(headerHost)
         view.bringSubviewToFront(storedTabBar)
+    }
+    private func layoutPage(_ record: SPPageRecord, at index: Int, layout: SPPageLayout) {
+        let inset = max(0, layout.collapseRange - collapseOffset)
+        let updates = {
+            record.controller.view.frame = CGRect(
+                x: self.physicalIndex(index) * self.pagingView.bounds.width, y: inset,
+                width: self.pagingView.bounds.width, height: max(0, self.pagingView.bounds.height - inset))
+            record.controller.view.layoutIfNeeded()
+        }
+        if let binding = record.binding {
+            binding.layoutPage(range: layout.collapseRange, collapse: collapseOffset, updates: updates)
+        } else {
+            updates()
+        }
     }
     private func publishHeader() {
         layoutHeader()
@@ -399,11 +410,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         records[id] = record
         addChild(controller)
         pagingView.addSubview(controller.view)
-        controller.view.frame = CGRect(x: physicalIndex(index) * pagingView.bounds.width, y: 0, width: pagingView.bounds.width, height: pagingView.bounds.height)
-        controller.view.layoutIfNeeded()
+        layoutPage(record, at: index, layout: effectiveLayout)
         controller.didMove(toParent: self)
         bind(record)
-        // 普通页没有滚动绑定，首次装载也要立即应用展开 Header 的占位。
+        // 首次绑定后同步页面位移和滚动 inset，所有页面均紧接当前标签栏。
         layoutHeader()
         return record
     }
@@ -431,6 +441,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             self.stopAnimation()
             self.consume(binding)
         }
+        layoutHeader()
         align(record)
         view.setNeedsLayout()
     }

@@ -14,8 +14,9 @@ final class StickyPagerKitTests: XCTestCase {
             window = nil; pager = nil; source = nil
     }
 
-    private func mount(ids: [Int] = [0, 1, 2, 3], plain: Set<Int> = [], height: CGFloat = 1800, inNavigation: Bool = false) -> SPPageViewController {
+    private func mount(ids: [Int] = [0, 1, 2, 3], plain: Set<Int> = [], height: CGFloat = 1800, inNavigation: Bool = false, mixedLayout: Bool? = nil) -> SPPageViewController {
         let source = FixtureSource(ids: ids, plain: plain, contentHeight: height)
+        source.mixedLayout = mixedLayout
         let pager = SPPageViewController()
         pager.dataSource = source
         pager.headerView = UIView()
@@ -30,6 +31,86 @@ final class StickyPagerKitTests: XCTestCase {
         pager.layout.headerHeight = 240 + pager.view.safeAreaInsets.top
         self.window = window; self.source = source; self.pager = pager
         return pager
+    }
+
+    func testSiblingLabelAndScrollStayBelowTabBar() throws {
+        for belowLabel in [true, false] {
+            let pager = mount(inNavigation: true, mixedLayout: belowLabel)
+            let page = try XCTUnwrap(pager.records[0]?.controller as? MixedFixturePage)
+            let scroll = page.scroll
+            for behavior: UIScrollView.ContentInsetAdjustmentBehavior in [.automatic, .never] {
+                scroll.contentInsetAdjustmentBehavior = behavior
+                for position: CGFloat in [0, 40, 120, 200, 350, 200, 50, 0, -25, 0] {
+                    scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+                    pager.view.layoutIfNeeded()
+                    page.view.layoutIfNeeded()
+                    let root = page.view.convert(page.view.bounds, to: pager.view)
+                    let label = page.label.convert(page.label.bounds, to: pager.view)
+                    let scrollFrame = scroll.convert(scroll.bounds, to: pager.view)
+                    XCTAssertEqual(root.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                    XCTAssertEqual(root.maxY, pager.view.bounds.maxY, accuracy: 0.01)
+                    XCTAssertEqual(label.minY, pager.tabBar.frame.maxY + 12, accuracy: 0.01)
+                    XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+                    let contentTop = scroll.convert(.zero, to: pager.view).y
+                    XCTAssertEqual(contentTop, scrollFrame.minY - max(0, position - 200) - min(0, position), accuracy: 0.01)
+                    if belowLabel { XCTAssertEqual(scrollFrame.minY, label.maxY + 8, accuracy: 0.01) }
+                }
+            }
+        }
+    }
+
+    func testMixedPageResizeSafeAreaAndPagingPreserveGeometry() throws {
+        let pager = mount(mixedLayout: true)
+        for rtl in [false, true] {
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            for size in [CGSize(width: 390, height: 844), CGSize(width: 844, height: 390)] {
+                window!.frame.size = size
+                pager.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 21, bottom: 25, right: 13)
+                pager.view.setNeedsLayout()
+                pager.view.layoutIfNeeded()
+                for position: CGFloat in [0, 80, 200, 350] {
+                    let page = try XCTUnwrap(pager.records[0]?.controller as? MixedFixturePage)
+                    page.scroll.contentOffset.y = position - page.scroll.adjustedContentInset.top
+                    pager.setSelectedIndex(1, animated: false)
+                    pager.view.layoutIfNeeded()
+                    for record in pager.records.values {
+                        let child = try XCTUnwrap(record.controller as? MixedFixturePage)
+                        let root = child.view.convert(child.view.bounds, to: pager.view)
+                        let label = child.label.convert(child.label.bounds, to: pager.view)
+                        XCTAssertEqual(root.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                        XCTAssertEqual(root.maxY, pager.view.bounds.maxY, accuracy: 0.01)
+                        XCTAssertEqual(label.minY, root.minY + 12, accuracy: 0.01)
+                        XCTAssertEqual(label.width, root.width - child.view.safeAreaInsets.left - child.view.safeAreaInsets.right - 32, accuracy: 0.01)
+                    }
+                    pager.setSelectedIndex(0, animated: false)
+                    XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+                }
+            }
+        }
+    }
+
+    func testMixedShortPageHasPhysicalCollapseRangeAndRestoresBusinessInsets() throws {
+        for height: CGFloat in [0, 100] {
+            let pager = mount(height: height, mixedLayout: true)
+            let page = try XCTUnwrap(pager.records[0]?.controller as? MixedFixturePage)
+            let scroll = page.scroll
+            let base = UIEdgeInsets(top: 7, left: 3, bottom: 19, right: 5)
+            scroll.contentInset = base
+            for position: CGFloat in [0, 40, 150, 200, 50, 0] {
+                scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+                XCTAssertEqual(pager.collapseOffset, position, accuracy: 0.01)
+                XCTAssertEqual(scroll.contentInset.top, base.top + position, accuracy: 0.01)
+                // 直接检查 UIKit 的实际可滚动范围，不能只依赖 maximumPosition 的下限钳制。
+                let physicalRange = scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom - scroll.bounds.height
+                XCTAssertEqual(physicalRange, 200, accuracy: 0.01)
+                XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+                XCTAssertEqual(scroll.convert(.zero, to: pager.view).y, page.label.convert(page.label.bounds, to: pager.view).maxY + 8 + base.top, accuracy: 0.01)
+            }
+            source!.ids.removeFirst()
+            pager.reloadData()
+            XCTAssertEqual(scroll.contentInset, base)
+            XCTAssertNil(page.parent)
+        }
     }
 
     func testShortContentDoesNotShowIndicatorForSyntheticScrollRange() {
@@ -69,9 +150,9 @@ final class StickyPagerKitTests: XCTestCase {
         }
         pager.setSelectedIndex(1, animated: false)
         let next = pager.currentScrollView!
-        XCTAssertEqual(next.verticalScrollIndicatorInsets.top, 150, accuracy: 0.01)
+        XCTAssertEqual(next.verticalScrollIndicatorInsets.top, 0, accuracy: 0.01)
         pager.layout.headerHeight += 40
-        XCTAssertEqual(next.verticalScrollIndicatorInsets.top, 190, accuracy: 0.01)
+        XCTAssertEqual(next.verticalScrollIndicatorInsets.top, 0, accuracy: 0.01)
     }
 
     func testBindingRestoresLatestIndicatorPreferences() {
@@ -281,7 +362,7 @@ final class StickyPagerKitTests: XCTestCase {
                 XCTAssertEqual(headerScroll.contentOffset.y, collapse, accuracy: 0.01)
                 XCTAssertEqual(header.frame.height, 240, accuracy: 0.01)
                 XCTAssertEqual(pager.tabBar.frame.minY, 240 - collapse, accuracy: 0.01)
-                XCTAssertEqual(scroll.contentInset.top, range + 13, accuracy: 0.01)
+                XCTAssertEqual(scroll.contentInset.top, collapse + 13, accuracy: 0.01)
                 let contentTop = scroll.convert(CGPoint.zero, to: pager.view).y
                 XCTAssertEqual(contentTop, pager.tabBar.frame.maxY + 13 - max(0, position - range), accuracy: 0.01)
                 XCTAssertEqual(pager.pagingView.frame.maxY, pager.view.bounds.maxY, accuracy: 0.01)
@@ -606,7 +687,7 @@ final class StickyPagerKitTests: XCTestCase {
         pager.rediscoverScrollView(forPageAt: 0)
         XCTAssertTrue(pager.currentScrollView === replacement)
         XCTAssertEqual(old.contentInset.top, 0)
-        XCTAssertEqual(replacement.contentInset.top, 200)
+        XCTAssertEqual(replacement.contentInset.top, 0)
     }
     func testExplicitScrollSelectionRejectsForeignView() {
         let pager = mount()
@@ -1103,6 +1184,7 @@ final class StickyPagerKitTests: XCTestCase {
 
 @MainActor
 private final class FixtureSource: SPPageViewControllerDataSource {
+    var mixedLayout: Bool?
     var ids: [Int]
     var createdIDs: [Int] = []
     let plain: Set<Int>
@@ -1112,7 +1194,39 @@ private final class FixtureSource: SPPageViewControllerDataSource {
     func pageViewController(_ pageViewController: SPPageViewController, identifierForPageAt index: Int) -> AnyHashable { ids[index] }
     func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController {
         createdIDs.append(ids[index])
+        if let mixedLayout { return MixedFixturePage(height: contentHeight, belowLabel: mixedLayout) }
         return FixturePage(height: contentHeight, plain: plain.contains(ids[index]))
+    }
+}
+@MainActor
+private final class MixedFixturePage: UIViewController {
+    let label = UILabel()
+    let scroll = UIScrollView()
+    let height: CGFloat
+    let belowLabel: Bool
+    init(height: CGFloat, belowLabel: Bool) {
+        self.height = height; self.belowLabel = belowLabel
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        label.text = "标签栏下方的固定说明"
+        label.translatesAutoresizingMaskIntoConstraints = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.contentSize = CGSize(width: 1, height: height)
+        view.addSubview(scroll)
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            label.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            label.heightAnchor.constraint(equalToConstant: 28),
+            scroll.topAnchor.constraint(equalTo: belowLabel ? label.bottomAnchor : view.topAnchor, constant: belowLabel ? 8 : 0),
+            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
     }
 }
 @MainActor

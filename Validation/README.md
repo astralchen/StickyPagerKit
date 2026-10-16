@@ -2,6 +2,16 @@
 
 验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 页面根视图跟随标签栏底部
+
+2026-10-16，统一滚动页与普通页的布局：根视图顶部跟随当前标签栏底部，左右铺满容器，底边保持在容器底边。Header 剩余展开距离由根视图位移承担，已折叠距离由滚动视图顶部 inset 承担；更新尺寸与 inset 时保留归一化滚动位置。短内容按当前视口加上剩余折叠距离补齐物理滚动范围，指示器不重复避让 Header。
+
+- **修改前复现：** 在真实 UIWindow 中添加同级 UILabel / UIScrollView，用两种内部布局与 `.automatic` / `.never` 验证物理坐标；旧实现未折叠时根视图及 Label 比标签栏底部高 200 pt，定向用例失败。见 [修改前结果](Results/page-follow-baseline-20261016/Result.xcresult)。
+- **中间回归与修复：** 首轮全库回归暴露业务 inset 在 UIKit setter 中间通知期间被重布局覆盖，以及重新发现滚动视图后仍保留旧的完整 Header inset。新增 contentInset prior 通知保护，并在绑定后立即同步布局；保留首轮 [失败结果](Results/page-follow-library1-20261016/Result.xcresult)。
+- **最终完整库回归通过：** iPhone 17 Pro / iOS 26.5 / Xcode 26.6 / Debug，88 项通过、0 失败、0 跳过。新增 3 项覆盖同级 Label、滚动视图铺满或位于 Label 下方、展开/部分折叠/吸顶/正文滚动/回弹、横竖尺寸、RTL、非对称安全区域、缓存切页、短内容物理滚动范围和业务 inset 解绑恢复。见 [最终库摘要](Results/page-follow-library-final-20261016/summary.json)。已读取终态 xcresult，sourceChangedSinceRun 为空。
+- **最终完整 UI 回归通过：** iPhone 18 Pro Max / iOS 27.0 / Xcode 27.1 / Debug，24 项通过、0 失败、3 项跳过（仅适用于 iPad 的 LTR/RTL 系统分屏和系统窗口缩放）。新增混合页面通过 `--mixed-page` 注入 Demo 列表页，真实触摸用例检查 Label 与标签栏 12 pt 间距、表格与 Label 8 pt 间距、窗口底边、切页、旋转、展开后新触摸再次折叠；原有刷新、短/空列表、异步替换、系统返回、RTL 和最大辅助字号矩阵一并通过。见 [最终 UI 摘要](Results/page-follow-ui-final-20261016/summary.json)。XcodeBuildMCP 等待在 300 秒时超时，持续跟踪同一 xcodebuild 进程，最终取得 TEST EXECUTE SUCCEEDED 并读取完整 xcresult；没有重启运行或将超时计为失败。最终源码与运行前快照一致，sourceChangedSinceRun 为空。 已导出并复核 [混合页面吸顶截图](Results/page-follow-ui-final-20261016/mixed-page-screenshots/EEEC3F96-121C-4B91-A959-3341C274BCAD.png)，固定说明位于标签栏下方，正文已滚动至后续行。
+- **边界：** 本次未执行 iPad 实际分屏/窗口缩放、Release、真机、iOS 15 实际运行或性能压力测试。页面高度会在 Header 折叠期间连续变化；内部使用固定 frame 的业务页面仍需响应自身 bounds 变化。
+
 ## 网格 Cell 显示区域避让 Safe Area
 
 2026-10-16，用户指出网格内部 Cell 未避开安全区域。此前全宽回归检查了网格根视图的宽度，未断言 Cell 边界；该覆盖缺口已补齐。

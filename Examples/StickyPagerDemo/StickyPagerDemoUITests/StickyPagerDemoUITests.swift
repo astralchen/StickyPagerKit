@@ -8,6 +8,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
+        if name.contains("testSiblingLabel") { app.launchArguments.append("--mixed-page") }
         if name.contains("testSystemSplitWindowsRTL") { app.launchArguments.append("--rtl") }
         app.launch()
         restoreFullScreen()
@@ -346,6 +347,44 @@ final class StickyPagerDemoUITests: XCTestCase {
         assertPinned()
         rotate(to: .portrait)
         assertPinned()
+    }
+
+    func testSiblingLabelFollowsTabBarDuringScrollAndPaging() {
+        select(1)
+        let label = app.staticTexts["demo.mixed.label"]
+        let table = app.tables["demo.list"]
+        func assertGeometry(file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertTrue(label.isHittable, file: file, line: line)
+            XCTAssertEqual(label.frame.minY, app.buttons["sp.tab.1"].frame.maxY + 12, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(table.frame.minY, label.frame.maxY + 8, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(table.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1, file: file, line: line)
+        }
+        expect("progress=0.00")
+        assertGeometry()
+        XCTAssertEqual(table.cells.firstMatch.frame.minY, table.frame.minY, accuracy: 1)
+        table.swipeUp()
+        expect("progress=1.00")
+        assertGeometry()
+        table.swipeUp()
+        assertGeometry()
+        select(0); select(1)
+        expect("progress=1.00")
+        assertGeometry()
+        rotate(to: .landscapeLeft)
+        assertGeometry()
+        rotate(to: .portrait)
+        assertGeometry()
+        for _ in 0..<8 {
+            if (status.value as? String)?.contains("progress=0.00") == true { break }
+            table.swipeDown()
+        }
+        expect("progress=0.00")
+        assertGeometry()
+        XCTAssertEqual(table.cells.firstMatch.frame.minY, table.frame.minY, accuracy: 1)
+        // 展开后用新触摸再次折叠，验证 inset 更新未破坏原生拖动。
+        table.swipeUp()
+        expect("progress=1.00")
+        assertGeometry()
     }
 
     func testHeaderDragAndListScroll() {

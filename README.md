@@ -106,7 +106,9 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 - 向上先消耗 Header 距离，再滚动内容；向下先回到内容顶部，再展开 Header。
 - 负位移为列表自身回弹，Header 不额外拉伸。
 
-页面视口固定在折叠后标签栏下方，框架添加 `C` 的顶部 inset，Header 与标签栏覆盖预留区域。页面内部应以自身 bounds 布局列表，避免再次加入同一 Header 占位。业务自有 inset 和 Safe Area 调整保留；短内容额外补足可折叠范围，不修改业务 contentSize。
+所有内容页的根视图始终紧接当前标签栏底部，底边固定在容器底边。令当前 Header 折叠量为 `c`，根视图在分页视口内下移 `C - c`，框架为主要滚动视图添加 `c` 的顶部 inset；两者合计承担完整折叠距离。更新页面尺寸和 inset 时保留归一化位移 `q`，因此 Header 折叠过程中正文保持在滚动视口顶部，完全折叠后再滚动正文。短内容按当前滚动视口高度加上剩余折叠距离计算底部补齐量，保证 UIKit 的实际可滚动范围足以折叠 Header，不修改业务 contentSize。
+
+根视图为普通 `UIView` 且 `UILabel` 与 `UIScrollView` 同级时，Label 可约束到根视图的 `safeAreaLayoutGuide.topAnchor`，滚动视图可约束在 Label 下方；也支持滚动视图铺满根视图。框架不修改业务子视图约束，不需要业务重复添加 Header 高度或监听折叠进度来移动 Label。页面高度随 Header 折叠连续变化，内部布局应响应 bounds 变化；固定 frame 不随父视图变化的子视图仍由业务负责更新。
 
 展开时 Header 从容器 `y = 0` 开始，标签栏紧接 Header；折叠后标签栏位于 `S + minimumHeaderHeight`。旋转或安全区域变化会重新计算 `C`，保留已吸顶状态和页面内容滚动位置。嵌入其他控制器时，应把容器约束到父视图边界；若约束到父视图安全区域，Header 只能从该容器顶边开始。
 
@@ -120,7 +122,7 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 框架只持有自己添加的 inset 增量，解绑时移除并恢复原有纵向回弹配置。业务需要更新 inset 时，赋值完整的业务基准值，框架随后重新叠加自身贡献；不要将读取到的、已经含框架贡献的 inset 再作为新基准写回。
 
-纵向滚动指示器的轨道随 Header 折叠避开页面上方的覆盖区域，保留业务 `verticalScrollIndicatorInsets`、横向指示器配置及 UIKit 的自动安全区域调整。短列表、空列表若只有 Header 折叠范围而没有正文滚动范围，则暂时隐藏纵向指示器，避免顶部折叠 inset 与底部补齐 inset 产生误导性的长条。内容或视口尺寸变化后，框架按业务 `showsVerticalScrollIndicator` 设置恢复显示；解绑时恢复最新的业务设置。更新指示器 inset 时同样应赋值完整的业务基准值。
+纵向滚动指示器随页面视口位于标签栏下方，不再重复添加 Header 避让距离；保留业务 `verticalScrollIndicatorInsets`、横向指示器配置及 UIKit 的自动安全区域调整。短列表、空列表若只有 Header 折叠范围而没有正文滚动范围，则暂时隐藏纵向指示器，避免顶部折叠 inset 与底部补齐 inset 产生误导性的长条。内容或视口尺寸变化后，框架按业务 `showsVerticalScrollIndicator` 设置恢复显示；解绑时恢复最新的业务设置。更新指示器 inset 时同样应赋值完整的业务基准值。
 
 横向分页拖动、减速和程序化切页动画期间，子页面的横向、纵向滚动指示器均暂时隐藏，包括途中加载或重新绑定的页面。切页完成或取消后恢复业务设置，短列表和空列表仍遵循上述纵向指示器规则。
 

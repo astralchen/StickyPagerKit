@@ -5,7 +5,8 @@ import UIKit
 public protocol SPPageViewControllerDataSource: AnyObject {
     func numberOfPages(in pageViewController: SPPageViewController) -> Int
     func pageViewController(_ pageViewController: SPPageViewController, identifierForPageAt index: Int) -> AnyHashable
-    /// 返回内容页。其根视图铺满容器宽度并延伸至底边；内容避让可使用 safeAreaLayoutGuide 或滚动视图的自动 inset。
+    /// 返回内容页。根视图顶部始终跟随标签栏底部，铺满容器宽度并延伸至底边。
+    /// 页面高度随 Header 折叠变化；内部控件使用 safeAreaLayoutGuide 或滚动视图的自动 inset 避让系统安全区域。
     func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController
     func pageViewController(_ pageViewController: SPPageViewController, tabBarItemAt index: Int) -> SPTabBarItem
 }
