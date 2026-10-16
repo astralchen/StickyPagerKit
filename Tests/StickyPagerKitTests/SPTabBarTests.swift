@@ -41,6 +41,40 @@ final class SPTabBarTests: XCTestCase {
     private let variedTitles = ["热", "推荐内容", "关注", "本周热门精选", "收藏", "更多专题与活动",
                                 "新", "附近的人", "视频", "开发者讨论专区", "图", "全部"]
 
+    func testScrollingEdgeFadePreservesEndpointsAndTracksViewport() throws {
+        for rtl in [false, true] {
+            let (bar, collection) = mount(rtl: rtl, titles: variedTitles)
+            let maximum = collection.contentSize.width - collection.bounds.width
+            // 选中项对齐和手动滚动共用物理边界；包括临近端点与回弹。
+            for (offset, leftAlpha, rightAlpha): (CGFloat, CGFloat, CGFloat) in [
+                (-20, 1, 0), (0, 1, 0), (8, 0.5, 0), (maximum / 2, 0, 0),
+                (maximum - 8, 0, 0.5), (maximum, 0, 1), (maximum + 20, 0, 1)
+            ] {
+                collection.setContentOffset(CGPoint(x: offset, y: 0), animated: false)
+                let mask = try XCTUnwrap(collection.layer.mask as? CAGradientLayer)
+                let colors = try XCTUnwrap(mask.colors as? [CGColor])
+                XCTAssertEqual(mask.frame, collection.bounds, "遮罩必须跟随视口，不随内容滚走")
+                XCTAssertEqual(colors.first!.alpha, leftAlpha, accuracy: 0.01)
+                XCTAssertEqual(colors.last!.alpha, rightAlpha, accuracy: 0.01)
+            }
+            for index in [0, variedTitles.count - 1] {
+                bar.setSelectedIndex(index, animated: false)
+                let tab = try XCTUnwrap(button(index, in: collection))
+                tab.layoutIfNeeded()
+                let label = try XCTUnwrap(tab.titleLabel)
+                let titleFrame = label.convert(label.bounds, to: collection)
+                XCTAssertGreaterThanOrEqual(titleFrame.minX, collection.bounds.minX + 15)
+                XCTAssertLessThanOrEqual(titleFrame.maxX, collection.bounds.maxX - 15)
+            }
+            bar.frame.size.width = collection.contentSize.width + 100
+            bar.layoutIfNeeded()
+            XCTAssertNil(collection.layer.mask, "内容无需滚动时不应遮挡首尾")
+            bar.frame.size.width = 320
+            bar.layoutIfNeeded()
+            XCTAssertNotNil(collection.layer.mask)
+        }
+    }
+
     func testTabButtonTrackingCanYieldToScrolling() throws {
         let (bar, collection) = mount()
         let tab = try XCTUnwrap(button(1, in: collection))

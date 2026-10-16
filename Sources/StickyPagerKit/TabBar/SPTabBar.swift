@@ -15,6 +15,7 @@ open class SPTabBar: UIView {
     private let indicator = UIView()
     private let collectionAdapter = TabAdapter()
     private let collectionView: UICollectionView
+    private let edgeMask = CAGradientLayer()
     private var transition: (from: Int, to: Int, progress: CGFloat)?
     private var transitionOrigin: (indicator: CGRect, offset: CGFloat)?
     private struct SelectionAnimation {
@@ -46,6 +47,8 @@ open class SPTabBar: UIView {
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.allowsSelection = false
         collectionView.accessibilityIdentifier = "sp.tabBar.collection"
+        edgeMask.startPoint = CGPoint(x: 0, y: 0.5)
+        edgeMask.endPoint = CGPoint(x: 1, y: 0.5)
         collectionView.register(TabCell.self, forCellWithReuseIdentifier: "tab")
         collectionAdapter.owner = self
         collectionView.dataSource = collectionAdapter
@@ -171,6 +174,7 @@ open class SPTabBar: UIView {
             alignSelection()
         }
         updateIndicator()
+        updateEdgeMask()
     }
 
     open override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -214,6 +218,29 @@ open class SPTabBar: UIView {
             return
         }
         collectionView.setContentOffset(CGPoint(x: centeredOffset(for: selectedIndex), y: 0), animated: false)
+    }
+
+    /// 仅在还有内容的物理边缘渐隐；到达首尾后恢复全不透明，回弹时也不遮住端点。
+    private func updateEdgeMask() {
+        let viewport = collectionView.bounds
+        let overflow = max(0, collectionView.contentSize.width - viewport.width)
+        guard viewport.width > 0, overflow > 0.5 else {
+            collectionView.layer.mask = nil
+            return
+        }
+        let fadeWidth = min(16, viewport.width / 2)
+        // 临近端点时连续减弱，避免首尾渐隐突然开关。
+        let left = min(1, max(0, viewport.minX / fadeWidth))
+        let right = min(1, max(0, (overflow - viewport.minX) / fadeWidth))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        edgeMask.frame = viewport
+        edgeMask.locations = [0, NSNumber(value: Double(fadeWidth / viewport.width)),
+                              NSNumber(value: Double(1 - fadeWidth / viewport.width)), 1]
+        edgeMask.colors = [UIColor.black.withAlphaComponent(1 - left).cgColor, UIColor.black.cgColor,
+                           UIColor.black.cgColor, UIColor.black.withAlphaComponent(1 - right).cgColor]
+        collectionView.layer.mask = edgeMask
+        CATransaction.commit()
     }
 
     private func centeredOffset(for index: Int?) -> CGFloat {
@@ -273,6 +300,9 @@ open class SPTabBar: UIView {
 
     private final class TabAdapter: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {
         weak var owner: SPTabBar?
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            owner?.updateEdgeMask()
+        }
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             owner?.stopSelectionAnimation()
             owner?.updateIndicator()

@@ -397,6 +397,37 @@ final class StickyPagerDemoUITests: XCTestCase {
     func testSafeAreaTabsLargeTextLTR() { verifySafeAreaTabs(rtl: false, largeText: true) }
     func testSafeAreaTabsLargeTextRTL() { verifySafeAreaTabs(rtl: true, largeText: true) }
 
+    func testTabScrollEdgeAppearance() {
+        for rtl in [false, true] {
+            app.terminate()
+            app.launchArguments = ["--open-demo"] + (rtl ? ["--rtl"] : [])
+            app.launch()
+            XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+            XCUIDevice.shared.orientation = .landscapeLeft
+            let tabs = app.collectionViews["sp.tabBar.collection"]
+            for index in [0, 10, 11] {
+                select(index)
+                expectSelectedTabAlignment(index)
+                let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                attachment.name = "tab-edge-\(rtl ? "rtl" : "ltr")-\(index)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            // 小幅拖离端点，保存文字经过裁切边缘的状态；滚动不改变当前页面。
+            let start = tabs.coordinate(withNormalizedOffset: CGVector(dx: rtl ? 0.6 : 0.4, dy: 0.5))
+            let end = tabs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+            expect("page=topics")
+            let scrolled = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            scrolled.name = "tab-edge-\(rtl ? "rtl" : "ltr")-scrolled"
+            scrolled.lifetime = .keepAlways
+            add(scrolled)
+            select(0)
+            expect("page=grid")
+            expectSelectedTabAlignment(0)
+        }
+    }
+
     private func verifySafeAreaTabs(rtl: Bool, largeText: Bool) {
         app.terminate()
         app.launchArguments = ["--open-demo"] + (rtl ? ["--rtl"] : [])

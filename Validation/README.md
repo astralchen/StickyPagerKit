@@ -2,6 +2,15 @@
 
 验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 标签栏滚动边缘过渡
+
+2026-10-16，针对横屏安全区域边界将标题截成半个字的视觉反馈，保留安全视口与触摸范围，在仍有隐藏内容的一侧添加 16 pt 渐隐。渐隐随实际偏移连续变化，到达首尾或内容无需滚动时恢复不透明，RTL 按物理边界处理。
+
+- **定向库回归：20 项通过，0 失败、0 跳过。** iPhone 17 Pro / iOS 26.5，覆盖首尾、临近端点、回弹、RTL、端点标题完整性，以及扩宽后移除遮罩、缩窄后恢复。见 [结果](Results/tab-edge-fade-20261016/library-summary.json)。
+- **定向 UI：2 项通过，0 失败、0 跳过。** iPhone 18 Pro Max / iOS 27.0，覆盖默认字号横屏 LTR／RTL 的首端、收藏、末端选择和手动拖动，以及最大辅助字号 RTL 的竖屏、左右横屏、吸顶与恢复。补充小幅拖动截图后，边缘用例单独重跑 1 项通过。见 [首次结果](Results/tab-edge-fade-20261016/ui-summary.json) · [补图重跑](Results/tab-edge-fade-20261016/ui-scrolled-summary.json)。
+- **视觉检查：** 已检查默认字号 LTR／RTL 的端点及手动滚动截图，确认端点标题清晰，经过边界的文字和指示器渐隐。见 [LTR 滚动中](Results/tab-edge-fade-20261016/screenshots/tab-edge-ltr-scrolled.png) · [RTL 滚动中](Results/tab-edge-fade-20261016/screenshots/tab-edge-rtl-scrolled.png)。
+- **证据边界：** 读取三份终态 `.xcresult`。首次 UI 验证后仅补充边缘用例截图，库源码保持一致；补图重跑后的源码输入哈希与当前版本一致。本轮未重跑完整库、完整 Demo UI、Release、iPad、真机或性能基准。下方 83 项完整库与 12 组合记录对应渐隐修改前的安全区域版本。
+
 ## 标签栏安全区域、长标题与 Dynamic Type
 
 2026-10-16，使用 Xcode 27.1 / Debug，完成截图对应 iPhone 18 Pro Max / iOS 27.0 的 UI 验证，并在 iPhone 18 Pro Max / iOS 27.0、iPhone 17 Pro / iOS 26.5 上执行完整库测试。
