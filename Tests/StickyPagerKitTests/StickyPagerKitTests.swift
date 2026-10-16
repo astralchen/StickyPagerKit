@@ -180,6 +180,51 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertFalse(scroll.automaticallyAdjustsScrollIndicatorInsets)
     }
 
+    func testCancelledPagingRestoresOutgoingPositionAfterNativeLayoutAdjustment() {
+        for rtl in [false, true] {
+            let pager = mount()
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.view.layoutIfNeeded()
+            let binding = pager.records[0]!.binding!
+            let scroll = binding.scrollView
+            scroll.contentOffset.y = 650 - scroll.adjustedContentInset.top
+            let top = scroll.convert(.zero, to: pager.view).y
+            let start = pager.pagingView.contentOffset.x
+            pager.scrollViewWillBeginDragging(pager.pagingView)
+            // 横向拖动已开始、候选页尚未建立时，UIKit 自适应列表会发送临时纵向偏移。
+            scroll.contentOffset.y -= 10.5
+            pager.pagingView.contentOffset.x = start + (rtl ? -1 : 1) * pager.pagingView.bounds.width * 0.4
+            pager.pagingView.contentOffset.x = start
+            pager.scrollViewDidEndDragging(pager.pagingView, willDecelerate: false)
+            XCTAssertEqual(pager.selectedIndex, 0)
+            XCTAssertEqual(binding.position, 650, accuracy: 0.01)
+            XCTAssertEqual(scroll.convert(.zero, to: pager.view).y, top, accuracy: 0.01)
+            // 后续真实纵向位置变化仍须正常保存。
+            scroll.contentOffset.y = 700 - scroll.adjustedContentInset.top
+            pager.setSelectedIndex(1, animated: false)
+            pager.setSelectedIndex(0, animated: false)
+            XCTAssertEqual(binding.position, 700, accuracy: 0.01)
+        }
+    }
+
+    func testCommittedPagingDoesNotSaveOutgoingNativeLayoutAdjustment() {
+        for rtl in [false, true] {
+            let pager = mount()
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.view.layoutIfNeeded()
+            let binding = pager.records[0]!.binding!
+            binding.scrollView.contentOffset.y = 650 - binding.scrollView.adjustedContentInset.top
+            let start = pager.pagingView.contentOffset.x
+            pager.scrollViewWillBeginDragging(pager.pagingView)
+            binding.scrollView.contentOffset.y -= 10.5
+            pager.pagingView.contentOffset.x = start + (rtl ? -1 : 1) * pager.pagingView.bounds.width
+            pager.scrollViewDidEndDragging(pager.pagingView, willDecelerate: false)
+            XCTAssertEqual(pager.selectedIndex, 1)
+            pager.setSelectedIndex(0, animated: false)
+            XCTAssertEqual(binding.position, 650, accuracy: 0.01)
+        }
+    }
+
     func testPagingHidesIndicatorsForOutgoingAndNewPagesUntilSettled() {
         let pager = mount()
         let outgoing = pager.currentScrollView!

@@ -7,7 +7,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
 
-        let window = UIWindow(windowScene: windowScene)
+        let window = ProcessInfo.processInfo.arguments.contains("--paging-trace")
+            ? PagingTraceWindow(windowScene: windowScene) : UIWindow(windowScene: windowScene)
         if ProcessInfo.processInfo.arguments.contains("--rtl") {
             window.semanticContentAttribute = .forceRightToLeft
         }

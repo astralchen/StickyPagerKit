@@ -8,6 +8,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
+        if name.contains("testSystemSplit") || name.contains("testSystemWindowResize") { app.launchArguments.append("--paging-trace") }
         if name.contains("testSiblingLabel") { app.launchArguments.append("--mixed-page") }
         if name.contains("testSystemSplitWindowsRTL") || name.contains("testSystemWindowResizeRTL") { app.launchArguments.append("--rtl") }
         app.launch()
@@ -16,6 +17,10 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
     }
     override func tearDown() async throws {
+        // 在窗口清理产生新触摸之前保留最后输入，便于区分系统取消和框架状态错误。
+        if app.launchArguments.contains("--paging-trace"), status.exists {
+            print("FINAL PAGING STATUS \(status.value ?? "")")
+        }
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
@@ -259,15 +264,14 @@ final class StickyPagerDemoUITests: XCTestCase {
             resizeSystemWindow(dx: delta.dx, dy: delta.dy)
             XCTAssertGreaterThan(abs(app.windows.firstMatch.frame.width - before.width), 40)
             assertPinnedList(position: initialPosition); recordWindow("连续缩放 \(delta)")
-            if rtl { table.swipeRight() } else { table.swipeLeft() }
-            expect("page=short"); assertListSafeArea()
-            if rtl { table.swipeLeft() } else { table.swipeRight() }
-            expect("page=list"); assertPinnedList(position: initialPosition)
+            try swipePage(towardNext: true, rtl: rtl, expectedPage: "short"); assertListSafeArea()
+            try swipePage(towardNext: false, rtl: rtl, expectedPage: "list"); assertPinnedList(position: initialPosition)
             verifyRootFollowsHeaderInCurrentWindow()
             assertPinnedList(position: initialPosition)
         }
         // 重新触摸必须仍可滚动，切回后保存该次滚动的位置。
         table.swipeUp()
+        _ = try pagingTrace()
         let moved = contentPosition()
         XCTAssertGreaterThan(moved, initialPosition + 50)
         restoreFullScreen()
@@ -289,6 +293,98 @@ final class StickyPagerDemoUITests: XCTestCase {
         springboard.buttons["window-controls:dev.stickypager.StickyPagerDemo"].tap()
         springboard.buttons["Zoom-button"].press(forDuration: 1)
         springboard.buttons["左右"].tap()
+    }
+
+    private func pagingTrace(file: StaticString = #filePath, line: UInt = #line) throws -> [String: Any] {
+        let value = status.value as? String ?? ""
+        let encoded = value.components(separatedBy: ";").first?.replacingOccurrences(of: "gesture=", with: "") ?? ""
+        let data = try XCTUnwrap(Data(base64Encoded: encoded), file: file, line: line)
+        let trace = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
+        print("PAGING TRACE \(String(data: data, encoding: .utf8) ?? "")")
+        return trace
+    }
+
+    /// 默认 swipe 的固定 200 pt 行程可能不足半页，改用当前实际视口内的确定行程。
+    /// 终点停留消除松手速度的影响；只发送一次触摸，不重试、不用标签点击代替翻页。
+    private func swipePage(towardNext: Bool, rtl: Bool, expectedPage: String, from page: XCUIElement? = nil,
+                           file: StaticString = #filePath, line: UInt = #line) throws {
+        let before = try pagingTrace(file: file, line: line)
+        let window = app.windows.firstMatch.frame
+        let viewport = (page ?? app.tables["demo.list"]).frame.intersection(window)
+        XCTAssertGreaterThan(viewport.width, 200, file: file, line: line)
+        let movesLeft = towardNext != rtl
+        let startPoint = CGPoint(x: viewport.minX + viewport.width * (movesLeft ? 0.85 : 0.15), y: viewport.midY)
+        let endPoint = CGPoint(x: viewport.minX + viewport.width * (movesLeft ? 0.15 : 0.85), y: viewport.midY)
+        // 分页触摸绑定业务窗口；AX frame 是屏幕坐标，先减去浮动/右侧窗口原点。
+        // SpringBoard 坐标仅用于系统窗口控件，避免将应用内拖动路由给系统进程。
+        let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        print("PAGING INPUT window=\(window) start=\(startPoint) end=\(endPoint)")
+        origin.withOffset(CGVector(dx: startPoint.x - window.minX, dy: startPoint.y - window.minY)).press(forDuration: 0.1,
+            thenDragTo: origin.withOffset(CGVector(dx: endPoint.x - window.minX, dy: endPoint.y - window.minY)),
+            withVelocity: .slow, thenHoldForDuration: 0.2)
+        let trace = try pagingTrace(file: file, line: line)
+        XCTAssertGreaterThan(try XCTUnwrap(trace["sequence"] as? Int), try XCTUnwrap(before["sequence"] as? Int), file: file, line: line)
+        let samples = try XCTUnwrap(trace["samples"] as? [[String: Double]])
+        XCTAssertEqual(samples.last?["phase"], 3, "触摸必须正常结束，不能将输入取消误报为分页失败", file: file, line: line)
+        let width = try XCTUnwrap(trace["width"] as? Double)
+        let touchTravel = abs(try XCTUnwrap(samples.last?["x"]) - XCTUnwrap(samples.first?["x"]))
+        XCTAssertGreaterThan(touchTravel, width * 0.65, "应用必须收到完整水平拖动", file: file, line: line)
+        let travel = try XCTUnwrap(trace["maxOffset"] as? Double) - XCTUnwrap(trace["minOffset"] as? Double)
+        XCTAssertGreaterThan(travel, width * 0.5, "实际分页位移必须越过半页", file: file, line: line)
+        let release = try XCTUnwrap(trace["release"] as? [String: Double])
+        let initial = try XCTUnwrap(before["offset"] as? Double)
+        XCTAssertEqual(try XCTUnwrap(release["target"]), initial + (movesLeft ? width : -width), accuracy: 1, file: file, line: line)
+        expect("page=\(expectedPage)")
+        let settled = try pagingTrace(file: file, line: line)
+        XCTAssertEqual(try XCTUnwrap(settled["offset"] as? Double), try XCTUnwrap(release["target"]), accuracy: 1, file: file, line: line)
+        XCTAssertEqual(settled["dragging"] as? Bool, false, file: file, line: line)
+        XCTAssertEqual(settled["decelerating"] as? Bool, false, file: file, line: line)
+    }
+
+    func testSystemSplitPagingGestureBoundaries() throws {
+        try verifyPagingGestureBoundaries(rtl: false)
+    }
+
+    func testSystemSplitWindowsRTLPagingGestureBoundaries() throws {
+        try verifyPagingGestureBoundaries(rtl: true)
+    }
+
+    private func verifyPagingGestureBoundaries(rtl: Bool) throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统分屏仅适用于 iPad")
+        expect(rtl ? "direction=rtl" : "direction=ltr")
+        select(1)
+        app.tables["demo.list"].swipeUp(); expect("progress=1.00")
+        let position = contentPosition()
+        resizeSystemWindow(dx: -250, dy: -350)
+        let companion = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        companion.launch(); arrangeSideBySide()
+        for orientation: UIDeviceOrientation in [.portrait, .landscapeLeft] {
+            rotate(to: orientation)
+            if app.windows.firstMatch.frame.intersection(companion.windows.firstMatch.frame).width > 1 { arrangeSideBySide() }
+            XCTAssertLessThanOrEqual(app.windows.firstMatch.frame.intersection(companion.windows.firstMatch.frame).width, 1)
+            assertPinnedList(position: position)
+            // 低速、短于半页的触摸应按 UIKit 目标回到原页；框架不能强行翻页。
+            let before = try pagingTrace()
+            let table = app.tables["demo.list"]
+            print("VERTICAL BEFORE \(table.value ?? "")")
+            let start = table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: rtl ? -100 : 100, dy: 0))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: rtl ? 200 : -200, dy: 0)),
+                        withVelocity: .slow, thenHoldForDuration: 0.2)
+            expect("page=list")
+            let cancelled = try pagingTrace()
+            print("VERTICAL AFTER \(table.value ?? "")")
+            let release = try XCTUnwrap(cancelled["release"] as? [String: Double])
+            XCTAssertEqual(try XCTUnwrap(release["target"]), try XCTUnwrap(before["offset"] as? Double), accuracy: 1)
+            XCTAssertEqual(try XCTUnwrap(cancelled["offset"] as? Double), try XCTUnwrap(release["target"]), accuracy: 1)
+            assertPinnedList(position: position)
+            for _ in 0..<3 {
+                try swipePage(towardNext: true, rtl: rtl, expectedPage: "short")
+                assertListSafeArea()
+                try swipePage(towardNext: false, rtl: rtl, expectedPage: "list")
+                assertPinnedList(position: position)
+            }
+            recordWindow("分页手势边界-\(rtl ? "rtl" : "ltr")-\(orientation.rawValue)")
+        }
     }
 
     private func verifySystemSplitWindows(rtl: Bool) throws {
@@ -323,10 +419,8 @@ final class StickyPagerDemoUITests: XCTestCase {
             XCTAssertLessThan(companionWindow.width, screenWidth * 0.7)
             XCTAssertLessThanOrEqual(pageWindow.intersection(companionWindow).width, 1)
             assertPinnedList(position: initialPosition)
-            if rtl { app.tables["demo.list"].swipeRight() } else { app.tables["demo.list"].swipeLeft() }
-            expect("page=short"); assertListSafeArea()
-            if rtl { app.tables["demo.list"].swipeLeft() } else { app.tables["demo.list"].swipeRight() }
-            expect("page=list"); assertPinnedList(position: initialPosition)
+            try swipePage(towardNext: true, rtl: rtl, expectedPage: "short"); assertListSafeArea()
+            try swipePage(towardNext: false, rtl: rtl, expectedPage: "list"); assertPinnedList(position: initialPosition)
             select(0); expect("page=grid"); assertGridCellsSafeArea()
             select(1); expect("page=list"); assertPinnedList(position: initialPosition)
             recordWindow("系统分屏-\(rtl ? "rtl" : "ltr")-\(orientation.rawValue)")
@@ -565,14 +659,13 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("progress=1.00")
         XCTAssertEqual(app.buttons["sp.tab.0"].frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
     }
-    func testRTLHorizontalPaging() {
+    func testRTLHorizontalPaging() throws {
         app.terminate()
-        app.launchArguments = ["--rtl"]
+        app.launchArguments = ["--rtl", "--window-regression", "--paging-trace"]
         app.launch()
         app.buttons["demo.open"].tap()
         expect("direction=rtl")
-        app.collectionViews["demo.grid"].swipeRight()
-        expect("page=list")
+        try swipePage(towardNext: true, rtl: true, expectedPage: "list", from: app.collectionViews["demo.grid"])
         select(0); expect("page=grid")
         select(9); expect("page=weekly")
         expectSelectedTabAlignment(9)

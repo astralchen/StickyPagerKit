@@ -46,10 +46,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var parentIsAppearing: Bool?
     private var transitionTarget: Int?
     private var transitionAppearance = false
-    private var indicatorsHiddenForPaging = false {
+    // 横向手势开始即保护纵向历史，覆盖候选页尚未建立及取消回原页的阶段。
+    private var isPaging = false {
         didSet {
-            guard oldValue != indicatorsHiddenForPaging else { return }
-            for record in records.values { record.binding?.indicatorsHiddenForPaging = indicatorsHiddenForPaging }
+            guard oldValue != isPaging else { return }
+            for record in records.values { record.binding?.indicatorsHiddenForPaging = isPaging }
         }
     }
     private var suppressPaging = false
@@ -426,10 +427,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         if record === currentRecord { stopAnimation() }
         record.binding?.detach()
         record.binding = scroll.map(SPScrollBinding.init)
-        record.binding?.indicatorsHiddenForPaging = indicatorsHiddenForPaging
+        record.binding?.indicatorsHiddenForPaging = isPaging
         record.binding?.setRange(effectiveLayout.collapseRange)
         record.binding?.onScroll = { [weak self, weak record] binding in
-            guard let self, let record, !self.isLayingOutPages, !self.isTransitioningSize, record === self.currentRecord, self.transitionTarget == nil else { return }
+            guard let self, let record, !self.isLayingOutPages, !self.isTransitioningSize, !self.isPaging, record === self.currentRecord, self.transitionTarget == nil else { return }
             // 系统尺寸变化可能先发送旧绑定的偏移回调；新几何完成布局前不能改写历史位置。
             guard self.previousBoundsSize == self.view.bounds.size,
                   self.previousCollapseRange == self.effectiveLayout.collapseRange else { return }
@@ -526,7 +527,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         if transitionTarget == index { return }
         if transitionTarget != nil { finishTransition(commit: false, continuingPaging: true) }
         guard let incoming = loadPage(index) else { return }
-        indicatorsHiddenForPaging = true
+        isPaging = true
         currentRecord?.binding?.stopDeceleration()
         align(incoming)
         transitionTarget = index
@@ -538,7 +539,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
     private func finishTransition(commit: Bool, animated: Bool = true, continuingPaging: Bool = false) {
         guard let target = transitionTarget else {
-            if !continuingPaging { indicatorsHiddenForPaging = false }
+            if !continuingPaging {
+                if isPaging { align(currentRecord) }
+                isPaging = false
+            }
             return
         }
         let old = currentRecord?.controller
@@ -560,11 +564,14 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         if commit {
             selectedIndex = target
             align(currentRecord)
+        } else if !continuingPaging {
+            // 自适应列表会在横向移出视口时修正 offset；取消后恢复拖动前保存的正文位置。
+            align(currentRecord)
         }
         storedTabBar.setSelectedIndex(selectedIndex, animated: commit && animated)
         evictPages()
         // 中途改变候选页仍属于同一次分页，保持隐藏；结束后按业务偏好恢复。
-        if !continuingPaging { indicatorsHiddenForPaging = false }
+        if !continuingPaging { isPaging = false }
         if commit { delegate?.pageViewController(self, didSelectPageAt: target) }
     }
     private func cancelPaging() {
@@ -576,7 +583,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         suppressPaging = false
     }
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        indicatorsHiddenForPaging = true
+        isPaging = true
         stopAnimation()
         currentRecord?.binding?.stopDeceleration()
     }

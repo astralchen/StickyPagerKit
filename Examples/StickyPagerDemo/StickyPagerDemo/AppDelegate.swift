@@ -140,6 +140,10 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         }
     }
     func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) { updateStatus() }
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                  targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        (view.window as? PagingTraceWindow)?.recordRelease(scrollView, velocity: velocity, target: targetContentOffset.pointee)
+    }
     func pageViewController(_ pageViewController: SPPageViewController, didChangeHeaderState state: SPHeaderState, progress: CGFloat) {
         updateHeaderContentClip()
         updateStatus(progress: progress)
@@ -197,7 +201,8 @@ private final class RegressionStatusLabel: UILabel {
             } else {
                 orientation = window?.windowScene?.interfaceOrientation ?? .unknown
             }
-            return "interfaceOrientation=\(orientation.rawValue);\(super.accessibilityValue ?? "")"
+            let trace = (window as? PagingTraceWindow).map { "gesture=\($0.pagingTrace);" } ?? ""
+            return "\(trace)interfaceOrientation=\(orientation.rawValue);\(super.accessibilityValue ?? "")"
         }
         set { super.accessibilityValue = newValue }
     }
@@ -209,11 +214,18 @@ private final class RegressionTableView: UITableView {
     override var accessibilityValue: String? {
         get {
             guard ProcessInfo.processInfo.arguments.contains("--window-regression") else { return super.accessibilityValue }
-            let geometry: [String: Double] = [
+            var geometry: [String: Double] = [
                 "position": Double(contentOffset.y + adjustedContentInset.top),
                 "safeLeft": Double(safeAreaInsets.left),
                 "safeRight": Double(safeAreaInsets.right)
             ]
+            if let first = indexPathsForVisibleRows?.sorted().first, let cell = cellForRow(at: first) {
+                geometry["firstRow"] = Double(first.row)
+                geometry["firstRowY"] = Double(convert(cell.frame, to: window).minY)
+                geometry["firstRowHeight"] = Double(cell.bounds.height)
+                geometry["estimatedRowHeight"] = Double(estimatedRowHeight)
+                geometry["contentHeight"] = Double(contentSize.height)
+            }
             guard let data = try? JSONSerialization.data(withJSONObject: geometry, options: [.sortedKeys]) else { return nil }
             return String(data: data, encoding: .utf8)
         }

@@ -2,6 +2,24 @@
 
 验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## iPad 分屏横向翻页超时：输入诊断与纵向位置保护
+
+2026-10-16，从 `0e2c256` 继续排查。区分测试实际发送的触摸、UIKit 计算的分页终点和框架最终状态；保留原始失败，不用重试或标签点击掩盖翻页失败。
+
+- **旧手势的边界：** 原 `page-follow-ipad-reboot-20261016` 失败结果中的合成事件为 x=306 → 106、y=670、时长 0.2 秒；在 412 pt 宽的分屏里，200 pt 小于半页 206 pt，因此翻页依赖释放速度。带观测的原手势连续 12 次通过，实际分页位移仅 142.5–196.5 pt；另以相同 200 pt 路径低速拖动并停留，4 次均由 UIKit 将目标定为原页，见 [速度依赖对照](Results/split-gesture-release-baseline-20261016/summary.json)。这证明旧测试输入没有保证越过分页阈值；原始单次失败缺少应用侧触摸轨迹，不能追溯断言它必然由某一种输入原因造成。
+- **独立发现的框架缺陷：** RTL 短拖取消后，列表正文位置由 530 变成 519.5 pt；同一可见行高度和 contentSize 不变，行坐标相应移动 10.5 pt，见 [行锚点对照](Results/split-gesture-row-anchor-20261016/summary.json)。进一步观测发现：横向拖动已经开始、候选页尚未建立时，UITableView 的自适应布局会发送临时纵向 offset；原实现只用 `transitionTarget` 保护历史，仍将该偏移保存，取消时也没有恢复。两项 LTR/RTL 库回归在旧框架上均失败，见 [修复前库摘要](Results/split-gesture-library-baseline-20261016/summary.json)。该缺陷是纵向历史污染，不等同于证明原始横向超时由框架引起。
+- **框架修复：** 从横向拖动开始到分页结束统一使用 `isPaging` 保护保存位置，忽略此阶段的中间纵向回调；取消后按保存位置重新对齐原页，包括尚未建立候选页的路径。成功切页仍按原有流程提交，并保留滚动指示器显隐行为。新的纵向触摸在分页结束后仍能正常更新历史。
+- **测试修复与可观测性：** 在 Demo 的实际 UIWindow 内按当前可见宽度发送 70% 行程的单次慢拖，终点停留消除释放速度依赖；屏幕坐标减去窗口原点，适用于左右分屏和浮动窗口。`--paging-trace` 专用窗口被动记录触摸与原生分页状态，不安装识别器或修改事件分发；Demo 代理只读取 UIKit 的目标偏移。断言同时检查触摸正常结束、应用收到超过 65% 页宽的行程、分页越过半页、原生目标正确、最终偏移及停止状态。短拖对照继续要求留在原页，并验证正文历史。
+- **输入取消记录：** 中间矩阵曾收到 began 后直接 cancelled，移动样本和分页位移均为 0，属于未形成有效拖动的输入失败，见 [中断矩阵摘要](Results/split-gesture-ui-fixed-20261016/summary.json)。当时使用 SpringBoard 坐标且另一台模拟器也在运行 UI 测试；尚不能单独归因于其中一个因素。该矩阵后来主动中断，记录为 1 通过、2 失败（含 Testing was canceled），不作为全套通过。最终 iPad 与 iPhone UI 串行执行，手势绑定 Demo 窗口，并明确区分输入取消与有效翻页后的断言失败。
+- **完整库回归：** iPhone 17 Pro / iOS 26.5 / Xcode 26.6 / Debug，clean test 后 90 通过、0 失败、0 跳过，见 [库摘要](Results/split-gesture-library-fixed-20261016/summary.json)。库实现、库测试、Package 与最终源码一致；此后仅调整了 Demo UI 测试的坐标绑定与输入断言，该文件不属于库 scheme。
+- **iPhone 定向回归：** iPhone 18 Pro Max / iOS 27.0 / Xcode 27.1 / Debug，普通横向分页、RTL 分页、同级 UILabel / UIScrollView 三项 clean test 均通过，见 [三项摘要](Results/split-gesture-iphone-fixed-20261016/summary.json)。此后修改了 UI 手势辅助方法的窗口绑定；最终源码再次 clean 构建并补跑 RTL 用例，1 通过、0 失败、0 跳过，且 `sourceChangedSinceRun` 为空，见 [最终 RTL 摘要](Results/split-gesture-iphone-final-20261016/summary.json)。普通分页和同级 Label 用例不使用该辅助方法，本轮未重复执行。
+- **iPad 六项矩阵：** clean test 终态为 3 通过、3 失败、0 跳过，见 [矩阵摘要](Results/split-gesture-ipad-final-20261016/summary.json)。LTR 手势边界、LTR/RTL 完整分屏通过；RTL 手势边界在启动系统“设置”时超时，未发送分页触摸；LTR 缩放完成 4 次横向翻页后，新纵向 swipe 未增加正文位移，原附件缺少应用侧接收轨迹，原因未定；RTL 缩放在标签点击后等待短列表超时，导出的 UI Snapshot 显示按钮收到 began 后直接 cancelled，见 [取消轨迹](Results/split-gesture-ipad-final-20261016/rtl-tap-cancellation.json)。共完成 28 次带完整轨迹断言的横向翻页，均成功。随后只增加清理前及新纵向触摸后的只读日志，重启同一 iPad 后补跑未通过的三项；不更改框架、测试动作或断言。
+- **iPad 补跑通过：** 重启同一模拟器后，RTL 手势边界、LTR/RTL 窗口缩放三项 clean test 均通过，0 失败、0 跳过，见 [补跑摘要](Results/split-gesture-ipad-recovery-20261016/summary.json)。六项目标用例的通过记录分布在首轮与补跑，不能描述为一次六项全绿。补跑中的新纵向触摸正常结束，LTR 原生归一化位置从 679 增至 871.5 pt，随后通过恢复全屏与位置保存断言；此前 LTR 单次未滚动缺少接收轨迹，仍保留原因未定。补跑开始阶段曾等待 CoreSimulator 启动应用，持续跟踪同一进程后正常完成，没有重复启动测试。
+- **横向输入审计：** 首轮 28 次、补跑 20 次，共 48 次使用新辅助方法的翻页均收到正常 ended，触摸行程超过 65% 页宽，实际分页位移超过半页，最终偏移与 UIKit 目标一致且停止拖动/减速，见 [首轮轨迹审计](Results/split-gesture-ipad-final-20261016/gesture-audit.json) 和 [补跑轨迹审计](Results/split-gesture-ipad-recovery-20261016/gesture-audit.json)。另有 LTR/RTL、竖屏/横屏共 4 次短拖对照，均回到原页并保留正文历史。该次数是本轮覆盖，不代表长期压力测试或保证系统永不取消注入事件。
+- **源码一致性：** 补跑的 29 个输入哈希全部匹配最终源码。首轮矩阵之后 UI 测试文件只增加了清理前及纵向滑动后的日志；框架、Demo、分页辅助方法、动作和断言均未改变，差异已反映在首轮摘要。完整库运行之后只有 Demo UI 测试文件变化，库 scheme 的输入保持一致。工作区中 `project.pbxproj` 的格式重排经 plist 解析与 HEAD 语义相同，未改变工程配置；保留该变更。
+- **截图复核：** 已查看 [LTR 横屏分屏部分折叠](Results/split-gesture-ipad-final-20261016/screenshots/FB76323B-C8B7-4E24-B1FC-BD873D2FAB11.png) 与 [RTL 横屏分屏部分折叠](Results/split-gesture-ipad-final-20261016/screenshots/4A269502-B097-4A72-AAC5-CE12197E10EC.png)，短列表内容位于标签栏下方；动态过程以物理几何断言和触摸轨迹为准。
+- **证据与范围：** 其他诊断失败、临时观测实现和一次探针编译失败均保留在 `Validation/Results/split-gesture-*`，不计入最终验收。框架内的临时打印已移除。位置契约仍是归一化正文位置，不扩展为内容重排后固定某一行的屏幕像素。此次没有重跑完整 Demo UI 套件、Release、真机、旧系统传统 Split View 或其他 iPad 型号。
+
 ## iPad 页面跟随：系统分屏、窗口缩放与 RTL 补充回归
 
 2026-10-16，在提交 `964009d` 的框架实现上补跑 iPad Pro 11-inch (M5) (16GB) / iOS 26.5 / Debug。本轮仅加强 UI 测试与验证记录，`Sources` 和 Demo 实现未修改。
