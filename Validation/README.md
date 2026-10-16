@@ -2,6 +2,20 @@
 
 验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## iPad 页面跟随：系统分屏、窗口缩放与 RTL 补充回归
+
+2026-10-16，在提交 `964009d` 的框架实现上补跑 iPad Pro 11-inch (M5) (16GB) / iOS 26.5 / Debug。本轮仅加强 UI 测试与验证记录，`Sources` 和 Demo 实现未修改。
+
+- **新增几何检查：** 原页面宽度断言扩展为完整边界检查：页面顶部等于当前标签栏底部，底部等于实际 `UIWindow` 底边，左右铺满窗口，误差限均为 1 pt。系统分屏和各窗口尺寸下通过真实触摸验证展开、部分折叠、吸顶，并检查普通页、缓存切页、原列表正文位置和新触摸恢复。新增 RTL 系统窗口缩放用例，横向手势按 RTL 方向执行。
+- **窗口缩放通过：** LTR 独立运行 1 项通过、0 失败、0 跳过，见 [缩放摘要](Results/page-follow-ipad-resize-20261016/summary.json)；RTL 缩放与 RTL 横向分页在首轮矩阵中通过，见 [首轮矩阵摘要](Results/page-follow-ipad-matrix-20261016/summary.json)。Xcode 27.1，实际窗口依次为 375 × 630、690 × 866、535 × 750 pt，最后恢复 834 × 1210 pt 全屏。各尺寸均检查 Header 三态与分页后的正文位置。
+- **重启后回归：** Xcode 26.6，默认字号 RTL、最大辅助字号 RTL、同级 UILabel / UIScrollView、RTL 系统分屏共 4 项通过；LTR 分屏 1 项因横向滑动后等待 `page=short` 超时失败，见 [重启后摘要](Results/page-follow-ipad-reboot-20261016/summary.json)。同级页面检查 Label 距标签栏 12 pt、列表距 Label 8 pt，以及旋转、切页和新触摸后的几何。
+- **失败与环境恢复：** 首轮矩阵为 2 通过、5 失败：4 项等待原生横屏方向超时，1 项启动系统“设置”超时。切换到 Xcode 26.6 后，同级页面仍在方向等待处失败，见 [工具链对照](Results/page-follow-ipad-rotation-check-20261016/summary.json)。模拟器菜单旋转时 SpringBoard 内容也未正常转向；仅重启该 iPad 后，同一源码的方向断言恢复通过。没有更改方向锁定设置、抹除设备、放宽断言或跳过旋转。以上证据支持当时存在模拟器旋转状态异常，未确定更底层原因。
+- **LTR 独立重跑通过：** 保持源码和断言不变，单独重跑 LTR 系统分屏，1 项通过、0 失败、0 跳过，见 [LTR 重跑摘要](Results/page-follow-ipad-ltr-retry-20261016/summary.json)。已完成 412 × 1210 → 600 × 834 → 412 × 1210 pt 的真实分屏、往返分页和 Header 三态检查；首次分页超时原样保留，未通过重复压力测试证明偶发性已消除。
+- **最终结果口径：** 8 项不同的目标用例均有通过记录，分布在缩放、首轮矩阵、重启后矩阵和 LTR 独立重跑中；不合并描述为单次 8 项全绿。五次运行的 28 个源码输入哈希一致，所有终态摘要的 `sourceChangedSinceRun` 为空。
+- **实际几何：** LTR / RTL 分屏在竖屏 412 × 1210、横屏 600 × 834、回到竖屏三个阶段通过；两个应用窗口均缩窄且互不重叠。竖屏展开/部分折叠/吸顶的根视图顶部为 264/246.5/130 pt，分别等于标签栏底部，底边固定为 1210 pt；横屏对应 264/246/130 pt，底边为 834 pt。
+- **截图复核：** 已导出并查看 [LTR 横屏分屏部分折叠](Results/page-follow-ipad-ltr-retry-20261016/screenshots/774F497F-1E4A-4BC0-B050-5DC9B86148FB.png)、[RTL 横屏分屏部分折叠](Results/page-follow-ipad-reboot-20261016/rtl-split-screenshots/EBBCAF24-86B1-4AAA-A1AE-1FB03912C5A1.png)、[RTL 窄浮动窗口部分折叠](Results/page-follow-ipad-matrix-20261016/rtl-resize-screenshots/98DD2AB1-A65C-496D-B4CB-C3AD87BD7DD8.png) 和 [LTR 浮动窗口部分折叠](Results/page-follow-ipad-resize-20261016/screenshots/D3545F8C-0491-4106-B11C-2ECDF4CFDD04.png)。结果包、日志、截图与源码快照保存在本地 Git 忽略目录。
+- **边界：** 本轮为针对性 UI 回归，未重跑完整 iPad UI 套件、库套件、Release、真机、旧系统传统 Split View 或其他 iPad 型号。几何结论对应上述设备、窗口与 Header 状态；未进行动画逐帧采样。
+
 ## 页面根视图跟随标签栏底部
 
 2026-10-16，统一滚动页与普通页的布局：根视图顶部跟随当前标签栏底部，左右铺满容器，底边保持在容器底边。Header 剩余展开距离由根视图位移承担，已折叠距离由滚动视图顶部 inset 承担；更新尺寸与 inset 时保留归一化滚动位置。短内容按当前视口加上剩余折叠距离补齐物理滚动范围，指示器不重复避让 Header。

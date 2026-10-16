@@ -9,7 +9,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
         if name.contains("testSiblingLabel") { app.launchArguments.append("--mixed-page") }
-        if name.contains("testSystemSplitWindowsRTL") { app.launchArguments.append("--rtl") }
+        if name.contains("testSystemSplitWindowsRTL") || name.contains("testSystemWindowResizeRTL") { app.launchArguments.append("--rtl") }
         app.launch()
         restoreFullScreen()
         app.buttons["demo.open"].tap()
@@ -122,7 +122,7 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     private func recordWindow(_ phase: String) {
-        print("WINDOW GEOMETRY \(phase): window=\(app.windows.firstMatch.frame), list=\(app.tables["demo.list"].frame)")
+        print("WINDOW GEOMETRY \(phase): window=\(app.windows.firstMatch.frame), list=\(app.tables["demo.list"].frame), tabs=\(app.collectionViews["sp.tabBar.collection"].frame), state=\(status.value ?? "")")
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = phase; attachment.lifetime = .keepAlways; add(attachment)
     }
@@ -140,16 +140,20 @@ final class StickyPagerDemoUITests: XCTestCase {
         return max(0, CGFloat(position) - max(0, 220 - safeTop))
     }
 
-    private func assertPageWidth(_ page: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+    private func assertPageFrame(_ page: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         let window = app.windows.firstMatch.frame
         XCTAssertEqual(page.frame.minX, window.minX, accuracy: 1, file: file, line: line)
         XCTAssertEqual(page.frame.maxX, window.maxX, accuracy: 1, file: file, line: line)
         XCTAssertEqual(page.frame.width, window.width, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(page.frame.minY, app.collectionViews["sp.tabBar.collection"].frame.maxY, accuracy: 1,
+                       "页面根视图应始终紧接当前标签栏底部", file: file, line: line)
+        XCTAssertEqual(page.frame.maxY, window.maxY, accuracy: 1,
+                       "页面根视图应始终延伸至实际窗口底边", file: file, line: line)
     }
 
     private func assertListSafeArea(file: StaticString = #filePath, line: UInt = #line) {
         let table = app.tables["demo.list"]
-        assertPageWidth(table, file: file, line: line)
+        assertPageFrame(table, file: file, line: line)
         guard let value = table.value as? String, let data = value.data(using: .utf8),
               let geometry = try? JSONSerialization.jsonObject(with: data) as? [String: Double],
               let left = geometry["safeLeft"], let right = geometry["safeRight"] else {
@@ -164,7 +168,7 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     private func assertGridCellsSafeArea(file: StaticString = #filePath, line: UInt = #line) {
         let grid = app.collectionViews["demo.grid"]
-        assertPageWidth(grid, file: file, line: line)
+        assertPageFrame(grid, file: file, line: line)
         let safeViewport = app.collectionViews["sp.tabBar.collection"].frame
         let cells = (0..<3).map { grid.cells["demo.grid.cell.\($0)"].frame }
         for cell in cells {
@@ -207,8 +211,39 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertEqual(contentPosition(), position, accuracy: 1)
     }
 
+    /// 使用真实触摸覆盖展开、部分折叠和吸顶；短列表不会改变原列表保存的正文位置。
+    private func verifyRootFollowsHeaderInCurrentWindow() {
+        select(2); expect("page=short")
+        let table = app.tables["demo.list"]
+        table.swipeDown(); expect("progress=0.00")
+        assertListSafeArea(); recordWindow("Header 展开")
+        select(4); expect("page=plain")
+        assertPageFrame(app.staticTexts["demo.plain"])
+        select(2); expect("page=short")
+        let start = table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -35)),
+                    withVelocity: .slow, thenHoldForDuration: 0.5)
+        let progress = (status.value as? String)?.components(separatedBy: "progress=").last.flatMap(Double.init)
+        XCTAssertNotNil(progress)
+        XCTAssertGreaterThan(progress ?? 0, 0)
+        XCTAssertLessThan(progress ?? 1, 1)
+        assertListSafeArea(); recordWindow("Header 部分折叠")
+        table.swipeUp(); expect("progress=1.00")
+        assertListSafeArea(); recordWindow("Header 再次吸顶")
+        select(1); expect("page=list")
+    }
+
     func testSystemWindowResizePreservesPinnedListAndPaging() throws {
+        try verifySystemWindowResize(rtl: false)
+    }
+
+    func testSystemWindowResizeRTLPreservesPinnedListAndPaging() throws {
+        try verifySystemWindowResize(rtl: true)
+    }
+
+    private func verifySystemWindowResize(rtl: Bool) throws {
         try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统窗口缩放仅适用于 iPad")
+        expect(rtl ? "direction=rtl" : "direction=ltr")
         select(1)
         let table = app.tables["demo.list"]
         table.swipeUp(); expect("progress=1.00")
@@ -217,13 +252,18 @@ final class StickyPagerDemoUITests: XCTestCase {
         resizeSystemWindow(dx: -250, dy: -350)
         XCTAssertLessThan(app.windows.firstMatch.frame.width, full.width - 100)
         assertPinnedList(position: initialPosition); recordWindow("浮动小窗口")
+        verifyRootFollowsHeaderInCurrentWindow()
+        assertPinnedList(position: initialPosition)
         for delta: CGVector in [CGVector(dx: 160, dy: 120), CGVector(dx: -80, dy: -60)] {
             let before = app.windows.firstMatch.frame
             resizeSystemWindow(dx: delta.dx, dy: delta.dy)
             XCTAssertGreaterThan(abs(app.windows.firstMatch.frame.width - before.width), 40)
             assertPinnedList(position: initialPosition); recordWindow("连续缩放 \(delta)")
-            table.swipeLeft(); expect("page=short")
-            app.tables["demo.list"].swipeRight(); expect("page=list")
+            if rtl { table.swipeRight() } else { table.swipeLeft() }
+            expect("page=short"); assertListSafeArea()
+            if rtl { table.swipeLeft() } else { table.swipeRight() }
+            expect("page=list"); assertPinnedList(position: initialPosition)
+            verifyRootFollowsHeaderInCurrentWindow()
             assertPinnedList(position: initialPosition)
         }
         // 重新触摸必须仍可滚动，切回后保存该次滚动的位置。
@@ -232,6 +272,8 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertGreaterThan(moved, initialPosition + 50)
         restoreFullScreen()
         assertPinnedList(position: moved); recordWindow("恢复全屏")
+        verifyRootFollowsHeaderInCurrentWindow()
+        assertPinnedList(position: moved)
     }
 
     func testSystemSplitWindowsPreservePositionAndPaging() throws {
@@ -288,6 +330,8 @@ final class StickyPagerDemoUITests: XCTestCase {
             select(0); expect("page=grid"); assertGridCellsSafeArea()
             select(1); expect("page=list"); assertPinnedList(position: initialPosition)
             recordWindow("系统分屏-\(rtl ? "rtl" : "ltr")-\(orientation.rawValue)")
+            verifyRootFollowsHeaderInCurrentWindow()
+            assertPinnedList(position: initialPosition)
         }
     }
 
@@ -583,7 +627,7 @@ final class StickyPagerDemoUITests: XCTestCase {
             expect(step == 0 ? "page=grid" : "page=weekly")
             expectSelectedTabAlignment(step == 0 ? 0 : 9)
             select(0); expect("page=grid")
-            assertPageWidth(app.collectionViews["demo.grid"])
+            assertPageFrame(app.collectionViews["demo.grid"])
             expectSelectedTabAlignment(0)
             let viewport = tabs.frame
             let window = app.windows.firstMatch.frame
