@@ -39,7 +39,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
     private let names = ["grid": "网格", "list": "列表", "short": "短列表", "empty": "空列表",
                          "plain": "普通页", "async": "异步页", "hot": "热", "recommended": "推荐内容",
                          "following": "关注", "weekly": "本周热门精选", "saved": "收藏", "topics": "更多专题与活动"]
-    private let status = UILabel()
+    private let status = RegressionStatusLabel()
     private var controllerHeader = false
     private var generation = 0
 
@@ -183,13 +183,37 @@ final class DemoHeaderController: UIViewController {
     }
 }
 
-/// UI 回归仅在指定启动参数下读取原生滚动坐标，不改变可见内容或生产无障碍描述。
+/// UI 回归直接读取窗口场景方向，避免将设备旋转请求误认为界面已旋转。
+@MainActor
+private final class RegressionStatusLabel: UILabel {
+    override var accessibilityValue: String? {
+        get {
+            guard ProcessInfo.processInfo.arguments.contains("--window-regression") else { return super.accessibilityValue }
+            let orientation: UIInterfaceOrientation
+            if #available(iOS 26.0, *) {
+                orientation = window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .unknown
+            } else {
+                orientation = window?.windowScene?.interfaceOrientation ?? .unknown
+            }
+            return "interfaceOrientation=\(orientation.rawValue);\(super.accessibilityValue ?? "")"
+        }
+        set { super.accessibilityValue = newValue }
+    }
+}
+
+/// UI 回归仅在指定启动参数下读取原生滚动坐标及安全区域，不改变可见内容或生产无障碍描述。
 @MainActor
 private final class RegressionTableView: UITableView {
     override var accessibilityValue: String? {
         get {
             guard ProcessInfo.processInfo.arguments.contains("--window-regression") else { return super.accessibilityValue }
-            return String(format: "%.3f", Double(contentOffset.y + adjustedContentInset.top))
+            let geometry: [String: Double] = [
+                "position": Double(contentOffset.y + adjustedContentInset.top),
+                "safeLeft": Double(safeAreaInsets.left),
+                "safeRight": Double(safeAreaInsets.right)
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: geometry, options: [.sortedKeys]) else { return nil }
+            return String(data: data, encoding: .utf8)
         }
         set { super.accessibilityValue = newValue }
     }
@@ -244,6 +268,7 @@ final class DemoGrid: UICollectionViewController {
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 8; layout.minimumLineSpacing = 8
         layout.sectionInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        layout.sectionInsetReference = .fromSafeArea
         super.init(collectionViewLayout: layout)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -255,10 +280,24 @@ final class DemoGrid: UICollectionViewController {
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if let layout = collectionViewLayout as? UICollectionViewFlowLayout {
-            let side = max(40, floor((collectionView.bounds.width - 40) / 3))
-            if layout.itemSize.width != side { layout.itemSize = CGSize(width: side, height: side * 1.25) }
-        }
+        updateItemSize()
+    }
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateItemSize()
+    }
+    private func updateItemSize() {
+        guard isViewLoaded, let layout = collectionViewLayout as? UICollectionViewFlowLayout else { return }
+        // 根视图保持全宽；Cell 与 section 共用安全区域边界，避免横屏遮挡或三列换行。
+        // 与 fromSafeArea 一致：若业务调整后的 content inset 更大，则尊重该边界。
+        let safe = collectionView.safeAreaInsets
+        let adjusted = collectionView.adjustedContentInset
+        let left = max(safe.left + layout.sectionInset.left, adjusted.left)
+        let right = max(safe.right + layout.sectionInset.right, adjusted.right)
+        let width = collectionView.bounds.width - left - right - layout.minimumInteritemSpacing * 2
+        let side = max(1, floor(width / 3))
+        let size = CGSize(width: side, height: side * 1.25)
+        if layout.itemSize != size { layout.itemSize = size }
     }
     override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { 90 }
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -268,6 +307,7 @@ final class DemoGrid: UICollectionViewController {
         content.text = "\(indexPath.item + 1)"
         cell.contentConfiguration = content
         cell.accessibilityLabel = "作品 \(indexPath.item + 1)"
+        cell.accessibilityIdentifier = "demo.grid.cell.\(indexPath.item)"
         return cell
     }
 }

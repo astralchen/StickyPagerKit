@@ -116,6 +116,8 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 `viewControllerAt` 返回的内容页根视图铺满容器宽度并延伸至容器底边，不扣除左右及底部 Safe Area；容器全屏显示时即与屏幕左右边界和底边对齐，嵌入较窄的父容器时以实际容器宽度为准。Header 展开、折叠及切页时保持这些边界。横向分页步长随容器宽度更新。页面背景可铺满根视图，普通页面的文字和按钮应使用 `safeAreaLayoutGuide` 避让安全区域，滚动内容按 UIKit 的 `adjustedContentInset` 及业务指定的 inset 调整策略避让。框架保留业务配置；使用 `.never` 的页面需自行处理安全区域。
 
+使用 `UICollectionViewFlowLayout` 的网格页还需让 Cell 布局遵循安全区域。Demo 将 `sectionInsetReference` 设为 `.fromSafeArea`，并按同一边界扣除 section 间距和列间距后计算三列宽度；在布局和安全区域变化时更新尺寸。仅保证 Collection View 根视图全宽，或直接用其 `bounds.width` 计算 Cell 宽度，并不能保证 Cell 内容避开横屏安全区域。
+
 框架只持有自己添加的 inset 增量，解绑时移除并恢复原有纵向回弹配置。业务需要更新 inset 时，赋值完整的业务基准值，框架随后重新叠加自身贡献；不要将读取到的、已经含框架贡献的 inset 再作为新基准写回。
 
 纵向滚动指示器的轨道随 Header 折叠避开页面上方的覆盖区域，保留业务 `verticalScrollIndicatorInsets`、横向指示器配置及 UIKit 的自动安全区域调整。短列表、空列表若只有 Header 折叠范围而没有正文滚动范围，则暂时隐藏纵向指示器，避免顶部折叠 inset 与底部补齐 inset 产生误导性的长条。内容或视口尺寸变化后，框架按业务 `showsVerticalScrollIndicator` 设置恢复显示；解绑时恢复最新的业务设置。更新指示器 inset 时同样应赋值完整的业务基准值。

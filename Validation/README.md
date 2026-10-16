@@ -2,6 +2,36 @@
 
 验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 网格 Cell 显示区域避让 Safe Area
+
+2026-10-16，用户指出网格内部 Cell 未避开安全区域。此前全宽回归检查了网格根视图的宽度，未断言 Cell 边界；该覆盖缺口已补齐。
+
+- **修复前复现：** iPhone 18 Pro Max / iOS 27.0 横屏安全区域左边缘为 62 pt，原 Cell 左边缘仍是 12 pt，而安全区域内加 12 pt 间距应为 74 pt。新增几何断言在旧实现上失败，见 [基线摘要](Results/grid-safe-area-baseline-20261016/summary.json)。更早的试运行因截图辅助函数只支持列表而失败，不作为布局复现证据。
+- **修复：** DemoGrid 使用 `sectionInsetReference = .fromSafeArea`；Cell 宽度按相同边界扣除 section 和列间距后计算，尊重更大的 adjusted content inset。在布局或 Safe Area 变化时更新尺寸，根视图与背景保持全宽。未改动框架 `Sources`、列表实现或分页步长。
+- **新增检查：** 第一排三个 Cell 必须处于同一行，左右完整落在安全区域内，并保留原有 12 pt 间距。iPhone／iPad 均覆盖 LTR、RTL 下的竖屏、左横屏、右横屏及回到竖屏；系统分屏用例增加列表→网格→列表，验证 Cell 布局及列表原有吸顶和滚动位置。
+- **最终通过记录：** iPhone 网格矩阵重跑 **1 项通过**，见 [摘要](Results/grid-safe-area-iphone-retry-20261016/summary.json)；iPad 首轮网格矩阵与 RTL 系统分屏 **2 项通过**，见 [首轮摘要](Results/grid-safe-area-final-ipad-20261016/summary.json)；同一源码下 LTR 系统分屏重跑 **1 项通过**，见 [重跑摘要](Results/grid-safe-area-ipad-ltr-retry-20261016/summary.json)。三组终态均已读取，28 个源码输入哈希完全一致，`sourceChangedSinceRun` 为空。
+- **失败保留：** iPhone 首轮在 RTL 重新启动后等待 `page=grid` 超时，见 [结果](Results/grid-safe-area-final-iphone-20261016/summary.json)；iPad 首轮 LTR 分屏滑动后未进入短列表，发生在新增网格断言之前。两项保持源码不变、串行 clean 重跑后均通过，不将首轮改写为全绿，也不据此宣称偶发交互问题已消除。
+- **实际几何与截图：** iPhone 横屏宽 956 pt，安全视口为 x=62、宽 832 pt；Cell 为 x=74／346／618，各宽 264 pt，最后一格右边缘为 882 pt，距安全视口右边缘 12 pt。已复核 [RTL 横屏截图](Results/grid-safe-area-iphone-retry-20261016/screenshots/00440C5E-B931-4BA1-8499-ABD380DDF510.png)。iPad 分屏 412／600 pt 宽时，Cell 分别宽 124／186 pt，左右各 12 pt。
+- **边界：** 本轮为 4 项针对性 UI 用例的通过记录，未在网格修改后重跑完整 UI、库测试、Release 或真机。下方完整 UI 记录对应此次网格修复之前的 Demo 源码。
+
+## 全宽页面的完整 UI 回归：旋转、RTL 与 iPad 分屏
+
+2026-10-16，在 `6abda58` 的框架实现上补跑完整 Demo UI 套件。两台模拟器均执行 `clean test`，无用例筛选；本轮只加强 Demo 的测试观测与 UI 测试，`Sources` 未修改。
+
+| 最终运行 | 配置 | 通过 | 失败 | 跳过 | 结果 |
+| --- | --- | ---: | ---: | ---: | --- |
+| iPhone 18 Pro Max / iOS 27.0 | Xcode 27.1 / Debug | 22 | 0 | 3 | [完整套件摘要](Results/page-width-accepted-iphone-20261016/summary.json) |
+| iPad Pro 11-inch (M5) (16GB) / iOS 26.5 | Xcode 26.6 / Debug | 24 | 1 | 0 | [完整套件摘要](Results/page-width-accepted-ipad-20261016/summary.json) |
+| 同一 iPad，RTL 分屏独立重跑 | Xcode 26.6 / Debug | 1 | 0 | 0 | [重跑摘要](Results/page-width-accepted-ipad-rtl-retry-20261016/summary.json) |
+
+- **失败与重跑口径：** iPad 完整套件唯一失败为 `testSystemSplitWindowsRTLPreservePositionAndPaging` 启动系统“设置”超时（`Failed to launch com.apple.Preferences`），发生在建立双应用分屏之前。保持源码不变，重新 clean 构建并单独运行该项后通过。完整套件的失败原样保留，不将其改写为一次 25 项全绿；重跑后全部适用用例均有通过记录。iPhone 的 3 项跳过分别为 LTR 分屏、RTL 分屏、系统窗口缩放，仅适用于 iPad。
+- **旋转与安全区域：** 默认字号／最大辅助字号 × LTR／RTL 均经过竖屏、左横屏、右横屏、回到竖屏；直接读取 `UIWindowScene` 的原生界面方向作为旋转完成条件。检查网格和列表的左右边界、列表原生左右安全区域、选中项保持、折叠和新触摸恢复。iPhone 竖屏页面宽 440 pt；横屏宽 956 pt，左右安全区域各 62 pt，标签安全视口宽 832 pt，页面不扣减这 124 pt。
+- **真实系统分屏：** 启动“设置”作为第二个应用，操作系统窗口菜单建立左右排列，要求两个窗口缩窄且不重叠。LTR 完整套件与 RTL 重跑均验证竖屏 412 × 1210 pt、横屏 600 × 834 pt、再回到竖屏；页面根视图匹配各阶段的实际窗口宽度，左右安全区域为 0。真实往返翻页后仍保持吸顶和原有内容位移，误差限保持 1 pt。旋转若使系统恢复浮动窗口，先核验浮动状态，再重新建立分屏并继续检查，不把重叠窗口当作分屏。
+- **连续缩放：** 完整 iPad 套件通过 375 × 630、690 × 866、535 × 750 pt 浮动窗口及恢复全屏的检查，覆盖页面宽度、安全区域、滚动位置、吸顶边界、往返分页和新触摸滚动。
+- **测试修订及影响：** 早期完整 iPad 运行出现页面底边 753 pt 与 `app.frame.maxY` 750 pt 不一致；实际窗口为 `(339, 3, 535, 750)`，页面底边正确。现按 `app.windows.firstMatch.frame` 核验窗口边界，屏幕坐标手势以 SpringBoard 为原点，避免重复叠加浮动窗口偏移。保留 [初次完整结果](Results/page-width-full-ipad-20261016/summary.json)。同时发现仅设置设备方向不足以证明界面旋转，最终套件加入原生方向断言。Demo 仅在 `--window-regression` 下暴露方向、滚动位置和左右安全区域；常规启动不改变可见内容或无障碍值。
+- **证据与截图：** 已读取上述三份终态 `.xcresult`；28 个实现、测试、工程及脚本输入的 SHA-256 完全一致，且匹配当前源码，`sourceChangedSinceRun` 均为空。iPhone 与重跑取得 `TEST SUCCEEDED`，iPad 完整套件保留 `TEST FAILED`。已人工复核 [iPhone RTL 横屏吸顶](Results/page-width-accepted-iphone-20261016/rtl-screenshots/0E210B0B-0BB2-4F47-8589-8F4CA347173E.png)、[iPad LTR 横屏分屏](Results/page-width-accepted-ipad-20261016/split-screenshots/FA926DEF-0087-47D4-83CC-5A321691524F.png)、[iPad RTL 横屏分屏](Results/page-width-accepted-ipad-rtl-retry-20261016/screenshots/47C85DBC-1509-4560-BDA7-7EA563FDD67D.png) 和 [回到竖屏](Results/page-width-accepted-ipad-rtl-retry-20261016/screenshots/0F9008CA-3B2B-4DB0-A6DE-F000559C95BF.png)。结果包与截图保留在本地 Git 忽略目录。
+- **边界：** 本轮没有修改框架，也未重跑库套件、Release、真机、旧系统传统 Split View、其他 iPad 型号、VoiceOver 全流程或性能压力测试。此前 85 项库通过记录对应相同框架实现，但与本轮 UI 数量分别统计。设置启动超时的偶发性尚未通过多轮重复完整套件证明消除。
+
 ## 内容页全宽与左右安全区域
 
 2026-10-16，`viewControllerAt` 返回的页面根视图改为铺满实际容器宽度，取消分页视口对左右 Safe Area 的扣减。页面内部控件继续使用自己的安全区域；使用 `.never` 的滚动内容由业务自行避让。分页步长随实际容器宽度更新。
