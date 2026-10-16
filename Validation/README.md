@@ -1,6 +1,20 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+
+## 窗口修复后的 iPhone Release 回归
+
+2026-10-16，从干净的 `e45c201` 工作区开始，验证下节窗口修复在 iPhone 上的表现。使用 Xcode 27.1（27A9275）/ Swift 6.4，iPhone 18 Pro Max / iOS 27.0（24A434）模拟器，设备 ID 为 `41AF9CED-9BBB-4B60-B563-73AFB035C2D4`。库与 Demo UI 分别 clean 构建并运行完整 Release 套件，未指定测试筛选；库测试使用 `ENABLE_TESTABILITY=YES`。编译日志确认框架、Demo 与测试目标均使用 `-O`，见 [库优化证据](Results/window-fix-iphone-release-library/optimization.json) · [UI 优化证据](Results/window-fix-iphone-release-ui/optimization.json)。
+
+- **完整库通过：74 通过、0 失败、0 跳过。** 已读取终态 `.xcresult`，运行后 `sourceChangedSinceRun` 为空。本轮包含前次新增的 6 项尺寸变化测试，并覆盖滚动位置分配、共享 Header、后台页位置、缓存恢复、刷新、手势归属及生命周期。见 [库结果](Results/window-fix-iphone-release-library/Result.xcresult) · [库摘要](Results/window-fix-iphone-release-library/summary.json)。
+- **完整 UI 套件通过：16 通过、0 失败、2 跳过。** 两项跳过分别为 `testSystemSplitWindowsPreservePositionAndPaging`、`testSystemWindowResizePreservesPinnedListAndPaging`，均仅适用于 iPad；iPhone 适用的全部 16 项实际执行并通过。见 [UI 结果](Results/window-fix-iphone-release-ui/Result.xcresult) · [UI 摘要](Results/window-fix-iphone-release-ui/summary.json)。
+- **滚动同步与旋转：** Header／列表真实拖动、共享折叠状态、短内容斜向拖动和回弹、普通页拖动、刷新、非相邻选择、快速分页及 RTL 均通过。吸顶用例连续滚动、切页、替换 Header 和修改高度后，往返横竖屏，检查标签栏与导航栏、列表与标签栏以及页面底边的实际几何。
+- **返回手势：** `testRotationAndBackGesture` 在列表吸顶后往返横竖屏；慢拖 80 pt 并停留后取消返回，验证页面仍在且新触摸可翻页；随后完成系统侧滑返回，重新进入后验证初始展开状态及再次翻页。见 [用例结束截图](Results/window-fix-iphone-release-ui/rotation-back-screenshots/E768A010-B406-4048-BD29-A5DD61DB7BA6.png)。该截图仅表示用例结束状态，过程以 UI 测试动作和断言日志为证。
+- **最终合计：90 通过、0 失败、2 项 iPad 专用测试跳过。** 两组均取得 `TEST SUCCEEDED` 并读取终态 `.xcresult`；28 个实现、测试、工程及脚本输入文件的 SHA-256 在库与 UI 之间一致，匹配当前源码，也与上轮 iPad 最终验收的输入一致。两组 `sourceChangedSinceRun` 均为空，`git diff --check` 通过。
+- **改动范围：** 未发现需要修复的新问题，未修改实现或测试，也未放宽断言；本轮只补充验证记录。原始日志、截图、源码哈希和结果包保留在本地 Git 忽略目录。
+- **未执行：** 本轮未重跑其他 iPhone 型号、iOS 26.5 或 iOS 15–25、真机、多指同时操作、VoiceOver 全流程和性能压力测试。上轮 iPad 结果保留为同源码的独立验证，不重复计入本轮数量。
+
+本节为窗口修复后的 iPhone 证据；更早章节的 iPhone 结果仍对应其历史源码。
 
 ## iPad 系统分屏与连续窗口缩放回归
 
