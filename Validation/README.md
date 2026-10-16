@@ -2,6 +2,18 @@
 
 验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## iPhone 17 Pro / iOS 26.5 Release 回归
+
+2026-10-16，从干净的 `de381a2` 工作区开始，按指定设备补跑窗口修复后的回归。使用 Xcode 26.6（17F113）/ Swift 6.3.3，iPhone 17 Pro / iOS 26.5（23F77）模拟器，设备 ID 为 `294027E9-350F-4CA3-8B9F-222AA5281556`。库与 Demo UI 分别 clean 构建并执行完整 Release 套件，未筛选用例；库测试设置 `ENABLE_TESTABILITY=YES`。框架、Demo 和测试目标的编译日志均确认使用 `-O`，见 [库优化证据](Results/window-fix-iphone17-release-library/optimization.json) · [UI 优化证据](Results/window-fix-iphone17-release-ui/optimization.json)。
+
+- **完整库通过：74 通过、0 失败、0 跳过。** 已读取终态 `.xcresult`，`sourceChangedSinceRun` 为空。包含滚动位移分配、共享 Header、切页与缓存位置恢复、Safe Area、尺寸转换、自适应行高、底部钳制、手势归属及生命周期测试。见 [库结果](Results/window-fix-iphone17-release-library/Result.xcresult) · [库摘要](Results/window-fix-iphone17-release-library/summary.json)。
+- **完整 UI 套件通过：16 通过、0 失败、2 跳过。** 全部 iPhone 适用用例实际执行并通过；`testSystemSplitWindowsPreservePositionAndPaging` 与 `testSystemWindowResizePreservesPinnedListAndPaging` 仅适用于 iPad，按条件跳过且不计为通过。见 [UI 结果](Results/window-fix-iphone17-release-ui/Result.xcresult) · [UI 摘要](Results/window-fix-iphone17-release-ui/summary.json)。
+- **滚动同步与旋转：** Header／列表拖动、共享折叠、短内容回弹、普通页拖动、刷新、快速与非相邻切页、RTL 通过。吸顶用例在连续滚动、切页、替换 Header 和修改高度后往返横竖屏，核验导航栏／标签栏／列表视口与页面底边的实际几何；纵向拖动标签栏没有误切页。
+- **返回手势：** 列表吸顶后往返横竖屏，慢拖 80 pt 并停留后取消系统返回，验证新触摸仍可翻页；随后完成侧滑返回、重新进入，验证初始展开状态及再次分页。见 [用例结束截图](Results/window-fix-iphone17-release-ui/rotation-back-screenshots/15633E61-9113-401C-9B61-A655CCFC4134.png)。截图仅表示结束状态，完整过程以结果包中的动作及断言日志为证。
+- **最终合计：90 通过、0 失败、2 项 iPad 专用测试跳过。** 两组均取得 `TEST SUCCEEDED` 并读取终态 `.xcresult`，`sourceChangedSinceRun` 均为空。28 个实现、测试、工程及脚本输入文件的 SHA-256 在本轮库与 UI 之间一致，匹配当前源码，也与此前 iPad / iOS 26.5、iPhone 18 Pro Max / iOS 27.0 的最终验收输入一致。`git diff --check` 通过，历史数量不重复计入本轮。
+- **改动范围：** 未发现需要修复的新问题，未修改实现或测试，未放宽断言；本轮仅补充验证记录。日志、截图、哈希和 `.xcresult` 留在本地 Git 忽略目录。
+- **未执行：** 本轮未重跑其他设备、其他系统、真机、多指同时操作、VoiceOver 全流程或性能压力测试。上述通过结论限定于指定模拟器、Release 配置及现有测试覆盖。
+
 ## 窗口修复后的 iPhone Release 回归
 
 2026-10-16，从干净的 `e45c201` 工作区开始，验证下节窗口修复在 iPhone 上的表现。使用 Xcode 27.1（27A9275）/ Swift 6.4，iPhone 18 Pro Max / iOS 27.0（24A434）模拟器，设备 ID 为 `41AF9CED-9BBB-4B60-B563-73AFB035C2D4`。库与 Demo UI 分别 clean 构建并运行完整 Release 套件，未指定测试筛选；库测试使用 `ENABLE_TESTABILITY=YES`。编译日志确认框架、Demo 与测试目标均使用 `-O`，见 [库优化证据](Results/window-fix-iphone-release-library/optimization.json) · [UI 优化证据](Results/window-fix-iphone-release-ui/optimization.json)。
