@@ -11,6 +11,8 @@ internal final class SPScrollBinding {
     private var topContribution: CGFloat = 0
     private var bottomContribution: CGFloat = 0
     private var baseInset: UIEdgeInsets
+    private var baseIndicatorInset: UIEdgeInsets
+    private var requestedVerticalIndicator: Bool
     private let originalBounce: Bool
     private var range: CGFloat = 0
 
@@ -23,17 +25,34 @@ internal final class SPScrollBinding {
     init(scrollView: UIScrollView) {
         self.scrollView = scrollView
         baseInset = scrollView.contentInset
+        baseIndicatorInset = scrollView.verticalScrollIndicatorInsets
+        requestedVerticalIndicator = scrollView.showsVerticalScrollIndicator
         originalBounce = scrollView.alwaysBounceVertical
         scrollView.alwaysBounceVertical = true
         observations = [
             scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated {
                     guard let self, !self.updating, !self.detached else { return }
+                    self.updateIndicators()
                     self.onScroll?(self)
                 }
             },
             scrollView.observe(\.contentInset, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.externalInsetsChanged() }
+            },
+            scrollView.observe(\.verticalScrollIndicatorInsets, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    guard let self, !self.updating, !self.detached else { return }
+                    self.baseIndicatorInset = self.scrollView.verticalScrollIndicatorInsets
+                    self.updateIndicators()
+                }
+            },
+            scrollView.observe(\.showsVerticalScrollIndicator, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    guard let self, !self.updating, !self.detached else { return }
+                    self.requestedVerticalIndicator = self.scrollView.showsVerticalScrollIndicator
+                    self.updateIndicators()
+                }
             },
             scrollView.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.updateGeometry() }
@@ -62,6 +81,7 @@ internal final class SPScrollBinding {
         updating = true
         scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: false)
         updating = false
+        updateIndicators()
     }
 
     func stopDeceleration() {
@@ -82,6 +102,8 @@ internal final class SPScrollBinding {
         restored.top -= topContribution
         restored.bottom -= bottomContribution
         scrollView.contentInset = restored
+        scrollView.verticalScrollIndicatorInsets = baseIndicatorInset
+        scrollView.showsVerticalScrollIndicator = requestedVerticalIndicator
         scrollView.alwaysBounceVertical = originalBounce
         scrollView.contentOffset.y = contentPosition - scrollView.adjustedContentInset.top
     }
@@ -110,5 +132,19 @@ internal final class SPScrollBinding {
         let desired = oldPosition - scrollView.adjustedContentInset.top
         if abs(scrollView.contentOffset.y - desired) > 0.001 { scrollView.contentOffset.y = desired }
         updating = false
+        updateIndicators()
+    }
+
+    private func updateIndicators() {
+        guard !updating, !detached else { return }
+        updating = true
+        defer { updating = false }
+        // 指示器轨道避开仍覆盖页面的 Header 区域，不叠加短内容的底部补齐量。
+        var inset = baseIndicatorInset
+        inset.top += range - SPScrollGeometry.collapse(position, range: range)
+        if scrollView.verticalScrollIndicatorInsets != inset { scrollView.verticalScrollIndicatorInsets = inset }
+        // 仅有 Header 折叠距离的页面没有正文滚动进度；合成 inset 不应产生一条长指示器。
+        let visible = requestedVerticalIndicator && maximumPosition > range + 0.001
+        if scrollView.showsVerticalScrollIndicator != visible { scrollView.showsVerticalScrollIndicator = visible }
     }
 }

@@ -2,6 +2,18 @@
 
 验证日期：2026-10-15 至 2026-10-16。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 滚动指示器位置修复
+
+2026-10-16，使用 Xcode 27.1 / Swift 6.4 / Debug，在截图同款 iPhone 18 Pro Max / iOS 27.0 模拟器（`41AF9CED-9BBB-4B60-B563-73AFB035C2D4`）验证。
+
+- **原因：** `SPScrollBinding` 添加 Header 折叠所需的顶部 inset，并给短内容补齐底部 inset；UIKit 将这些区域计入指示器进度。真实 UIWindow 诊断中，216 pt 内容、644 pt 视口、200 pt 折叠距离，在吸顶时仍生成从视口下方约 154.33 pt 开始、长约 486.67 pt 的指示器；显式设置零指示器 inset 无法消除。原始输出见 [几何诊断日志](Results/indicator-probe-native/xcodebuild.log)。
+- **修复：** 仅有 Header 折叠范围的短列表和空列表隐藏纵向指示器；长内容保留原生指示器，轨道顶部增加尚未折叠的覆盖高度。内容和尺寸变化时重算显隐，保留最新业务 inset／显隐偏好并在解绑时恢复，不改变横向指示器和自动安全区域策略。
+- **修复前回归：3 项失败，0 项通过。** 验证短内容显隐、轨道与标签栏的实际坐标关系、业务配置更新及解绑恢复。见 [修复前结果](Results/indicator-before/Result.xcresult)。
+- **修复后完整库：77 项通过，0 失败，0 跳过。** 包含新增 3 项及原有 74 项测试，见 [库结果](Results/indicator-after-library/Result.xcresult) · [摘要](Results/indicator-after-library/summary.json)。库源码、Package 与库测试哈希匹配最终版本；该次运行后仅另行添加了 Demo UI 测试，该文件不属于库 scheme，原始哈希差异如实保留在摘要中。
+- **定向 UI：3 项通过，0 失败，0 跳过。** 实际执行 Header／长列表拖动、短列表斜向拖动与回弹、新增短／空／长内容切换和拖动，验证短列表内容可见及新触摸可展开 Header。见 [UI 结果](Results/indicator-after-ui/Result.xcresult) · [摘要](Results/indicator-after-ui/summary.json)。UI 源码快照匹配最终版本，已读取两组终态结果，`git diff --check` 通过。
+- **截图复核：** [短列表吸顶](Results/indicator-after-ui/screenshots/ED3CCCE2-690A-41C8-9B46-06ADD8DD9E13.png) 中右侧异常长条已消失；截图为手势结束后的状态，长列表原生指示器的显隐设置与轨道位置另由库回归断言验证。
+- **本轮未执行：** 完整 Demo UI 套件、Release、iPad、其他系统版本和真机。此前各节的矩阵属于历史源码，不作为本次修复的全量验收。
+
 ## iPhone 17 Pro / iOS 26.5 Release 回归
 
 2026-10-16，从干净的 `de381a2` 工作区开始，按指定设备补跑窗口修复后的回归。使用 Xcode 26.6（17F113）/ Swift 6.3.3，iPhone 17 Pro / iOS 26.5（23F77）模拟器，设备 ID 为 `294027E9-350F-4CA3-8B9F-222AA5281556`。库与 Demo UI 分别 clean 构建并执行完整 Release 套件，未筛选用例；库测试设置 `ENABLE_TESTABILITY=YES`。框架、Demo 和测试目标的编译日志均确认使用 `-O`，见 [库优化证据](Results/window-fix-iphone17-release-library/optimization.json) · [UI 优化证据](Results/window-fix-iphone17-release-ui/optimization.json)。

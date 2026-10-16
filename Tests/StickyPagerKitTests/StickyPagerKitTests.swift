@@ -32,6 +32,72 @@ final class StickyPagerKitTests: XCTestCase {
         return pager
     }
 
+    func testShortContentDoesNotShowIndicatorForSyntheticScrollRange() {
+        let pager = mount(height: 216, inNavigation: true)
+        let scroll = pager.currentScrollView!
+        let binding = pager.records[0]!.binding!
+        for height: CGFloat in [216, 0, 216] {
+            scroll.contentSize.height = height
+            for position: CGFloat in [0, 100, 200] {
+                binding.setPosition(position)
+                XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+                XCTAssertEqual(binding.maximumPosition, 200, accuracy: 0.01)
+            }
+        }
+        scroll.contentSize.height = 1800
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        scroll.bounds.size.height = 2000
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        scroll.bounds.size.height = 500
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+    }
+
+    func testIndicatorTrackFollowsVisibleHeaderAndKeepsBusinessInsets() {
+        let pager = mount(inNavigation: true)
+        let scroll = pager.currentScrollView!
+        let base = UIEdgeInsets(top: 7, left: 3, bottom: 19, right: 5)
+        scroll.verticalScrollIndicatorInsets = base
+        let horizontal = scroll.horizontalScrollIndicatorInsets
+        for position: CGFloat in [-30, 0, 100, 200, 350, 50] {
+            scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+            let trackTop = scroll.convert(scroll.bounds.origin, to: pager.view).y + scroll.verticalScrollIndicatorInsets.top
+            XCTAssertEqual(trackTop, pager.tabBar.frame.maxY + base.top, accuracy: 0.01)
+            XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, base.bottom)
+            XCTAssertEqual(scroll.verticalScrollIndicatorInsets.left, base.left)
+            XCTAssertEqual(scroll.verticalScrollIndicatorInsets.right, base.right)
+            XCTAssertEqual(scroll.horizontalScrollIndicatorInsets, horizontal)
+        }
+        pager.setSelectedIndex(1, animated: false)
+        let next = pager.currentScrollView!
+        XCTAssertEqual(next.verticalScrollIndicatorInsets.top, 150, accuracy: 0.01)
+        pager.layout.headerHeight += 40
+        XCTAssertEqual(next.verticalScrollIndicatorInsets.top, 190, accuracy: 0.01)
+    }
+
+    func testBindingRestoresLatestIndicatorPreferences() {
+        let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
+        let initial = UIEdgeInsets(top: 11, left: 2, bottom: 17, right: 4)
+        scroll.verticalScrollIndicatorInsets = initial
+        scroll.automaticallyAdjustsScrollIndicatorInsets = false
+        let binding = SPScrollBinding(scrollView: scroll)
+        binding.setRange(200)
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        let updated = UIEdgeInsets(top: 9, left: 6, bottom: 23, right: 8)
+        scroll.verticalScrollIndicatorInsets = updated
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.top, 209)
+        scroll.showsVerticalScrollIndicator = false
+        scroll.contentSize.height = 1800
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        scroll.showsVerticalScrollIndicator = true
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        scroll.contentSize.height = 0
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        binding.detach()
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets, updated)
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        XCTAssertFalse(scroll.automaticallyAdjustsScrollIndicatorInsets)
+    }
+
     func testGeometryOrdersHeaderAndContent() {
         XCTAssertEqual(SPScrollGeometry.collapse(120, range: 200), 120)
         XCTAssertEqual(SPScrollGeometry.content(120, range: 200), 0)

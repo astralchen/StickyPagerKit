@@ -408,4 +408,24 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("page=short"); expect("progress=1.00")
         table.swipeDown(); expect("progress=0.00")
     }
+
+    func testScrollIndicatorWithShortEmptyAndLongContent() {
+        for (index, page) in [(2, "short"), (3, "empty"), (1, "list")] {
+            select(index)
+            let table = app.tables["demo.list"]
+            table.swipeUp()
+            expect("page=\(page)"); expect("progress=1.00")
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "滚动指示器-\(page)-吸顶"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            if page == "short" {
+                XCTAssertTrue(table.staticTexts["内容 1"].isHittable)
+                XCTAssertTrue(table.staticTexts["内容 3"].isHittable)
+            }
+            // 指示器配置不得影响新触摸展开 Header。
+            table.swipeDown()
+            if page != "list" { expect("progress=0.00") }
+        }
+    }
 }
