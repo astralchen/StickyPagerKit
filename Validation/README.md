@@ -2,6 +2,33 @@
 
 验证日期：2026-10-15。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## iPad 系统分屏与连续窗口缩放回归
+
+本轮从干净的 `52481cb` 工作区开始，使用 Xcode 26.6 / Swift 6.3.3 / Release，设备为 iPad Pro 11-inch (M5) (16GB) / iOS 26.5 模拟器。库测试启用 `ENABLE_TESTABILITY=YES`，库与 Demo UI 分别 clean 构建。最终两组编译日志确认框架、应用及测试目标均使用 `-O`，见 [库优化设置](Results/window-accepted-library/optimization.json) · [UI 优化设置](Results/window-accepted-ui/optimization.json)。下节及更早章节的结论只对应各自历史源码。
+
+### 问题与修复
+
+1. **视口放大后恢复越界的底部位置。** 原实现缩放后没有同步钳制保存位置，切页返回可恢复到旧底部。新增用例复现原始位置 1584 pt，而新有效上限为 890 pt；现同时约束实际对齐位置与保存位置。修复前两项专项为 **1 通过、1 失败**，见 [原始结果](Results/window-before-library/Result.xcresult)。
+2. **自适应行高布局覆盖位置恢复。** `UITableView` 在更新 inset、定位后仍会结算行高，专项复现归一化位置从 650 变为 639.5 pt。现先完成滚动视图布局，再恢复坐标契约中的内容位移。见 [原始结果](Results/window-self-sizing-stable-baseline/Result.xcresult)。
+3. **新尺寸或 Safe Area 生效早于绑定布局。** UIKit 的中间偏移回调会以旧折叠范围改写保存位置。新增两项用例均先失败，包含 22 pt 的偏移差；现检查根视图尺寸和折叠范围是否与最近一次布局一致。见 [原始结果](Results/window-pending-geometry-before/Result.xcresult)。
+4. **系统连续缩放的帧间回调污染保存位置。** 尺寸转换期间暂停记录中间偏移，完成后布局并恢复；递增标识防止旧转换的 completion 提前结束新转换的保护。真实窗口拖动仍可在两次转换之间发送回调，因此 iOS 26+ 同时依据 `effectiveGeometry.isInteractivelyResizing` 保护保存位置。加入这一原生状态检查前，系统专项为 **1 通过、1 失败**，连续放大时内容位移 504 pt、期望 546 pt；加入后相同两项专项 **2 通过、0 失败、0 跳过**。见 [检查前结果](Results/window-transition-focused-ui/Result.xcresult) · [检查后结果](Results/window-interactive-resize-ui/Result.xcresult)。专项之后仅整理测试清理逻辑，最终验收以下方完整重建结果为准。
+
+### 新增测试与验收口径
+
+- **6 项库测试：** 真实 UIWindow 中覆盖 LTR / RTL、展开／部分折叠／完全吸顶、连续尺寸变化、横向页偏移、切走返回、底部钳制、原生自适应行高、待布局 Safe Area／尺寸回调，以及重叠尺寸转换结束后的新滚动。夹具矩阵包括 1194 × 834、592 × 834、375 × 700、640 × 480、834 × 1194 pt；该矩阵不充当系统分屏证据。
+- **2 项系统 UI 测试：** XCTest 操作系统窗口手柄和窗口菜单；启动“设置”作为第二个应用，使用“左右”布局形成真实双应用分屏。验证两个窗口宽度缩小且互不重叠，并执行列表与短列表间的真实左右滑动。连续缩放用例验证缩小、放大、再次缩小、各阶段往返分页、新触摸滚动，以及恢复全屏后的保存位置。
+- **位移定义：** 沿用 README 中的 `q = contentOffset.y + adjustedContentInset.top`，内容位置为 `max(0, q - collapseRange)`。Demo 仅在 `--window-regression` 参数下通过可访问性值暴露原生 q；断言同时检查导航栏、标签栏、列表与窗口的实际坐标，位移误差限为 1 pt。不会通过状态文本代替偏移断言。
+- **探索边界：** 早期使用“同一行保持固定屏幕坐标”作为断言，超出了既有内容位移契约；自适应行高重新估算时两者并不等价。相关行锚点和异步恢复尝试已撤回，最终实现不包含这些机制。历史探索结果不计入验收；本轮不承诺内容重排后同一阅读行的像素位置固定。
+- 截图使用 `XCUIScreen.main.screenshot()`，保留系统窗口和第二个应用。测试清理会恢复全屏和竖屏，并关闭为分屏启动的“设置”。
+
+### 最终结果
+
+- **完整 Release 库通过：74 通过、0 失败、0 跳过。** 已读取终态 `.xcresult`，`sourceChangedSinceRun` 为空。见 [库结果](Results/window-accepted-library/Result.xcresult) · [库摘要](Results/window-accepted-library/summary.json)。
+- **完整 iPad Release UI 通过：18 通过、0 失败、0 跳过。** 无测试筛选，保留原有滚动、刷新、RTL、旋转、返回取消／完成、新触摸恢复及横向分页用例。见 [UI 结果](Results/window-accepted-ui/Result.xcresult) · [UI 摘要](Results/window-accepted-ui/summary.json)。
+- **最终合计：92 通过、0 失败、0 跳过。** 两次运行均取得 `TEST SUCCEEDED` 并读取终态 `.xcresult`；28 个实现、测试、工程及脚本输入文件的 SHA-256 在两组之间完全一致，且匹配最终源码，`sourceChangedSinceRun` 均为空。`git diff --check` 通过。
+- **实际系统几何：** 双应用窗口分别为 `(0, 0, 412, 1210)`、`(422, 0, 412, 1210)` pt；自由窗口依次为 `(230, 233, 375, 630)`、`(73, 115, 690, 866)`、`(151, 173, 535, 750)` pt，最后恢复 `(0, 0, 834, 1210)` pt 全屏。各阶段内容位移、吸顶边界和往返分页断言通过，恢复前的新滚动仍生效。见 [系统分屏截图](Results/window-accepted-ui/screenshots/56CDB93E-9EF9-4BB7-ACA0-BB73C27DBB36.png) · [窗口缩放截图目录](Results/window-accepted-ui/resize-screenshots/)。完整结果包与截图位于本地 Git 忽略目录，未提交构建产物。
+- **未执行：** 真机、旧系统传统 Split View、其他 iPad 型号与窗口布局、多指同时操作、VoiceOver 全流程及性能压力测试。本轮最终源码未重跑 iPhone UI；历史 iPhone 通过结果不作为此次修改后的验收。
+
 ## Release 与 iPad 补充回归
 
 从干净的 `4bb93aa` 工作区开始，使用 iPad Pro 11-inch (M5) (16GB) / iOS 26.5，补跑 Xcode 26.6 / Swift 6.3.3 的 Release 回归。库测试设置 `ENABLE_TESTABILITY=YES`；编译日志确认库及库测试均使用 `-O`。Demo 的库、应用和 UI 测试目标同样使用 `-O`，未启用 testability。具体编译日志行号见首轮库与 UI 运行目录的 `optimization.json`。

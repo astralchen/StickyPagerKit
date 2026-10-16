@@ -454,6 +454,140 @@ final class StickyPagerKitTests: XCTestCase {
         pager.setSelectedIndex(1, animated: false)
         XCTAssertEqual(delegate.selected, [1])
     }
+    func testOverlappingSystemSizeTransitionsPreservePositionAndResumeScrolling() {
+        let pager = mount()
+        let binding = pager.records[0]!.binding!
+        binding.scrollView.contentOffset.y = 650 - binding.scrollView.adjustedContentInset.top
+        let first = SizeTransitionCoordinator()
+        let second = SizeTransitionCoordinator()
+        pager.viewWillTransition(to: CGSize(width: 535, height: 750), with: first)
+        pager.view.frame.size = CGSize(width: 535, height: 750)
+        pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+        binding.setPosition(628); binding.onScroll?(binding)
+        pager.viewWillTransition(to: CGSize(width: 690, height: 866), with: second)
+        pager.view.frame.size = CGSize(width: 690, height: 866)
+        pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+        first.finish()
+        binding.setPosition(618.5); binding.onScroll?(binding)
+        second.finish()
+        XCTAssertEqual(binding.position, 650, accuracy: 0.5)
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.5)
+        binding.scrollView.contentOffset.y = 700 - binding.scrollView.adjustedContentInset.top
+        pager.setSelectedIndex(1, animated: false)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(binding.position, 700, accuracy: 0.5)
+    }
+
+    func testPendingSafeAreaLayoutDoesNotOverwriteSavedContentDistance() {
+        let pager = mount()
+        let binding = pager.records[0]!.binding!
+        binding.scrollView.contentOffset.y = 650 - binding.scrollView.adjustedContentInset.top
+        pager.additionalSafeAreaInsets.top = 22
+        // 重现 UIKit 在新 Safe Area 已生效、绑定尚未应用新折叠范围时发送的观察回调。
+        binding.onScroll?(binding)
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(pager.collapseOffset, 178, accuracy: 0.5)
+        XCTAssertEqual(binding.position, 628, accuracy: 0.5)
+        pager.setSelectedIndex(1, animated: false)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(binding.position, 628, accuracy: 0.5)
+    }
+
+    func testPendingViewportLayoutDoesNotRecordUIKitTemporaryOffset() {
+        let pager = mount()
+        let binding = pager.records[0]!.binding!
+        binding.scrollView.contentOffset.y = 650 - binding.scrollView.adjustedContentInset.top
+        pager.view.frame.size = CGSize(width: 535, height: 750)
+        binding.setPosition(628)
+        binding.onScroll?(binding)
+        pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+        XCTAssertEqual(binding.position, 650, accuracy: 0.5)
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.5)
+    }
+
+    func testSelfSizingTablePreservesContentDistanceAcrossViewportChanges() {
+        let pager = mount()
+        let root = pager.records[0]!.controller.view!
+        pager.currentScrollView!.removeFromSuperview()
+        let table = UITableView(frame: root.bounds)
+        let data = SelfSizingTableSource()
+        table.dataSource = data
+        table.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+        table.rowHeight = UITableView.automaticDimension
+        table.estimatedRowHeight = 84
+        table.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        root.addSubview(table)
+        table.reloadData(); table.layoutIfNeeded()
+        pager.rediscoverScrollView(forPageAt: 0)
+        table.contentOffset.y = 650 - table.adjustedContentInset.top
+        table.layoutIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let initialPosition = pager.records[0]!.binding!.position
+        XCTAssertGreaterThan(initialPosition, 400)
+        print("SELF SIZING INITIAL POSITION", initialPosition)
+        for size in [CGSize(width: 375, height: 630), CGSize(width: 690, height: 866),
+                     CGSize(width: 535, height: 750), CGSize(width: 834, height: 1210)] {
+            pager.view.frame.size = size
+            pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertEqual(pager.records[0]!.binding!.position, initialPosition, accuracy: 0.5)
+            XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.5)
+            XCTAssertEqual(table.convert(.zero, to: pager.view).y - pager.tabBar.frame.maxY, -(initialPosition - 200), accuracy: 0.5)
+            pager.setSelectedIndex(1, animated: false)
+            pager.setSelectedIndex(0, animated: false)
+            XCTAssertEqual(pager.records[0]!.binding!.position, initialPosition, accuracy: 0.5)
+        }
+    }
+
+    // 真实 UIWindow 内的尺寸矩阵；系统分屏与窗口手柄另由 UI 测试验证。
+    func testContinuousResizePreservesHeaderAndSavedPositions() {
+        let pager = mount(height: 4000)
+        let sizes = [CGSize(width: 1194, height: 834), CGSize(width: 592, height: 834),
+                     CGSize(width: 375, height: 700), CGSize(width: 640, height: 480),
+                     CGSize(width: 834, height: 1194)]
+        for rtl in [false, true] {
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.setSelectedIndex(1, animated: false)
+            for position: CGFloat in [0, 100, 650] {
+                let scroll = pager.currentScrollView!
+                scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+                for size in sizes {
+                    pager.view.frame.size = size
+                    pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+                    let binding = pager.records[1]!.binding!
+                    XCTAssertEqual(binding.position, position, accuracy: 0.5)
+                    XCTAssertEqual(pager.collapseOffset, min(position, 200), accuracy: 0.5)
+                    XCTAssertEqual(pager.tabBar.frame.minY, pager.layout.headerHeight - min(position, 200), accuracy: 0.5)
+                    let width = pager.pagingView.bounds.width
+                    XCTAssertEqual(pager.pagingView.contentOffset.x, (rtl ? 2 : 1) * width, accuracy: 0.5)
+                    XCTAssertEqual(scroll.convert(.zero, to: pager.view).y - pager.tabBar.frame.maxY,
+                                   -max(0, position - 200), accuracy: 0.5)
+                    pager.setSelectedIndex(2, animated: false)
+                    pager.setSelectedIndex(1, animated: false)
+                    XCTAssertEqual(binding.position, position, accuracy: 0.5)
+                }
+            }
+        }
+    }
+
+    func testGrowingViewportClampsBottomAndKeepsHeaderPinned() {
+        let pager = mount(height: 1800)
+        pager.view.frame.size = CGSize(width: 500, height: 500)
+        pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+        let scroll = pager.currentScrollView!
+        let binding = pager.records[0]!.binding!
+        scroll.contentOffset.y = binding.maximumPosition - scroll.adjustedContentInset.top
+        pager.view.frame.size = CGSize(width: 834, height: 1194)
+        pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+        XCTAssertLessThanOrEqual(binding.position, binding.maximumPosition + 0.5)
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.5)
+        let position = binding.position
+        pager.setSelectedIndex(1, animated: false)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(binding.position, position, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(binding.position, binding.maximumPosition + 0.5)
+    }
+
     func testResizeAndSafeAreaKeepsSelectionAndFrame() {
         let pager = mount()
         pager.setSelectedIndex(1, animated: false)
@@ -791,5 +925,52 @@ private final class FixturePage: UIViewController {
     override func setSelectedIndex(_ index: Int?, animated: Bool) {
         lastAnimated = animated
         super.setSelectedIndex(index, animated: animated)
+    }
+}
+
+@MainActor
+private final class SelfSizingTableSource: NSObject, UITableViewDataSource {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 80 }
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
+        var content = cell.defaultContentConfiguration()
+        content.text = "内容 \(indexPath.row + 1)"
+        content.secondaryText = "原生 UITableView · 已刷新 0 次"
+        cell.contentConfiguration = content
+        return cell
+    }
+}
+
+@MainActor
+private final class SizeTransitionCoordinator: NSObject, UIViewControllerTransitionCoordinator {
+    let isAnimated = true
+    let presentationStyle: UIModalPresentationStyle = .none
+    let initiallyInteractive = false
+    let isInterruptible = false
+    let isInteractive = false
+    let isCancelled = false
+    let transitionDuration: TimeInterval = 0.3
+    let percentComplete: CGFloat = 1
+    let completionVelocity: CGFloat = 0
+    let completionCurve: UIView.AnimationCurve = .easeInOut
+    let containerView = UIView()
+    let targetTransform = CGAffineTransform.identity
+    private var completions: [(any UIViewControllerTransitionCoordinatorContext) -> Void] = []
+    func viewController(forKey key: UITransitionContextViewControllerKey) -> UIViewController? { nil }
+    func view(forKey key: UITransitionContextViewKey) -> UIView? { nil }
+    func animate(alongsideTransition animation: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?, completion: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?) -> Bool {
+        animation?(self)
+        if let completion { completions.append(completion) }
+        return true
+    }
+    func animateAlongsideTransition(in view: UIView?, animation: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?, completion: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?) -> Bool {
+        animate(alongsideTransition: animation, completion: completion)
+    }
+    func notifyWhenInteractionChanges(_ handler: @escaping (any UIViewControllerTransitionCoordinatorContext) -> Void) {}
+    func notifyWhenInteractionEnds(_ handler: @escaping (any UIViewControllerTransitionCoordinatorContext) -> Void) {}
+    func finish() {
+        let pending = completions
+        completions.removeAll()
+        pending.forEach { $0(self) }
     }
 }

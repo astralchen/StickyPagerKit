@@ -6,15 +6,22 @@ final class StickyPagerDemoUITests: XCTestCase {
     override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        if name.contains("testSystem") { app.launchArguments = ["--window-regression"] }
         app.launch()
+        restoreFullScreen()
         app.buttons["demo.open"].tap()
         XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
     }
     override func tearDown() async throws {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        restoreFullScreen()
+        if name.contains("testSystemSplit") {
+            let companion = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+            if companion.state != .notRunning { companion.terminate() }
+        }
         XCUIDevice.shared.orientation = .portrait
         app.terminate()
     }
@@ -62,6 +69,107 @@ final class StickyPagerDemoUITests: XCTestCase {
         }
         expectation(for: aligned, evaluatedWith: selected)
         waitForExpectations(timeout: 5)
+    }
+
+    private var springboard: XCUIApplication { XCUIApplication(bundleIdentifier: "com.apple.springboard") }
+
+    private func restoreFullScreen() {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        let frame = app.windows.firstMatch.frame
+        guard frame.width < springboard.frame.width - 1 || frame.height < springboard.frame.height - 1 else { return }
+        let controls = springboard.buttons["window-controls:dev.stickypager.StickyPagerDemo"]
+        if controls.exists {
+            controls.tap()
+            springboard.buttons["Zoom-button"].tap()
+        }
+    }
+
+    private func resizeSystemWindow(dx: CGFloat, dy: CGFloat) {
+        let frame = app.windows.firstMatch.frame
+        let screen = springboard.coordinate(withNormalizedOffset: .zero)
+        // 系统右下角手柄；以实时窗口坐标定位，不能使用应用全屏 frame。
+        let handle = screen.withOffset(CGVector(dx: frame.maxX - 8, dy: frame.maxY - 8))
+        handle.press(forDuration: 0.2,
+                     thenDragTo: screen.withOffset(CGVector(dx: frame.maxX - 8 + dx, dy: frame.maxY - 8 + dy)),
+                     withVelocity: .slow, thenHoldForDuration: 0.5)
+    }
+
+    private func recordWindow(_ phase: String) {
+        print("WINDOW GEOMETRY \(phase): window=\(app.windows.firstMatch.frame), list=\(app.tables["demo.list"].frame)")
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = phase; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    private func contentPosition() -> CGFloat {
+        let table = app.tables["demo.list"]
+        guard let value = table.value as? String, let position = Double(value) else {
+            XCTFail("未取得 UITableView 的真实滚动坐标")
+            return .nan
+        }
+        // Demo 的 Header 高度为 220，吸顶基线为当前窗口中的导航栏底边。
+        let safeTop = app.navigationBars.firstMatch.frame.maxY - app.windows.firstMatch.frame.minY
+        return max(0, CGFloat(position) - max(0, 220 - safeTop))
+    }
+
+    private func assertPinnedList(position: CGFloat) {
+        expect("page=list"); expect("progress=1.00")
+        let table = app.tables["demo.list"]
+        let tab = app.buttons["sp.tab.1"]
+        XCTAssertEqual(tab.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
+        XCTAssertEqual(table.frame.minY, tab.frame.maxY, accuracy: 1)
+        XCTAssertEqual(table.frame.minX, app.windows.firstMatch.frame.minX, accuracy: 1)
+        XCTAssertEqual(table.frame.width, app.windows.firstMatch.frame.width, accuracy: 1)
+        XCTAssertEqual(contentPosition(), position, accuracy: 1)
+    }
+
+    func testSystemWindowResizePreservesPinnedListAndPaging() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统窗口缩放仅适用于 iPad")
+        select(1)
+        let table = app.tables["demo.list"]
+        table.swipeUp(); expect("progress=1.00")
+        let initialPosition = contentPosition()
+        let full = app.windows.firstMatch.frame
+        resizeSystemWindow(dx: -250, dy: -350)
+        XCTAssertLessThan(app.windows.firstMatch.frame.width, full.width - 100)
+        assertPinnedList(position: initialPosition); recordWindow("浮动小窗口")
+        for delta: CGVector in [CGVector(dx: 160, dy: 120), CGVector(dx: -80, dy: -60)] {
+            let before = app.windows.firstMatch.frame
+            resizeSystemWindow(dx: delta.dx, dy: delta.dy)
+            XCTAssertGreaterThan(abs(app.windows.firstMatch.frame.width - before.width), 40)
+            assertPinnedList(position: initialPosition); recordWindow("连续缩放 \(delta)")
+            table.swipeLeft(); expect("page=short")
+            app.tables["demo.list"].swipeRight(); expect("page=list")
+            assertPinnedList(position: initialPosition)
+        }
+        // 重新触摸必须仍可滚动，切回后保存该次滚动的位置。
+        table.swipeUp()
+        let moved = contentPosition()
+        XCTAssertGreaterThan(moved, initialPosition + 50)
+        restoreFullScreen()
+        assertPinnedList(position: moved); recordWindow("恢复全屏")
+    }
+
+    func testSystemSplitWindowsPreservePositionAndPaging() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统分屏仅适用于 iPad")
+        let companion = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        select(1)
+        app.tables["demo.list"].swipeUp(); expect("progress=1.00")
+        let initialPosition = contentPosition()
+        resizeSystemWindow(dx: -250, dy: -350)
+        companion.launch()
+        app.activate()
+        springboard.buttons["window-controls:dev.stickypager.StickyPagerDemo"].tap()
+        springboard.buttons["Zoom-button"].press(forDuration: 1)
+        springboard.buttons["左右"].tap()
+        print("SPLIT WINDOWS", app.windows.firstMatch.frame, companion.windows.firstMatch.frame)
+        assertPinnedList(position: initialPosition); recordWindow("系统左右分屏")
+        let left = app.windows.firstMatch.frame, right = companion.windows.firstMatch.frame
+        XCTAssertLessThan(left.width, springboard.frame.width * 0.7)
+        XCTAssertLessThan(right.width, springboard.frame.width * 0.7)
+        XCTAssertLessThanOrEqual(left.intersection(right).width, 1)
+        app.tables["demo.list"].swipeLeft(); expect("page=short")
+        app.tables["demo.list"].swipeRight(); expect("page=list")
+        assertPinnedList(position: initialPosition)
     }
 
     func testHeaderStartsAtScreenTopAndPageContentMeetsTabBar() {

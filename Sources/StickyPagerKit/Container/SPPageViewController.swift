@@ -48,6 +48,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var transitionAppearance = false
     private var suppressPaging = false
     private var previousSize: CGSize = .zero
+    private var previousBoundsSize: CGSize = .zero
+    private var sizeTransitionGeneration: UInt = 0
+    private var isTransitioningSize = false
     private var accessCounter: UInt = 0
     private var isReloading = false
     private var previousCollapseRange: CGFloat?
@@ -147,11 +150,27 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         super.viewDidDisappear(animated)
         endParentAppearance()
     }
+    open override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+        sizeTransitionGeneration &+= 1
+        let generation = sizeTransitionGeneration
+        isTransitioningSize = true
+        super.viewWillTransition(to: size, with: coordinator)
+        let queued = coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self, self.sizeTransitionGeneration == generation else { return }
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+            for record in self.records.values { self.align(record) }
+            self.isTransitioningSize = false
+        }
+        if !queued { isTransitioningSize = false }
+    }
+
     open override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let safe = view.safeAreaInsets
         let l = effectiveLayout
         isLayingOutPages = true
+        previousBoundsSize = view.bounds.size
         defer { isLayingOutPages = false }
         let rangeChanged = previousCollapseRange != l.collapseRange
         if rangeChanged {
@@ -165,7 +184,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         let pageFrame = CGRect(x: safe.left, y: l.minimumHeaderHeight + l.tabBarHeight,
                                width: max(0, view.bounds.width - safe.left - safe.right),
                                height: max(0, view.bounds.height - l.minimumHeaderHeight - l.tabBarHeight))
-        if pageFrame.size != previousSize {
+        let sizeChanged = pageFrame.size != previousSize
+        if sizeChanged {
             cancelPaging()
             stopAnimation()
             previousSize = pageFrame.size
@@ -179,7 +199,17 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             record.controller.view.frame = CGRect(x: physicalIndex(index) * pageFrame.width, y: inset, width: pageFrame.width, height: max(0, pageFrame.height - inset))
             record.controller.view.layoutIfNeeded()
             record.binding?.setRange(l.collapseRange)
-            if rangeChanged { align(record) }
+            if rangeChanged || sizeChanged {
+                align(record)
+                // inset 与定位会触发 UITableView 的行高结算；完成布局后再恢复契约中的内容位移。
+                record.binding?.scrollView.setNeedsLayout()
+                record.binding?.scrollView.layoutIfNeeded()
+                if sizeChanged, let binding = record.binding {
+                    // 放大视口可能缩短可滚动范围；同步保存位置，避免切页后恢复到旧底部以外。
+                    positions[id] = min(positions[id] ?? 0, max(0, binding.maximumPosition - l.collapseRange))
+                }
+                align(record)
+            }
         }
         if !pagingView.isDragging && !pagingView.isDecelerating && transitionTarget == nil { alignPaging() }
         suppressPaging = false
@@ -377,7 +407,15 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         record.binding = scroll.map(SPScrollBinding.init)
         record.binding?.setRange(effectiveLayout.collapseRange)
         record.binding?.onScroll = { [weak self, weak record] binding in
-            guard let self, let record, !self.isLayingOutPages, record === self.currentRecord, self.transitionTarget == nil else { return }
+            guard let self, let record, !self.isLayingOutPages, !self.isTransitioningSize, record === self.currentRecord, self.transitionTarget == nil else { return }
+            // 系统尺寸变化可能先发送旧绑定的偏移回调；新几何完成布局前不能改写历史位置。
+            guard self.previousBoundsSize == self.view.bounds.size,
+                  self.previousCollapseRange == self.effectiveLayout.collapseRange else { return }
+            if #available(iOS 26.0, *), self.view.window?.windowScene?.effectiveGeometry.isInteractivelyResizing == true {
+                // 持续拖动窗口时，单次尺寸转换会在帧间结束；原生状态仍需保护保存位移。
+                self.align(record)
+                return
+            }
             self.stopAnimation()
             self.consume(binding)
         }
@@ -395,7 +433,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             }
             return
         }
-        binding.setPosition(SPScrollGeometry.position(collapse: collapseOffset, content: positions[record.identifier] ?? 0, range: effectiveLayout.collapseRange))
+        let position = SPScrollGeometry.position(collapse: collapseOffset, content: positions[record.identifier] ?? 0,
+                                                 range: effectiveLayout.collapseRange)
+        binding.setPosition(min(binding.maximumPosition, position))
     }
     private func consume(_ binding: SPScrollBinding) {
         let range = effectiveLayout.collapseRange

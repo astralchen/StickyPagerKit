@@ -183,8 +183,21 @@ final class DemoHeaderController: UIViewController {
     }
 }
 
+/// UI 回归仅在指定启动参数下读取原生滚动坐标，不改变可见内容或生产无障碍描述。
+@MainActor
+private final class RegressionTableView: UITableView {
+    override var accessibilityValue: String? {
+        get {
+            guard ProcessInfo.processInfo.arguments.contains("--window-regression") else { return super.accessibilityValue }
+            return String(format: "%.3f", Double(contentOffset.y + adjustedContentInset.top))
+        }
+        set { super.accessibilityValue = newValue }
+    }
+}
+
 @MainActor
 final class DemoList: UITableViewController {
+    override func loadView() { tableView = RegressionTableView(frame: .zero, style: .plain) }
     let count: Int
     private var refreshCount = 0
     init(count: Int) { self.count = count; super.init(style: .plain) }
