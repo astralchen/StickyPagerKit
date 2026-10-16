@@ -84,18 +84,97 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertFalse(scroll.showsVerticalScrollIndicator)
         let updated = UIEdgeInsets(top: 9, left: 6, bottom: 23, right: 8)
         scroll.verticalScrollIndicatorInsets = updated
-        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.top, 209)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets, updated)
         scroll.showsVerticalScrollIndicator = false
         scroll.contentSize.height = 1800
         XCTAssertFalse(scroll.showsVerticalScrollIndicator)
         scroll.showsVerticalScrollIndicator = true
         XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.top, 209)
         scroll.contentSize.height = 0
         XCTAssertFalse(scroll.showsVerticalScrollIndicator)
         binding.detach()
         XCTAssertEqual(scroll.verticalScrollIndicatorInsets, updated)
         XCTAssertTrue(scroll.showsVerticalScrollIndicator)
         XCTAssertFalse(scroll.automaticallyAdjustsScrollIndicatorInsets)
+    }
+
+    func testPagingHidesIndicatorsForOutgoingAndNewPagesUntilSettled() {
+        let pager = mount()
+        let outgoing = pager.currentScrollView!
+        pager.scrollViewWillBeginDragging(pager.pagingView)
+        XCTAssertFalse(outgoing.showsVerticalScrollIndicator)
+        XCTAssertFalse(outgoing.showsHorizontalScrollIndicator)
+        pager.pagingView.contentOffset.x = pager.pagingView.bounds.width * 0.5
+        let incoming = pager.records[1]!.binding!.scrollView
+        XCTAssertFalse(incoming.showsVerticalScrollIndicator)
+        XCTAssertFalse(incoming.showsHorizontalScrollIndicator)
+        pager.scrollViewDidEndDragging(pager.pagingView, willDecelerate: true)
+        XCTAssertFalse(outgoing.showsVerticalScrollIndicator)
+        pager.pagingView.contentOffset.x = pager.pagingView.bounds.width
+        pager.scrollViewDidEndDecelerating(pager.pagingView)
+        XCTAssertEqual(pager.selectedIndex, 1)
+        XCTAssertTrue(incoming.showsVerticalScrollIndicator)
+        XCTAssertTrue(incoming.showsHorizontalScrollIndicator)
+        XCTAssertTrue(outgoing.showsVerticalScrollIndicator)
+    }
+
+    func testPagingCancellationAndAnimatedSelectionRestoreIndicatorPreferences() {
+        let pager = mount()
+        let outgoing = pager.currentScrollView!
+        outgoing.showsHorizontalScrollIndicator = false
+        pager.scrollViewWillBeginDragging(pager.pagingView)
+        outgoing.showsVerticalScrollIndicator = false
+        pager.scrollViewDidEndDragging(pager.pagingView, willDecelerate: false)
+        XCTAssertFalse(outgoing.showsVerticalScrollIndicator)
+        XCTAssertFalse(outgoing.showsHorizontalScrollIndicator)
+        outgoing.showsVerticalScrollIndicator = true
+        pager.setSelectedIndex(1, animated: true)
+        XCTAssertFalse(outgoing.showsVerticalScrollIndicator)
+        XCTAssertFalse(pager.records[1]!.binding!.scrollView.showsVerticalScrollIndicator)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertTrue(outgoing.showsVerticalScrollIndicator)
+        XCTAssertFalse(outgoing.showsHorizontalScrollIndicator)
+        pager.setSelectedIndex(1, animated: true)
+        // 库夹具驱动动画终态回调，真实动画由 Demo UI 回归验证。
+        pager.pagingView.setContentOffset(CGPoint(x: pager.pagingView.bounds.width, y: 0), animated: false)
+        pager.scrollViewDidEndScrollingAnimation(pager.pagingView)
+        XCTAssertEqual(pager.selectedIndex, 1)
+        XCTAssertTrue(pager.currentScrollView!.showsVerticalScrollIndicator)
+    }
+
+    func testReplacingBindingDuringPagingKeepsIndicatorsHiddenAndRestoresOnReload() {
+        let pager = mount()
+        let old = pager.currentScrollView!
+        pager.scrollViewWillBeginDragging(pager.pagingView)
+        let replacement = UIScrollView(frame: old.frame)
+        replacement.contentSize.height = 1800
+        pager.records[0]!.controller.view.addSubview(replacement)
+        pager.setScrollView(replacement, forPageAt: 0)
+        XCTAssertTrue(old.showsVerticalScrollIndicator)
+        XCTAssertTrue(old.showsHorizontalScrollIndicator)
+        XCTAssertFalse(replacement.showsVerticalScrollIndicator)
+        XCTAssertFalse(replacement.showsHorizontalScrollIndicator)
+        pager.reloadData()
+        XCTAssertTrue(replacement.showsVerticalScrollIndicator)
+        XCTAssertTrue(replacement.showsHorizontalScrollIndicator)
+    }
+
+    func testAlreadyHiddenIndicatorsReceiveNoPropertyWrites() {
+        let scroll = IndicatorWriteTrackingScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
+        scroll.contentSize.height = 1800
+        scroll.showsVerticalScrollIndicator = false
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.verticalScrollIndicatorInsets = UIEdgeInsets(top: 9, left: 2, bottom: 17, right: 4)
+        scroll.indicatorWrites = 0
+        let binding = SPScrollBinding(scrollView: scroll)
+        binding.setRange(200)
+        binding.indicatorsHiddenForPaging = true
+        binding.setPosition(100)
+        scroll.contentSize.height = 2000
+        binding.indicatorsHiddenForPaging = false
+        binding.detach()
+        XCTAssertEqual(scroll.indicatorWrites, 0)
     }
 
     func testGeometryOrdersHeaderAndContent() {
@@ -967,6 +1046,12 @@ private final class FixturePage: UIViewController {
     override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); disappearCount += 1; onDisappear?() }
 }
 @MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {}
+@MainActor private final class IndicatorWriteTrackingScrollView: UIScrollView {
+    var indicatorWrites = 0
+    override var showsVerticalScrollIndicator: Bool { didSet { indicatorWrites += 1 } }
+    override var showsHorizontalScrollIndicator: Bool { didSet { indicatorWrites += 1 } }
+    override var verticalScrollIndicatorInsets: UIEdgeInsets { didSet { indicatorWrites += 1 } }
+}
 @MainActor private final class FixturePan: UIPanGestureRecognizer {
     private var testState: UIGestureRecognizer.State = .possible
     private var testTranslation: CGPoint = .zero

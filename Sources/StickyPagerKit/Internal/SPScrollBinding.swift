@@ -13,6 +13,12 @@ internal final class SPScrollBinding {
     private var baseInset: UIEdgeInsets
     private var baseIndicatorInset: UIEdgeInsets
     private var requestedVerticalIndicator: Bool
+    private var requestedHorizontalIndicator: Bool
+    var indicatorsHiddenForPaging = false {
+        didSet {
+            if oldValue != indicatorsHiddenForPaging { updateIndicators() }
+        }
+    }
     private let originalBounce: Bool
     private var range: CGFloat = 0
 
@@ -27,6 +33,7 @@ internal final class SPScrollBinding {
         baseInset = scrollView.contentInset
         baseIndicatorInset = scrollView.verticalScrollIndicatorInsets
         requestedVerticalIndicator = scrollView.showsVerticalScrollIndicator
+        requestedHorizontalIndicator = scrollView.showsHorizontalScrollIndicator
         originalBounce = scrollView.alwaysBounceVertical
         scrollView.alwaysBounceVertical = true
         observations = [
@@ -51,6 +58,13 @@ internal final class SPScrollBinding {
                 MainActor.assumeIsolated {
                     guard let self, !self.updating, !self.detached else { return }
                     self.requestedVerticalIndicator = self.scrollView.showsVerticalScrollIndicator
+                    self.updateIndicators()
+                }
+            },
+            scrollView.observe(\.showsHorizontalScrollIndicator, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    guard let self, !self.updating, !self.detached else { return }
+                    self.requestedHorizontalIndicator = self.scrollView.showsHorizontalScrollIndicator
                     self.updateIndicators()
                 }
             },
@@ -102,8 +116,9 @@ internal final class SPScrollBinding {
         restored.top -= topContribution
         restored.bottom -= bottomContribution
         scrollView.contentInset = restored
-        scrollView.verticalScrollIndicatorInsets = baseIndicatorInset
-        scrollView.showsVerticalScrollIndicator = requestedVerticalIndicator
+        if scrollView.verticalScrollIndicatorInsets != baseIndicatorInset { scrollView.verticalScrollIndicatorInsets = baseIndicatorInset }
+        if scrollView.showsVerticalScrollIndicator != requestedVerticalIndicator { scrollView.showsVerticalScrollIndicator = requestedVerticalIndicator }
+        if scrollView.showsHorizontalScrollIndicator != requestedHorizontalIndicator { scrollView.showsHorizontalScrollIndicator = requestedHorizontalIndicator }
         scrollView.alwaysBounceVertical = originalBounce
         scrollView.contentOffset.y = contentPosition - scrollView.adjustedContentInset.top
     }
@@ -139,12 +154,16 @@ internal final class SPScrollBinding {
         guard !updating, !detached else { return }
         updating = true
         defer { updating = false }
-        // 指示器轨道避开仍覆盖页面的 Header 区域，不叠加短内容的底部补齐量。
-        var inset = baseIndicatorInset
-        inset.top += range - SPScrollGeometry.collapse(position, range: range)
-        if scrollView.verticalScrollIndicatorInsets != inset { scrollView.verticalScrollIndicatorInsets = inset }
         // 仅有 Header 折叠距离的页面没有正文滚动进度；合成 inset 不应产生一条长指示器。
-        let visible = requestedVerticalIndicator && maximumPosition > range + 0.001
+        let visible = !indicatorsHiddenForPaging && requestedVerticalIndicator && maximumPosition > range + 0.001
+        if visible {
+            // 仅在需要显示时更新轨道；隐藏期间不处理指示器几何。
+            var inset = baseIndicatorInset
+            inset.top += range - SPScrollGeometry.collapse(position, range: range)
+            if scrollView.verticalScrollIndicatorInsets != inset { scrollView.verticalScrollIndicatorInsets = inset }
+        }
         if scrollView.showsVerticalScrollIndicator != visible { scrollView.showsVerticalScrollIndicator = visible }
+        let horizontalVisible = !indicatorsHiddenForPaging && requestedHorizontalIndicator
+        if scrollView.showsHorizontalScrollIndicator != horizontalVisible { scrollView.showsHorizontalScrollIndicator = horizontalVisible }
     }
 }

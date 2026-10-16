@@ -46,6 +46,12 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var parentIsAppearing: Bool?
     private var transitionTarget: Int?
     private var transitionAppearance = false
+    private var indicatorsHiddenForPaging = false {
+        didSet {
+            guard oldValue != indicatorsHiddenForPaging else { return }
+            for record in records.values { record.binding?.indicatorsHiddenForPaging = indicatorsHiddenForPaging }
+        }
+    }
     private var suppressPaging = false
     private var previousSize: CGSize = .zero
     private var previousBoundsSize: CGSize = .zero
@@ -90,6 +96,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         pagingView.isPagingEnabled = true
         pagingView.bounces = false
         pagingView.showsHorizontalScrollIndicator = false
+        pagingView.showsVerticalScrollIndicator = false
         pagingView.contentInsetAdjustmentBehavior = .never
         pagingView.delegate = self
         pagingView.isScrollEnabled = isPagingEnabled
@@ -405,6 +412,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         if record === currentRecord { stopAnimation() }
         record.binding?.detach()
         record.binding = scroll.map(SPScrollBinding.init)
+        record.binding?.indicatorsHiddenForPaging = indicatorsHiddenForPaging
         record.binding?.setRange(effectiveLayout.collapseRange)
         record.binding?.onScroll = { [weak self, weak record] binding in
             guard let self, let record, !self.isLayingOutPages, !self.isTransitioningSize, record === self.currentRecord, self.transitionTarget == nil else { return }
@@ -501,8 +509,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private func beginTransition(to index: Int, animated: Bool = true) {
         guard index != selectedIndex, identifiers.indices.contains(index) else { return }
         if transitionTarget == index { return }
-        if transitionTarget != nil { finishTransition(commit: false) }
+        if transitionTarget != nil { finishTransition(commit: false, continuingPaging: true) }
         guard let incoming = loadPage(index) else { return }
+        indicatorsHiddenForPaging = true
         currentRecord?.binding?.stopDeceleration()
         align(incoming)
         transitionTarget = index
@@ -512,8 +521,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             incoming.controller.beginAppearanceTransition(true, animated: animated)
         }
     }
-    private func finishTransition(commit: Bool, animated: Bool = true) {
-        guard let target = transitionTarget else { return }
+    private func finishTransition(commit: Bool, animated: Bool = true, continuingPaging: Bool = false) {
+        guard let target = transitionTarget else {
+            if !continuingPaging { indicatorsHiddenForPaging = false }
+            return
+        }
         let old = currentRecord?.controller
         let incoming = records[identifiers[target]]?.controller
         if transitionAppearance {
@@ -536,6 +548,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         }
         storedTabBar.setSelectedIndex(selectedIndex, animated: commit && animated)
         evictPages()
+        // 中途改变候选页仍属于同一次分页，保持隐藏；结束后按业务偏好恢复。
+        if !continuingPaging { indicatorsHiddenForPaging = false }
         if commit { delegate?.pageViewController(self, didSelectPageAt: target) }
     }
     private func cancelPaging() {
@@ -547,6 +561,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         suppressPaging = false
     }
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        indicatorsHiddenForPaging = true
         stopAnimation()
         currentRecord?.binding?.stopDeceleration()
     }
