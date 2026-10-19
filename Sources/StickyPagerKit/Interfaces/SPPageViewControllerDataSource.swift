@@ -21,12 +21,30 @@ public extension SPPageViewControllerDataSource {
 @MainActor
 public protocol SPPageViewControllerDelegate: AnyObject {
     func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int)
-    func pageViewController(_ pageViewController: SPPageViewController, didScrollFrom fromIndex: Int, to toIndex: Int, progress: CGFloat)
-    func pageViewController(_ pageViewController: SPPageViewController, didChangeHeaderState state: SPHeaderState, progress: CGFloat)
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        didScrollFrom fromIndex: Int,
+        to toIndex: Int,
+        progress: CGFloat
+    )
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        didChangeHeaderState state: SPHeaderState,
+        progress: CGFloat
+    )
 }
 
 public extension SPPageViewControllerDelegate {
     func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) {}
-    func pageViewController(_ pageViewController: SPPageViewController, didScrollFrom fromIndex: Int, to toIndex: Int, progress: CGFloat) {}
-    func pageViewController(_ pageViewController: SPPageViewController, didChangeHeaderState state: SPHeaderState, progress: CGFloat) {}
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        didScrollFrom fromIndex: Int,
+        to toIndex: Int,
+        progress: CGFloat
+    ) {}
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        didChangeHeaderState state: SPHeaderState,
+        progress: CGFloat
+    ) {}
 }

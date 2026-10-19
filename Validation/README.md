@@ -2,6 +2,28 @@
 
 验证日期：2026-10-15 至 2026-10-19。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-19：SwiftPM Command Plugin 与构建时自动格式化
+
+- **接入：** `Package.swift` 精确依赖 SwiftFormat 0.64.0，根 `Package.resolved` 锁定 revision `ce60affbe4143ad93ed16b8018117ed4f1db8ce3`。没有将 SwiftFormat 加入库或测试 target 的编译／链接依赖。`Scripts/format.sh` 使用 macOS SDK 和 Release 配置执行官方 Command Plugin，复用现有 `.swiftformat`，显式覆盖框架、Package 清单、测试及独立 Demo；无需全局安装工具。
+- **构建阶段：** Demo target 在 Sources 阶段之前新增 `SwiftFormat` Build Phase，每次 Debug / Release 构建执行。仅 Demo target 关闭脚本沙盒以允许写入源码和工具缓存，格式化错误会使阶段失败。单独构建 Package 不会触发 Demo 的阶段；Demo 的阶段也不保证早于 Package 依赖编译，完整依赖图构建前的格式化可手动执行脚本。
+- **通过：插件检查。** 首次真实插件 lint 与最终 lint 均检查 26 个 Swift 文件，报告 `0/26 files require formatting`。工具通过 SwiftPM 编译，未借用此前临时下载的 CLI。见 [首次 lint](Results/swiftformat-plugin-20261019/lint.log) 和 [最终 lint](Results/swiftformat-plugin-20261019/final-lint.log)。首次官方仓库下载约 616 秒、工具 Release 编译约 93 秒；后续使用本地缓存。
+- **通过：真实构建自动修复。** 在 `SPPageLayout.swift` 和 `SceneDelegate.swift` 的 import 行各加入尾随空格；lint 准确报告这两个文件并以退出码 1 结束，这是预期的反向验证。随后直接执行 Demo `build`，Build Phase 报告 `2/26 files formatted`，终态 `BUILD SUCCEEDED`，全部 26 个 Swift 文件的 SHA-256 恢复到探针前基线。见 [预期 lint 失败](Results/swiftformat-plugin-20261019/probe-lint.log)、[修复核验](Results/swiftformat-plugin-20261019/automatic-repair.json) 和 [构建结果包](Results/swiftformat-buildphase-probe-20261019/Result.xcresult)。该次 `sourceChangedSinceRun` 如实保留两个被修复文件，不把构建前的带空格源码哈希替换为构建后哈希。
+- **通过：最终 Debug Demo 与 UI 测试 target 构建。** Xcode 26.6 / Swift 6.3.3，iPhone 17 Pro / iOS 26.5 Simulator，执行 `build-for-testing`；终态 `TEST BUILD SUCCEEDED`，构建结果 0 错误、0 警告。Build Phase 实际执行且报告 `0/26 files formatted`。见 [构建结果](Results/swiftformat-buildphase-verified-debug-20261019/build-results.json) 和 [源码核验摘要](Results/swiftformat-buildphase-verified-debug-20261019/summary.json)。
+- **通过：最终 Release Demo 构建。** 同一工具链和目标，终态 `BUILD SUCCEEDED`，构建结果 0 错误、0 警告。Build Phase 实际执行且报告 `0/26 files formatted`。见 [构建结果](Results/swiftformat-buildphase-verified-release-20261019/build-results.json) 和 [源码核验摘要](Results/swiftformat-buildphase-verified-release-20261019/summary.json)。
+- **通过：最终 Package 配置下的库构建及 111 项测试。** Debug，111 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`。见 [测试摘要](Results/swiftformat-plugin-verified-library-20261019/summary.json)。两组最终 Demo 构建及这组库测试的 `sourceChangedSinceRun` 均为空；Shell 语法、工程 plist 和 `git diff --check` 均通过。
+- **未执行：** 本次未运行 Demo UI 用例、Release 库测试、iPad、真机或 iOS 15 运行矩阵。此前格式化修改保留，未提交或推送。
+
+## 2026-10-19：框架与 Demo 统一格式化
+
+- **范围：** 使用官方 SwiftFormat 0.64.0，为根目录新增带逐项中文注释的 `.swiftformat`。处理 `Sources`、`Tests`、Demo 应用与 UI 测试，并检查 `Package.swift`；共检查 26 个 Swift 文件，25 个发生排版变化，Package 清单保持原样。开始时工作区干净。同步 README 使用命令及 AGENTS 中的配置状态，未修改工程配置、添加构建钩子、提交或推送。
+- **规则边界：** 仅启用显式列出的缩进、空白、括号位置与换行规则；4 空格和 120 字符目标行宽属于项目约定。保留 API、访问控制、声明顺序、`self`、表达式、字面量、分号、条件编译结构与注释正文。
+- **通过：语法审计。** 使用 Xcode 26.6 自带的 SwiftParser / SwiftSyntax 对格式化前后全部 26 个文件进行解析；均无语法错误，语法树节点结构、token 序列及注释正文完全一致。见 [审计输出](Results/swiftformat-20261019/token-audit.log) 与 [审计脚本](Results/swiftformat-20261019/audit.swift)。该检查不替代运行时测试。
+- **通过：格式检查与幂等性。** `--lint --cache ignore` 报告 `0/26 files require formatting`；再次实际格式化报告 `0/26 files formatted`，最终源码哈希一致。`git diff --check` 通过。见 [首次格式化](Results/swiftformat-20261019/format.log)、[lint](Results/swiftformat-20261019/lint.log)、[重复执行](Results/swiftformat-20261019/repeat.log) 和 [源码与配置哈希](Results/swiftformat-20261019/source-hashes.json)。
+- **通过：框架构建及全部 111 项库测试。** Xcode 26.6 / Swift 6.3.3 / Swift 6 语言模式 / Debug，iPhone 17 Pro / iOS 26.5 Simulator；111 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，结果包为 `Passed`，`sourceChangedSinceRun` 为空。见 [测试摘要](Results/swiftformat-library-20261019/summary.json)、[构建结果](Results/swiftformat-library-20261019/build-results.json) 和 [结果包](Results/swiftformat-library-20261019/Result.xcresult)。构建有 4 条来自未改写的测试代码的警告：3 处同类型条件转换，以及 1 处已弃用的 `unarchiveTopLevelObjectWithData`；本次没有为消除警告引入代码重构。
+- **通过：Demo 应用及 UI 测试 target 构建。** 同一工具链和目标设备，执行 `build-for-testing`；终态 `TEST BUILD SUCCEEDED`，构建结果 `succeeded`、0 错误、0 警告，`sourceChangedSinceRun` 为空。见 [构建结果](Results/swiftformat-demo-20261019/build-results.json)、[源码核验摘要](Results/swiftformat-demo-20261019/summary.json) 和 [结果包](Results/swiftformat-demo-20261019/Result.xcresult)。该次未执行 UI 测试，因此测试摘要的 `totalTestCount` 为 0、`result` 为 `unknown`；构建是否成功以构建结果和终态日志为准。
+- **未执行：** 本次未运行 Demo UI 用例、Release、iPad、真机、iOS 15 运行或 Xcode 27 兼容性矩阵；此前历史运行结果不计入本次验收。
+- **环境记录：** 最初在沙盒内查询模拟器服务和下载发布信息受到访问限制；通过工具权限机制重试后正常完成。该限制未造成上述构建或测试失败。
+
 ## 2026-10-19：系统容器演示入口与安全区域验证
 
 - **实现：** 首页新增「系统容器演示」，全屏呈现 `UITabBarController → UINavigationController → DemoPager`。系统标签包含「联动演示」与「布局说明」，均可关闭回首页。复用现有 Header、列表和分页；系统容器场景隐藏原底部工具栏，把状态放到导航栏。未修改库源码、未硬编码系统栏高度、未提交或推送。

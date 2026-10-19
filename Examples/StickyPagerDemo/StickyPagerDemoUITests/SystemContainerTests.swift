@@ -4,17 +4,32 @@ import XCTest
 @MainActor
 final class SystemContainerTests: XCTestCase {
     private var app: XCUIApplication!
-    private var table: XCUIElement { app.tables["demo.list"] }
-    private var tabs: XCUIElement { app.collectionViews["sp.tabBar.collection"] }
-    private var systemTabs: XCUIElement { app.tabBars["demo.systemTabBar"] }
-    private var status: XCUIElement { app.staticTexts["demo.status"] }
+    private var table: XCUIElement {
+        app.tables["demo.list"]
+    }
+
+    private var tabs: XCUIElement {
+        app.collectionViews["sp.tabBar.collection"]
+    }
+
+    private var systemTabs: XCUIElement {
+        app.tabBars["demo.systemTabBar"]
+    }
+
+    private var status: XCUIElement {
+        app.staticTexts["demo.status"]
+    }
+
     private func systemTab(_ identifier: String, title: String) -> XCUIElement {
         // iPhone 暴露为 Button，iPad 顶部系统栏暴露为 Tab；标识相同，不限定元素类型。
         let identified = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
         return identified.exists ? identified : app.descendants(matching: .any).matching(identifier: title).firstMatch
     }
+
     private var systemTabsFrame: CGRect {
-        if systemTabs.exists { return systemTabs.frame }
+        if systemTabs.exists {
+            return systemTabs.frame
+        }
         // iPad 顶部系统标签不暴露独立 TabBar 节点，使用实际可交互按钮的联合区域。
         return systemTab("demo.systemTab.pager", title: "联动演示").frame
             .union(systemTab("demo.systemTab.info", title: "布局说明").frame)
@@ -25,7 +40,9 @@ final class SystemContainerTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
-        if name.contains("RTL") { app.launchArguments.append("--rtl") }
+        if name.contains("RTL") {
+            app.launchArguments.append("--rtl")
+        }
         app.launch()
         XCTAssertTrue(app.buttons["demo.openSystemContainer"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["demo.open"].exists)
@@ -34,39 +51,54 @@ final class SystemContainerTests: XCTestCase {
         XCTAssertTrue(systemTab("demo.systemTab.pager", title: "联动演示").isHittable)
         XCTAssertTrue(systemTab("demo.systemTab.info", title: "布局说明").isHittable)
         XCTAssertTrue(app.buttons["demo.systemContainer.close"].isHittable)
-        XCTAssertLessThanOrEqual(status.frame.maxY, app.navigationBars.firstMatch.frame.maxY,
-                                 "系统容器场景将状态放入导航栏，不叠加底部工具栏")
+        XCTAssertLessThanOrEqual(
+            status.frame.maxY,
+            app.navigationBars.firstMatch.frame.maxY,
+            "系统容器场景将状态放入导航栏，不叠加底部工具栏"
+        )
     }
+
     override func tearDown() async throws {
         record("结束状态")
         XCUIDevice.shared.orientation = .portrait
         app.terminate()
     }
+
     private func expect(_ fragment: String) {
         let predicate = NSPredicate { [self] _, _ in (status.value as? String)?.contains(fragment) == true }
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 5), .completed,
-                       "未达到 \(fragment)，实际 \(status.value ?? "")")
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 5),
+            .completed,
+            "未达到 \(fragment)，实际 \(status.value ?? "")"
+        )
     }
+
     private func geometry() throws -> [String: Double] {
         let data = try XCTUnwrap((table.value as? String)?.data(using: .utf8))
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Double])
     }
+
     private func contentPosition() throws -> Double {
         let safeTop = app.navigationBars.firstMatch.frame.maxY - app.windows.firstMatch.frame.minY
         return max(0, try XCTUnwrap(geometry()["position"]) - max(0, 220 - safeTop))
     }
+
     private func record(_ phase: String) {
         let hasSystemTabs = app.buttons["demo.systemContainer.close"].exists
-        print("SYSTEM CONTAINER \(phase): window=\(app.windows.firstMatch.frame), nav=\(app.navigationBars.firstMatch.frame), systemTabs=\(hasSystemTabs ? systemTabsFrame : .zero), componentTabs=\(tabs.exists ? tabs.frame : .zero), table=\(table.exists ? table.value ?? "" : "offscreen")")
+        print(
+            "SYSTEM CONTAINER \(phase): window=\(app.windows.firstMatch.frame), nav=\(app.navigationBars.firstMatch.frame), systemTabs=\(hasSystemTabs ? systemTabsFrame : .zero), componentTabs=\(tabs.exists ? tabs.frame : .zero), table=\(table.exists ? table.value ?? "" : "offscreen")"
+        )
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = phase
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+
     private func select(_ index: Int, page: String) {
         app.buttons["sp.tab.\(index)"].tap()
         expect("page=\(page);")
     }
+
     private func assertGeometry(pinned: Bool) throws {
         let values = try geometry()
         let frame = table.frame
@@ -77,8 +109,12 @@ final class SystemContainerTests: XCTestCase {
         XCTAssertEqual(frame.maxX - (try XCTUnwrap(values["safeRight"])), tabs.frame.maxX, accuracy: 1)
         let safeBottom = try XCTUnwrap(values["safeBottom"])
         let bottom = try XCTUnwrap(values["adjustedBottom"])
-        XCTAssertEqual(bottom, (try XCTUnwrap(values["insetBottom"])) + safeBottom, accuracy: 1,
-                       "系统底部安全区域应只补偿一次")
+        XCTAssertEqual(
+            bottom,
+            (try XCTUnwrap(values["insetBottom"])) + safeBottom,
+            accuracy: 1,
+            "系统底部安全区域应只补偿一次"
+        )
         // iPad 的原生 Tab Bar 可以位于顶部；只在底部栏实际遮挡时断言末端避让。
         if systemTabsFrame.midY > window.midY {
             XCTAssertGreaterThan(safeBottom, 0)
@@ -87,13 +123,18 @@ final class SystemContainerTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(values["automaticIndicators"]), 1)
         let isShort = (status.value as? String)?.contains("page=short;") == true
         XCTAssertEqual(try XCTUnwrap(values["showsIndicator"]), isShort ? 0 : 1)
-        XCTAssertEqual(try XCTUnwrap(values["indicatorBottom"]), 0, accuracy: 1,
-                       "保留 UIKit 自动处理底部指示器避让，不再手动叠加安全区域")
+        XCTAssertEqual(
+            try XCTUnwrap(values["indicatorBottom"]),
+            0,
+            accuracy: 1,
+            "保留 UIKit 自动处理底部指示器避让，不再手动叠加安全区域"
+        )
         if pinned {
             expect("progress=1.00")
             XCTAssertEqual(tabs.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
         }
     }
+
     private func verticalDrag(up: Bool, distance: CGFloat? = nil) {
         let barFrame = systemTabsFrame
         let bottom = min(table.frame.maxY, barFrame.midY > table.frame.midY ? barFrame.minY : table.frame.maxY)
@@ -125,11 +166,13 @@ final class SystemContainerTests: XCTestCase {
         verticalDrag(up: false)
         expect("progress=0.00")
         select(1, page: "list")
-        for _ in 0..<24 {
+        for _ in 0 ..< 24 {
             let last = table.staticTexts["内容 80"]
             let values = try geometry()
             if last.exists, !last.frame.isEmpty, last.isHittable,
-               last.frame.maxY <= table.frame.maxY - (values["safeBottom"] ?? 0) { break }
+               last.frame.maxY <= table.frame.maxY - (values["safeBottom"] ?? 0) {
+                break
+            }
             table.swipeUp()
         }
         let last = table.staticTexts["内容 80"]
@@ -139,18 +182,31 @@ final class SystemContainerTests: XCTestCase {
         record("系统容器-列表末项")
     }
 
-    func testPagingRotationAndSystemTabRestore() throws { try verifyPagingAndRotation(rtl: false) }
-    func testRTLPagingRotationAndSystemTabRestore() throws { try verifyPagingAndRotation(rtl: true) }
+    func testPagingRotationAndSystemTabRestore() throws {
+        try verifyPagingAndRotation(rtl: false)
+    }
+
+    func testRTLPagingRotationAndSystemTabRestore() throws {
+        try verifyPagingAndRotation(rtl: true)
+    }
 
     private func verifyPagingAndRotation(rtl: Bool) throws {
         select(1, page: "list")
         verticalDrag(up: true)
         try assertGeometry(pinned: true)
         let position = try XCTUnwrap(geometry()["position"])
-        if rtl { table.swipeRight() } else { table.swipeLeft() }
+        if rtl {
+            table.swipeRight()
+        } else {
+            table.swipeLeft()
+        }
         expect("page=short;")
         try assertGeometry(pinned: true)
-        if rtl { table.swipeLeft() } else { table.swipeRight() }
+        if rtl {
+            table.swipeLeft()
+        } else {
+            table.swipeRight()
+        }
         expect("page=list;")
         XCTAssertEqual(try XCTUnwrap(geometry()["position"]), position, accuracy: 1)
         systemTab("demo.systemTab.info", title: "布局说明").tap()
@@ -158,8 +214,11 @@ final class SystemContainerTests: XCTestCase {
         systemTab("demo.systemTab.pager", title: "联动演示").tap()
         expect("page=list;")
         XCTAssertEqual(try XCTUnwrap(geometry()["position"]), position, accuracy: 1)
-        for (orientation, interface) in [(UIDeviceOrientation.landscapeLeft, UIInterfaceOrientation.landscapeRight),
-                                         (.landscapeRight, .landscapeLeft), (.portrait, .portrait)] {
+        for (orientation, interface) in [
+            (UIDeviceOrientation.landscapeLeft, UIInterfaceOrientation.landscapeRight),
+            (.landscapeRight, .landscapeLeft),
+            (.portrait, .portrait)
+        ] {
             let savedContentPosition = try contentPosition()
             XCUIDevice.shared.orientation = orientation
             expect("interfaceOrientation=\(interface.rawValue);")
@@ -175,7 +234,10 @@ final class SystemContainerTests: XCTestCase {
         app.buttons["demo.open"].tap()
         expect("page=grid;")
         XCTAssertTrue(status.isHittable)
-        XCTAssertGreaterThan(status.frame.minY, app.windows.firstMatch.frame.midY,
-                             "原有演示的状态控件仍显示在底部工具栏中")
+        XCTAssertGreaterThan(
+            status.frame.minY,
+            app.windows.firstMatch.frame.midY,
+            "原有演示的状态控件仍显示在底部工具栏中"
+        )
     }
 }

@@ -12,7 +12,12 @@ final class SPTabBarTests: XCTestCase {
         window = nil
     }
 
-    private func mount(count: Int = 12, width: CGFloat = 320, rtl: Bool = false, titles: [String]? = nil) -> (SPTabBar, UICollectionView) {
+    private func mount(
+        count: Int = 12,
+        width: CGFloat = 320,
+        rtl: Bool = false,
+        titles: [String]? = nil
+    ) -> (SPTabBar, UICollectionView) {
         let controller = UIViewController()
         // 宽度算法用例会放大标签栏；安全区域由容器集成测试单独验证。
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: max(2048, width), height: 844))
@@ -22,7 +27,7 @@ final class SPTabBarTests: XCTestCase {
         bar.standardAppearance.selectionStyle = .underline
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         controller.view.addSubview(bar)
-        bar.setItems((titles ?? (0..<count).map { "标签 \($0)" }).map { SPTabBarItem(title: $0) })
+        bar.setItems((titles ?? (0 ..< count).map { "标签 \($0)" }).map { SPTabBarItem(title: $0) })
         bar.setSelectedIndex(0, animated: false)
         bar.layoutIfNeeded()
         self.window = window
@@ -36,11 +41,24 @@ final class SPTabBarTests: XCTestCase {
 
     private func button(_ index: Int, in collection: UICollectionView) -> UIButton? {
         collection.layoutIfNeeded()
-        return collection.cellForItem(at: IndexPath(item: index, section: 0))?.contentView.subviews.compactMap { $0 as? UIButton }.first
+        return collection.cellForItem(at: IndexPath(item: index, section: 0))?.contentView.subviews
+            .compactMap { $0 as? UIButton }.first
     }
 
-    private let variedTitles = ["热", "推荐内容", "关注", "本周热门精选", "收藏", "更多专题与活动",
-                                "新", "附近的人", "视频", "开发者讨论专区", "图", "全部"]
+    private let variedTitles = [
+        "热",
+        "推荐内容",
+        "关注",
+        "本周热门精选",
+        "收藏",
+        "更多专题与活动",
+        "新",
+        "附近的人",
+        "视频",
+        "开发者讨论专区",
+        "图",
+        "全部"
+    ]
 
     func testScrollingEdgeFadePreservesEndpointsAndTracksViewport() throws {
         for rtl in [false, true] {
@@ -48,8 +66,13 @@ final class SPTabBarTests: XCTestCase {
             let maximum = collection.contentSize.width - collection.bounds.width
             // 选中项对齐和手动滚动共用物理边界；包括临近端点与回弹。
             for (offset, leftAlpha, rightAlpha): (CGFloat, CGFloat, CGFloat) in [
-                (-20, 1, 0), (0, 1, 0), (8, 0.5, 0), (maximum / 2, 0, 0),
-                (maximum - 8, 0, 0.5), (maximum, 0, 1), (maximum + 20, 0, 1)
+                (-20, 1, 0),
+                (0, 1, 0),
+                (8, 0.5, 0),
+                (maximum / 2, 0, 0),
+                (maximum - 8, 0, 0.5),
+                (maximum, 0, 1),
+                (maximum + 20, 0, 1)
             ] {
                 collection.setContentOffset(CGPoint(x: offset, y: 0), animated: false)
                 let mask = try XCTUnwrap(collection.layer.mask as? CAGradientLayer)
@@ -95,8 +118,10 @@ final class SPTabBarTests: XCTestCase {
         for direction in [UISemanticContentAttribute.forceRightToLeft, .forceLeftToRight] {
             host.semanticContentAttribute = direction
             bar.setNeedsLayout(); bar.layoutIfNeeded()
-            XCTAssertEqual(frame(0, in: collection).minX > frame(11, in: collection).minX,
-                           direction == .forceRightToLeft)
+            XCTAssertEqual(
+                frame(0, in: collection).minX > frame(11, in: collection).minX,
+                direction == .forceRightToLeft
+            )
             let expected = direction == .forceRightToLeft ? collection.contentSize.width - collection.bounds.width : 0
             XCTAssertEqual(collection.contentOffset.x, expected, accuracy: 0.5)
         }
@@ -128,7 +153,8 @@ final class SPTabBarTests: XCTestCase {
             for item in allFrames {
                 for rect in [item, CGRect(x: item.maxX, y: 0, width: 1, height: 44)] {
                     let expected = Set(allFrames.indices.filter { allFrames[$0].intersects(rect) })
-                    let actual = Set(collection.collectionViewLayout.layoutAttributesForElements(in: rect)!.map { $0.indexPath.item })
+                    let actual = Set(collection.collectionViewLayout.layoutAttributesForElements(in: rect)!
+                        .map { $0.indexPath.item })
                     XCTAssertEqual(actual, expected)
                 }
             }
@@ -138,20 +164,22 @@ final class SPTabBarTests: XCTestCase {
     func testResizeSwitchesBetweenIntrinsicWidthsAndEqualDistribution() {
         for rtl in [false, true] {
             let (bar, collection) = mount(width: 200, rtl: rtl, titles: ["热", "本周热门精选", "关注"])
-            let widths = (0..<3).map { frame($0, in: collection).width }
+            let widths = (0 ..< 3).map { frame($0, in: collection).width }
             let total = widths.reduce(0, +)
             XCTAssertGreaterThan(total, 200)
             bar.setSelectedIndex(1, animated: false)
             for width in [total, total + 30, widths.max()! * 3, 200] {
                 bar.frame.size.width = width
                 bar.layoutIfNeeded()
-                for index in 0..<3 {
+                for index in 0 ..< 3 {
                     let item = frame(index, in: collection)
                     XCTAssertGreaterThanOrEqual(item.width, widths[index], "可用总宽度足够时不能挤压长标题")
                     if width >= widths.max()! * 3 {
                         XCTAssertEqual(item.width, width / 3, accuracy: 0.01)
                     }
-                    if width < total { XCTAssertEqual(item.width, widths[index], accuracy: 0.01) }
+                    if width < total {
+                        XCTAssertEqual(item.width, widths[index], accuracy: 0.01)
+                    }
                 }
                 let target = frame(1, in: collection)
                 let offset = min(max(0, total - width), max(0, target.midX - width / 2))
@@ -205,7 +233,10 @@ final class SPTabBarTests: XCTestCase {
             for index in [6, 0, 11, 3] {
                 bar.setSelectedIndex(index, animated: false)
                 let item = frame(index, in: collection)
-                let expected = min(collection.contentSize.width - collection.bounds.width, max(0, item.midX - collection.bounds.width / 2))
+                let expected = min(
+                    collection.contentSize.width - collection.bounds.width,
+                    max(0, item.midX - collection.bounds.width / 2)
+                )
                 // 标题宽度不同可能产生半点中心，UIScrollView 会将偏移对齐到屏幕像素。
                 XCTAssertEqual(collection.contentOffset.x, expected, accuracy: 1 / bar.traitCollection.displayScale)
                 XCTAssertEqual(collection.contentOffset.y, 0)
@@ -216,7 +247,7 @@ final class SPTabBarTests: XCTestCase {
 
     func testShortContentFillsWidthWithoutScrolling() {
         let (bar, collection) = mount(count: 3, width: 600)
-        for index in 0..<3 {
+        for index in 0 ..< 3 {
             bar.setSelectedIndex(index, animated: false)
             XCTAssertEqual(frame(index, in: collection).width, 200, accuracy: 0.01)
             XCTAssertEqual(collection.contentSize.width, 600, accuracy: 0.01)
@@ -276,7 +307,10 @@ final class SPTabBarTests: XCTestCase {
             collection.delegate?.collectionView?(collection, willDisplay: cell, forItemAt: path)
             XCTAssertEqual(button.accessibilityTraits.contains(.selected), index == 1)
             XCTAssertEqual(button.tintColor, index == 1 ? bar.tintColor : .secondaryLabel)
-            XCTAssertEqual(button.titleLabel?.font, UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: bar.traitCollection))
+            XCTAssertEqual(
+                button.titleLabel?.font,
+                UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: bar.traitCollection)
+            )
             XCTAssertEqual(button.configuration?.title, bar.items[index].title)
             XCTAssertEqual(button.accessibilityIdentifier, "sp.tab.\(index)")
             button.sendActions(for: .touchUpInside)
@@ -289,7 +323,8 @@ final class SPTabBarTests: XCTestCase {
         let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
         XCTAssertNil(collection.cellForItem(at: IndexPath(item: 10, section: 0)))
         bar.setTransitionProgress(from: 0, to: 10, progress: 0.4)
-        let expected = frame(0, in: collection).minX + (frame(10, in: collection).minX - frame(0, in: collection).minX) * 0.4 + 12
+        let expected = frame(0, in: collection)
+            .minX + (frame(10, in: collection).minX - frame(0, in: collection).minX) * 0.4 + 12
         XCTAssertEqual(indicator.frame.minX, expected, accuracy: 0.01)
         bar.setNeedsLayout(); bar.layoutIfNeeded()
         XCTAssertEqual(indicator.frame.minX, expected, accuracy: 0.01)
@@ -371,7 +406,11 @@ final class SPTabBarTests: XCTestCase {
         let startX = indicator.frame.minX
         bar.setTransitionProgress(from: 4, to: 5, progress: 0.5)
         XCTAssertEqual(indicator.frame.minX, (startX + frame(5, in: collection).minX + 12) / 2, accuracy: 0.01)
-        XCTAssertEqual(collection.contentOffset.x, (startOffset + frame(5, in: collection).midX - 160) / 2, accuracy: 0.5)
+        XCTAssertEqual(
+            collection.contentOffset.x,
+            (startOffset + frame(5, in: collection).midX - 160) / 2,
+            accuracy: 0.5
+        )
         bar.setSelectedIndex(4, animated: false)
         XCTAssertEqual(indicator.frame.minX, startX, accuracy: 0.01)
         XCTAssertEqual(collection.contentOffset.x, startOffset, accuracy: 0.5)
@@ -391,7 +430,11 @@ final class SPTabBarTests: XCTestCase {
         XCTAssertEqual(indicator.frame, startFrame)
         bar.setTransitionProgress(from: 6, to: 7, progress: 0.5)
         XCTAssertEqual(indicator.frame.minX, (startFrame.minX + frame(7, in: collection).minX + 12) / 2, accuracy: 0.01)
-        XCTAssertEqual(collection.contentOffset.x, (startOffset + frame(7, in: collection).midX - 160) / 2, accuracy: 0.5)
+        XCTAssertEqual(
+            collection.contentOffset.x,
+            (startOffset + frame(7, in: collection).midX - 160) / 2,
+            accuracy: 0.5
+        )
         bar.setTransitionProgress(from: 6, to: 7, progress: 1)
         let endFrame = indicator.frame
         let endOffset = collection.contentOffset.x
@@ -446,26 +489,38 @@ final class SPTabBarTests: XCTestCase {
 
     func testDynamicTypeUpdatesWidthsAndCentering() {
         let (bar, collection) = mount()
-        bar.setItems((0..<12).map { SPTabBarItem(title: "较长的标签标题 \($0)") })
+        bar.setItems((0 ..< 12).map { SPTabBarItem(title: "较长的标签标题 \($0)") })
         bar.setSelectedIndex(6, animated: false)
         let originalWidth = frame(6, in: collection).width
         let host = window!.rootViewController!
         let child = UIViewController()
         host.addChild(child); host.view.addSubview(child.view); child.didMove(toParent: host)
         child.view.addSubview(bar)
-        host.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge), forChild: child)
+        host.setOverrideTraitCollection(
+            UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge),
+            forChild: child
+        )
         child.view.layoutIfNeeded(); bar.setNeedsLayout(); bar.layoutIfNeeded()
         XCTAssertGreaterThan(frame(6, in: collection).width, originalWidth)
         // UIScrollView 会把偏移对齐到屏幕像素。
-        XCTAssertEqual(collection.contentOffset.x, frame(6, in: collection).midX - 160, accuracy: 1 / bar.traitCollection.displayScale)
+        XCTAssertEqual(
+            collection.contentOffset.x,
+            frame(6, in: collection).midX - 160,
+            accuracy: 1 / bar.traitCollection.displayScale
+        )
     }
 }
 
 @MainActor
 private final class TabSelectionObserver: SPTabBarDelegate {
     let action: (Int) -> Void
-    init(_ action: @escaping (Int) -> Void) { self.action = action }
+    init(_ action: @escaping (Int) -> Void) {
+        self.action = action
+    }
+
     func tabBar(_ tabBar: SPTabBar, didSelect item: SPTabBarItem) {
-        if let index = tabBar.items.firstIndex(where: { $0 === item }) { action(index) }
+        if let index = tabBar.items.firstIndex(where: { $0 === item }) {
+            action(index)
+        }
     }
 }

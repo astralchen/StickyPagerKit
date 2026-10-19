@@ -30,7 +30,7 @@ Demo 工程只包含 `StickyPagerDemo` 和 `StickyPagerDemoUITests` 两个 targe
 - 保持主 actor 隔离、弱数据源与弱代理关系。新增系统 API 应保留 iOS 15 的可用性边界和旧系统路径，不为消除编译错误直接提高部署目标。
 - 输入处理遵循现有接口契约：布局数值归一化、越界选择忽略、重复页面标识拒绝整次快照并保留旧状态。不要随意改成崩溃或部分更新；相关逻辑见 `SPPageLayout`、`SPScrollGeometry` 和容器实现。
 - 公开行为或接入方式变更时同步 `README.md`；验证事实写入 `Validation/README.md`，不把临时进度、测试数量或某次成功结果固化到本指南。
-- 仓库目前没有 CI 工作流、SwiftFormat 或 SwiftLint 配置，也没有统一格式化／静态检查脚本。不要把未配置的工具当作必需步骤，或顺手全仓格式化。
+- 仓库根目录 `.swiftformat` 为框架、Demo 和测试定义统一排版，Package 精确依赖 SwiftFormat 0.64.0；仅启用显式列出的排版规则。`Scripts/format.sh` 调用 SwiftPM Command Plugin，覆盖框架、测试及独立 Demo，支持 `--lint`。Demo target 的 `SwiftFormat` Build Phase 在其 Sources 阶段之前自动执行该脚本，失败会中止构建；单独构建 Package 不会触发该阶段。修改 Swift 文件后按该配置格式化相关文件，命令见 `README.md`。除已配置的 Demo 构建流程或用户要求外，不要顺手全仓格式化。仓库没有 CI 工作流、SwiftLint 配置或 Git Hook。
 
 ## 需要保持的行为边界
 
@@ -94,4 +94,4 @@ git diff --check
 
 - `.build/`、`.swiftpm/`、`DerivedData/`、`Validation/Products/`、`Validation/Results/` 和 `xcuserdata/` 属于忽略的本地生成内容，不作为源码编辑或强制加入 Git。
 - `Validation/README.md`、`Validation/final-evidence.json` 及已跟踪截图是历史证据，不能从旧结果推定当前源码已验证，也不要为了得到干净结果删除失败证据。
-- 当前 Package 没有第三方依赖或需要维护的生成源码目录；`.gitignore` 中的 CocoaPods、Carthage 和 fastlane 模板条目不代表项目使用了这些工具。
+- 当前 Package 仅有用于 Command Plugin 的 SwiftFormat 开发工具依赖，没有第三方运行时依赖或需要维护的生成源码目录；`.gitignore` 中的 CocoaPods、Carthage 和 fastlane 模板条目不代表项目使用了这些工具。

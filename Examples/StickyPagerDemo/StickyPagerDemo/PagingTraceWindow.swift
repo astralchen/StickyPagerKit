@@ -13,7 +13,9 @@ final class PagingTraceWindow: UIWindow {
     private var sourceDeceleratingAtTouchBegan = false
 
     func mark(_ stage: String) {
-        guard let sourceScroll else { return }
+        guard let sourceScroll else {
+            return
+        }
         let value = sourceScroll.contentOffset.y + sourceScroll.adjustedContentInset.top
         if value != previousVertical {
             verticalChanges.append(["stage": stage, "before": previousVertical, "after": value])
@@ -26,9 +28,13 @@ final class PagingTraceWindow: UIWindow {
     }
 
     private func pagingView(in view: UIView) -> UIScrollView? {
-        if view.accessibilityIdentifier == "sp.pages" { return view as? UIScrollView }
+        if view.accessibilityIdentifier == "sp.pages" {
+            return view as? UIScrollView
+        }
         for child in view.subviews {
-            if let result = pagingView(in: child) { return result }
+            if let result = pagingView(in: child) {
+                return result
+            }
         }
         return nil
     }
@@ -41,21 +47,29 @@ final class PagingTraceWindow: UIWindow {
             release = [:]
             verticalChanges = []
             var ancestor = touch?.view
-            while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
+            while let view = ancestor, !(view is UIScrollView) {
+                ancestor = view.superview
+            }
             sourceScroll = ancestor as? UIScrollView
             sourceDeceleratingAtTouchBegan = sourceScroll?.isDecelerating == true
             previousVertical = sourceScroll.map { $0.contentOffset.y + $0.adjustedContentInset.top } ?? 0
             hitView = touch?.view.map { String(describing: type(of: $0)) } ?? "nil"
         }
         super.sendEvent(event)
-        guard let touch, let paging = pagingView(in: self), samples.count < 256 else { return }
+        guard let touch, let paging = pagingView(in: self), samples.count < 256 else {
+            return
+        }
         let point = touch.location(in: self)
         let pan = paging.panGestureRecognizer
         mark("touch-\(touch.phase.rawValue)")
         samples.append([
-            "time": touch.timestamp, "phase": Double(touch.phase.rawValue),
-            "x": point.x, "y": point.y, "offset": paging.contentOffset.x,
-            "pan": Double(pan.state.rawValue), "velocity": pan.velocity(in: self).x,
+            "time": touch.timestamp,
+            "phase": Double(touch.phase.rawValue),
+            "x": point.x,
+            "y": point.y,
+            "offset": paging.contentOffset.x,
+            "pan": Double(pan.state.rawValue),
+            "velocity": pan.velocity(in: self).x,
             "translation": pan.translation(in: self).x,
             "sourceOffsetX": sourceScroll?.contentOffset.x ?? 0,
             "verticalPosition": sourceScroll.map { $0.contentOffset.y + $0.adjustedContentInset.top } ?? 0
@@ -66,18 +80,27 @@ final class PagingTraceWindow: UIWindow {
     }
 
     var pagingTrace: String {
-        guard let paging = pagingView(in: self) else { return "" }
+        guard let paging = pagingView(in: self) else {
+            return ""
+        }
         let value: [String: Any] = [
-            "sequence": sequence, "hitView": hitView, "release": release,
+            "sequence": sequence,
+            "hitView": hitView,
+            "release": release,
             "sourceDeceleratingAtTouchBegan": sourceDeceleratingAtTouchBegan,
             "verticalChanges": verticalChanges,
-            "samples": [samples.first, samples.last].compactMap { $0 }, "sampleCount": samples.count,
+            "samples": [samples.first, samples.last].compactMap { $0 },
+            "sampleCount": samples.count,
             "minOffset": samples.compactMap { $0["offset"] }.min() ?? paging.contentOffset.x,
             "maxOffset": samples.compactMap { $0["offset"] }.max() ?? paging.contentOffset.x,
-            "offset": paging.contentOffset.x, "width": paging.bounds.width,
-            "dragging": paging.isDragging, "decelerating": paging.isDecelerating
+            "offset": paging.contentOffset.x,
+            "width": paging.bounds.width,
+            "dragging": paging.isDragging,
+            "decelerating": paging.isDecelerating
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { return "" }
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else {
+            return ""
+        }
         return data.base64EncodedString()
     }
 }

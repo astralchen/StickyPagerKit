@@ -4,11 +4,21 @@ import UIKit
 @MainActor
 final class SPTabBarLayout: UICollectionViewLayout {
     var itemWidths: [CGFloat] = [] {
-        didSet { if oldValue != itemWidths { invalidateLayout() } }
+        didSet {
+            if oldValue != itemWidths {
+                invalidateLayout()
+            }
+        }
     }
+
     var isRightToLeft = false {
-        didSet { if oldValue != isRightToLeft { invalidateLayout() } }
+        didSet {
+            if oldValue != isRightToLeft {
+                invalidateLayout()
+            }
+        }
     }
+
     private var itemCount = 0
     // 按从左到右的视觉顺序缓存，RTL 仅改变逻辑索引映射。
     private var frames: [CGRect] = []
@@ -16,10 +26,12 @@ final class SPTabBarLayout: UICollectionViewLayout {
 
     override func prepare() {
         super.prepare()
-        guard let collectionView else { return }
+        guard let collectionView else {
+            return
+        }
         itemCount = collectionView.numberOfItems(inSection: 0)
         let size = collectionView.bounds.size
-        let widths = (0..<itemCount).map { index -> CGFloat in
+        let widths = (0 ..< itemCount).map { index -> CGFloat in
             let width = itemWidths.indices.contains(index) ? itemWidths[index] : 32
             return width.isFinite ? max(0, width) : 32
         }
@@ -28,7 +40,7 @@ final class SPTabBarLayout: UICollectionViewLayout {
         let canDistributeEqually = (widths.max() ?? 0) <= equalWidth
         let extraWidth = itemCount > 0 ? max(0, size.width - totalWidth) / CGFloat(itemCount) : 0
         var x: CGFloat = 0
-        frames = (0..<itemCount).map { visualIndex in
+        frames = (0 ..< itemCount).map { visualIndex in
             let index = isRightToLeft ? itemCount - 1 - visualIndex : visualIndex
             let width = canDistributeEqually ? equalWidth : widths[index] + extraWidth
             defer { x += width }
@@ -37,10 +49,14 @@ final class SPTabBarLayout: UICollectionViewLayout {
         contentSize = CGSize(width: max(size.width, x), height: size.height)
     }
 
-    override var collectionViewContentSize: CGSize { contentSize }
+    override var collectionViewContentSize: CGSize {
+        contentSize
+    }
 
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        guard indexPath.section == 0, (0..<itemCount).contains(indexPath.item) else { return nil }
+        guard indexPath.section == 0, (0 ..< itemCount).contains(indexPath.item) else {
+            return nil
+        }
         let visualIndex = isRightToLeft ? itemCount - 1 - indexPath.item : indexPath.item
         let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
         attributes.frame = frames[visualIndex]
@@ -48,13 +64,18 @@ final class SPTabBarLayout: UICollectionViewLayout {
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-        guard !frames.isEmpty, rect.intersects(CGRect(origin: .zero, size: contentSize)) else { return [] }
+        guard !frames.isEmpty, rect.intersects(CGRect(origin: .zero, size: contentSize)) else {
+            return []
+        }
         // 宽度不同，使用边界二分定位首项，避免滚动时扫描所有标签。
         var lower = 0, upper = frames.count
         while lower < upper {
             let middle = (lower + upper) / 2
-            if frames[middle].maxX <= rect.minX { lower = middle + 1 }
-            else { upper = middle }
+            if frames[middle].maxX <= rect.minX {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
         }
         var result: [UICollectionViewLayoutAttributes] = []
         var visualIndex = lower

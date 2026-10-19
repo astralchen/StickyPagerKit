@@ -17,18 +17,31 @@ internal final class SPScrollBinding {
     private var requestedHorizontalIndicator: Bool
     var indicatorsHiddenForPaging = false {
         didSet {
-            if oldValue != indicatorsHiddenForPaging { updateIndicators() }
+            if oldValue != indicatorsHiddenForPaging {
+                updateIndicators()
+            }
         }
     }
+
     private let originalBounce: Bool
     private var range: CGFloat = 0
     private var pageDisplacement: CGFloat = 0
 
-    var position: CGFloat { scrollView.contentOffset.y + scrollView.adjustedContentInset.top }
-    var maximumPosition: CGFloat {
-        max(range, scrollView.contentSize.height + scrollView.adjustedContentInset.top + scrollView.adjustedContentInset.bottom - scrollView.bounds.height)
+    var position: CGFloat {
+        scrollView.contentOffset.y + scrollView.adjustedContentInset.top
     }
-    var isRefreshing: Bool { scrollView.refreshControl?.isRefreshing == true }
+
+    var maximumPosition: CGFloat {
+        max(
+            range,
+            scrollView.contentSize.height + scrollView.adjustedContentInset.top + scrollView.adjustedContentInset
+                .bottom - scrollView.bounds.height
+        )
+    }
+
+    var isRefreshing: Bool {
+        scrollView.refreshControl?.isRefreshing == true
+    }
 
     init(scrollView: UIScrollView) {
         self.scrollView = scrollView
@@ -41,36 +54,48 @@ internal final class SPScrollBinding {
         observations = [
             scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.changingExternalInset, !self.detached else { return }
+                    guard let self, !self.updating, !self.changingExternalInset, !self.detached else {
+                        return
+                    }
                     self.updateIndicators()
                     self.onScroll?(self)
                 }
             },
             scrollView.observe(\.contentInset, options: [.prior, .new]) { [weak self] _, change in
                 MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.detached else { return }
+                    guard let self, !self.updating, !self.detached else {
+                        return
+                    }
                     // UIKit 在 inset setter 完成前可能先通知 offset/adjustedInset，不能在此期间覆盖业务值。
                     self.changingExternalInset = change.isPrior
-                    if !change.isPrior { self.externalInsetsChanged() }
+                    if !change.isPrior {
+                        self.externalInsetsChanged()
+                    }
                 }
             },
             scrollView.observe(\.verticalScrollIndicatorInsets, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.detached else { return }
+                    guard let self, !self.updating, !self.detached else {
+                        return
+                    }
                     self.baseIndicatorInset = self.scrollView.verticalScrollIndicatorInsets
                     self.updateIndicators()
                 }
             },
             scrollView.observe(\.showsVerticalScrollIndicator, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.detached else { return }
+                    guard let self, !self.updating, !self.detached else {
+                        return
+                    }
                     self.requestedVerticalIndicator = self.scrollView.showsVerticalScrollIndicator
                     self.updateIndicators()
                 }
             },
             scrollView.observe(\.showsHorizontalScrollIndicator, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.detached else { return }
+                    guard let self, !self.updating, !self.detached else {
+                        return
+                    }
                     self.requestedHorizontalIndicator = self.scrollView.showsHorizontalScrollIndicator
                     self.updateIndicators()
                 }
@@ -79,7 +104,9 @@ internal final class SPScrollBinding {
                 MainActor.assumeIsolated { self?.updateGeometry() }
             },
             scrollView.observe(\.bounds, options: [.old, .new]) { [weak self] _, change in
-                guard change.oldValue?.size != change.newValue?.size else { return }
+                guard change.oldValue?.size != change.newValue?.size else {
+                    return
+                }
                 MainActor.assumeIsolated { self?.updateGeometry() }
             },
             scrollView.observe(\.adjustedContentInset, options: [.new]) { [weak self] _, _ in
@@ -97,7 +124,9 @@ internal final class SPScrollBinding {
 
     /// 将页面尺寸与折叠 inset 作为一次几何更新，避免 UIKit 的中间偏移反向驱动 Header。
     func layoutPage(range newRange: CGFloat, collapse: CGFloat, updates: () -> Void) {
-        guard !updating, !changingExternalInset, !detached else { return }
+        guard !updating, !changingExternalInset, !detached else {
+            return
+        }
         let oldPosition = position
         updating = true
         range = max(0, newRange)
@@ -108,9 +137,13 @@ internal final class SPScrollBinding {
     }
 
     func setPosition(_ position: CGFloat) {
-        guard !detached else { return }
+        guard !detached else {
+            return
+        }
         let y = position - scrollView.adjustedContentInset.top
-        guard abs(y - scrollView.contentOffset.y) > 0.001 else { return }
+        guard abs(y - scrollView.contentOffset.y) > 0.001 else {
+            return
+        }
         updating = true
         scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: false)
         updating = false
@@ -125,7 +158,9 @@ internal final class SPScrollBinding {
     }
 
     func detach() {
-        guard !detached else { return }
+        guard !detached else {
+            return
+        }
         detached = true
         observations.forEach { $0.invalidate() }
         observations.removeAll()
@@ -135,22 +170,38 @@ internal final class SPScrollBinding {
         restored.top -= topContribution
         restored.bottom -= bottomContribution
         scrollView.contentInset = restored
-        if scrollView.verticalScrollIndicatorInsets != baseIndicatorInset { scrollView.verticalScrollIndicatorInsets = baseIndicatorInset }
-        if scrollView.showsVerticalScrollIndicator != requestedVerticalIndicator { scrollView.showsVerticalScrollIndicator = requestedVerticalIndicator }
-        if scrollView.showsHorizontalScrollIndicator != requestedHorizontalIndicator { scrollView.showsHorizontalScrollIndicator = requestedHorizontalIndicator }
+        if scrollView
+            .verticalScrollIndicatorInsets !=
+            baseIndicatorInset {
+            scrollView.verticalScrollIndicatorInsets = baseIndicatorInset
+        }
+        if scrollView
+            .showsVerticalScrollIndicator !=
+            requestedVerticalIndicator {
+            scrollView.showsVerticalScrollIndicator = requestedVerticalIndicator
+        }
+        if scrollView
+            .showsHorizontalScrollIndicator !=
+            requestedHorizontalIndicator {
+            scrollView.showsHorizontalScrollIndicator = requestedHorizontalIndicator
+        }
         scrollView.alwaysBounceVertical = originalBounce
         scrollView.contentOffset.y = contentPosition - scrollView.adjustedContentInset.top
     }
 
     private func externalInsetsChanged() {
-        guard !updating, !detached else { return }
+        guard !updating, !detached else {
+            return
+        }
         // 外部赋值视作新的业务基准；框架贡献随后重新叠加。
         baseInset = scrollView.contentInset
         updateGeometry()
     }
 
     private func updateGeometry(preserving savedPosition: CGFloat? = nil) {
-        guard !updating, !changingExternalInset, !detached else { return }
+        guard !updating, !changingExternalInset, !detached else {
+            return
+        }
         updating = true
         let oldPosition = savedPosition ?? position
         let adjustment = scrollView.adjustedContentInset.top - scrollView.contentInset.top
@@ -158,20 +209,29 @@ internal final class SPScrollBinding {
         // 尚未折叠的距离由页面根视图的下移承担，inset 只承担已经折叠的距离。
         topContribution = max(0, range - pageDisplacement)
         bottomContribution = SPScrollGeometry.shortContentInset(
-            height: scrollView.bounds.height + pageDisplacement, contentHeight: scrollView.contentSize.height,
-            baseTop: baseInset.top + adjustment, baseBottom: baseInset.bottom + bottomAdjustment)
+            height: scrollView.bounds.height + pageDisplacement,
+            contentHeight: scrollView.contentSize.height,
+            baseTop: baseInset.top + adjustment,
+            baseBottom: baseInset.bottom + bottomAdjustment
+        )
         var inset = baseInset
         inset.top += topContribution
         inset.bottom += bottomContribution
-        if scrollView.contentInset != inset { scrollView.contentInset = inset }
+        if scrollView.contentInset != inset {
+            scrollView.contentInset = inset
+        }
         let desired = oldPosition - scrollView.adjustedContentInset.top
-        if abs(scrollView.contentOffset.y - desired) > 0.001 { scrollView.contentOffset.y = desired }
+        if abs(scrollView.contentOffset.y - desired) > 0.001 {
+            scrollView.contentOffset.y = desired
+        }
         updating = false
         updateIndicators()
     }
 
     private func updateIndicators() {
-        guard !updating, !detached else { return }
+        guard !updating, !detached else {
+            return
+        }
         updating = true
         defer { updating = false }
         // 仅有 Header 折叠距离的页面没有正文滚动进度；合成 inset 不应产生一条长指示器。
@@ -181,10 +241,18 @@ internal final class SPScrollBinding {
             var inset = baseIndicatorInset
             // 页面本身已位于标签栏下方，不再重复缩短指示器轨道。
             inset.top += max(0, range - SPScrollGeometry.collapse(position, range: range) - pageDisplacement)
-            if scrollView.verticalScrollIndicatorInsets != inset { scrollView.verticalScrollIndicatorInsets = inset }
+            if scrollView.verticalScrollIndicatorInsets != inset {
+                scrollView.verticalScrollIndicatorInsets = inset
+            }
         }
-        if scrollView.showsVerticalScrollIndicator != visible { scrollView.showsVerticalScrollIndicator = visible }
+        if scrollView.showsVerticalScrollIndicator != visible {
+            scrollView.showsVerticalScrollIndicator = visible
+        }
         let horizontalVisible = !indicatorsHiddenForPaging && requestedHorizontalIndicator
-        if scrollView.showsHorizontalScrollIndicator != horizontalVisible { scrollView.showsHorizontalScrollIndicator = horizontalVisible }
+        if scrollView
+            .showsHorizontalScrollIndicator !=
+            horizontalVisible {
+            scrollView.showsHorizontalScrollIndicator = horizontalVisible
+        }
     }
 }

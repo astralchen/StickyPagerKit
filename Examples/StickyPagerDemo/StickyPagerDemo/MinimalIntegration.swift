@@ -27,10 +27,29 @@ final class MinimalIntegration: UIViewController, SPPageViewControllerDataSource
         pager.dataSource = self
         pager.reloadData()
     }
-    func numberOfPages(in pageViewController: SPPageViewController) -> Int { identifiers.count }
-    func pageViewController(_ pageViewController: SPPageViewController, identifierForPageAt index: Int) -> AnyHashable { identifiers[index] }
-    func pageViewController(_ pageViewController: SPPageViewController, tabBarItemAt index: Int) -> SPTabBarItem { SPTabBarItem(title: "页面 \(index + 1)") }
-    func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController {
+
+    func numberOfPages(in pageViewController: SPPageViewController) -> Int {
+        identifiers.count
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        identifierForPageAt index: Int
+    ) -> AnyHashable {
+        identifiers[index]
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        tabBarItemAt index: Int
+    ) -> SPTabBarItem {
+        SPTabBarItem(title: "页面 \(index + 1)")
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        viewControllerAt index: Int
+    ) -> UIViewController {
         let controller = UIViewController()
         let scroll = UIScrollView()
         scroll.contentSize = CGSize(width: 1, height: 1500)

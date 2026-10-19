@@ -2,6 +2,46 @@
 
 支持 iOS 15+ 的 UIKit 粘性 Header 与横向分页容器。以 Swift Package Manager 分发，使用 Swift tools 6.3、Swift 6 语言模式和主 actor 隔离，不依赖第三方运行时库。
 
+## 代码格式
+
+框架、Demo 和测试共用根目录 [`.swiftformat`](.swiftformat)，已使用 **SwiftFormat 0.64.0** 验证。配置逐项附有中文说明，按 Swift 6.3 工具链与 Swift 6 语言模式处理源码。
+
+API 设计参考 [Swift API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/)；4 空格缩进、120 字符目标行宽、参数和语句体换行属于本项目排版约定，不是 Apple 发布的统一格式化配置。仅启用显式列出的排版规则，保留 API、访问控制、声明顺序、`self`、表达式、字面量、分号和注释正文；不启用 SwiftFormat 默认的语法简化规则。
+
+`Package.swift` 已将 [SwiftFormat 官方 SwiftPM Command Plugin](https://github.com/nicklockwood/SwiftFormat/tree/0.64.0/Plugins/SwiftFormatPlugin) 精确锁定到 **0.64.0**。它是开发工具，不链接到框架或 Demo 产品。首次使用需要联网解析依赖并编译工具，无需全局安装 `swiftformat`。
+
+Demo target 在 `Compile Sources` 之前配置了 `SwiftFormat` Build Phase，Debug / Release 构建均自动调用 [Scripts/format.sh](Scripts/format.sh)，直接修复框架、测试与 Demo 的代码格式；格式化失败会使构建失败。该阶段每次构建执行，不依赖输出文件判断是否跳过。仅 Demo target 关闭 `ENABLE_USER_SCRIPT_SANDBOXING`，以允许插件写入源码及 SwiftPM 缓存；脚本使用 macOS SDK 构建宿主工具，避免继承 iOS SDK。
+
+该 Build Phase 属于 Demo target，不是 Swift Package 的构建插件；单独构建框架不会自动运行它。Xcode 可先编译 Package 依赖，再执行 Demo 的阶段；若需要在整个依赖图开始构建前完成格式化，先手动运行下方脚本。
+
+在仓库根目录使用支持 Swift tools 6.3 的 Xcode 工具链执行：
+
+```sh
+# 手动格式化框架、测试、独立 Demo 和 Package 清单。
+Scripts/format.sh
+
+# 只检查，不修改源码。
+Scripts/format.sh --lint
+```
+
+脚本调用 `swift package -c release plugin --allow-writing-to-package-directory swiftformat`，以 Release 配置编译格式化工具；不改变应用的构建配置。官方插件默认只遍历 Package 源码 target，因此脚本选择 `StickyPagerKit`，并显式补入 `Examples`、`Tests` 与 `Package.swift`，一次覆盖整个仓库的自有 Swift 源码。`--allow-writing-to-package-directory` 用于满足插件声明的写入权限；是否实际修改代码由 `--lint` 控制。需要指定本机工具链时，可在命令前设置 `DEVELOPER_DIR`，例如 `/Applications/Xcode-26.6.app/Contents/Developer`。
+
+也可以使用 [SwiftFormat 官方发布的 0.64.0 命令行工具](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.64.0)：
+
+```sh
+# 确认使用已验证的工具版本。
+swiftformat --version
+
+# 格式化框架、Demo、测试和 Package 清单。
+swiftformat Package.swift Sources Tests Examples --config .swiftformat --cache ignore
+
+# 只检查，不写入源码；退出码 0 表示符合配置。
+swiftformat Package.swift Sources Tests Examples --config .swiftformat --cache ignore --lint
+git diff --check
+```
+
+使用独立 CLI 只修改部分文件时，将其输入路径替换为对应 Swift 文件即可。配置排除依赖、生成源码、构建缓存、验证产物和 `xcuserdata`。升级 SwiftFormat 后需同步 Package 的精确版本与 `.swiftformat` 的最低版本，并重新检查 diff 和验证构建；独立 CLI 的实际版本仍需自行确认。
+
 ## 快速开始
 
 将当前仓库作为本地或 Git Swift Package 添加到应用，链接 `StickyPagerKit` 产品。所有容器操作都在主 actor 上进行。

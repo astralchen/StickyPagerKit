@@ -10,11 +10,13 @@ final class SPTabBarModelTests: XCTestCase {
         window.rootViewController = UIViewController()
         window.makeKeyAndVisible()
     }
+
     override func tearDown() async throws {
         window.isHidden = true
         window.rootViewController = nil
         window = nil
     }
+
     private func mount(_ items: [SPTabBarItem]) -> SPTabBar {
         let bar = SPTabBar()
         bar.items = items
@@ -23,14 +25,17 @@ final class SPTabBarModelTests: XCTestCase {
         bar.layoutIfNeeded()
         return bar
     }
+
     private func collection(_ bar: SPTabBar) -> UICollectionView {
         bar.subviews.compactMap { $0 as? UICollectionView }.first!
     }
+
     private func button(_ bar: SPTabBar, _ index: Int = 0) -> UIButton {
         bar.layoutIfNeeded()
         let collection = collection(bar)
         collection.layoutIfNeeded()
-        return collection.cellForItem(at: IndexPath(item: index, section: 0))!.contentView.subviews.compactMap { $0 as? UIButton }.first!
+        return collection.cellForItem(at: IndexPath(item: index, section: 0))!.contentView.subviews
+            .compactMap { $0 as? UIButton }.first!
     }
 
     func testDefaultColorsFollowTintAndRespectExplicitOverrides() {
@@ -46,7 +51,12 @@ final class SPTabBarModelTests: XCTestCase {
         func assertColor(_ index: Int, _ expected: UIColor, file: StaticString = #filePath, line: UInt = #line) {
             let tab = button(bar, index)
             tab.layoutIfNeeded()
-            XCTAssertEqual(tab.titleLabel?.textColor.resolvedColor(with: bar.traitCollection), expected.resolvedColor(with: bar.traitCollection), file: file, line: line)
+            XCTAssertEqual(
+                tab.titleLabel?.textColor.resolvedColor(with: bar.traitCollection),
+                expected.resolvedColor(with: bar.traitCollection),
+                file: file,
+                line: line
+            )
             XCTAssertEqual(tab.configuration?.baseForegroundColor, expected, file: file, line: line)
         }
         for style: UIUserInterfaceStyle in [.light, .dark] {
@@ -85,7 +95,8 @@ final class SPTabBarModelTests: XCTestCase {
         bar.standardAppearance.selectionStyle = .underline
         bar.selectedItem = item
         bar.layoutIfNeeded()
-        let indicator = try XCTUnwrap(collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" })
+        let indicator = try XCTUnwrap(collection(bar).subviews
+            .first { $0.accessibilityIdentifier == "sp.tabBar.selection" })
         XCTAssertEqual(indicator.backgroundColor, .systemGreen)
         XCTAssertEqual(indicator.bounds.height, 3)
         XCTAssertEqual(indicator.layer.cornerRadius, 1.5)
@@ -104,7 +115,10 @@ final class SPTabBarModelTests: XCTestCase {
         item.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .selected)
         for style: UIUserInterfaceStyle in [.light, .dark] {
             window.overrideUserInterfaceStyle = style
-            XCTAssertEqual(indicator.backgroundColor?.resolvedColor(with: bar.traitCollection), UIColor.label.resolvedColor(with: bar.traitCollection))
+            XCTAssertEqual(
+                indicator.backgroundColor?.resolvedColor(with: bar.traitCollection),
+                UIColor.label.resolvedColor(with: bar.traitCollection)
+            )
         }
         item.setTitleTextAttributes(nil, for: .selected)
         bar.standardAppearance.itemAppearance.selected.titleColor = nil
@@ -138,14 +152,18 @@ final class SPTabBarModelTests: XCTestCase {
             let copy = try XCTUnwrap(appearance.copy() as? SPTabBarAppearance)
             XCTAssertEqual(copy.selectionColor, color)
             let data = try NSKeyedArchiver.archivedData(withRootObject: copy, requiringSecureCoding: true)
-            let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(ofClass: SPTabBarAppearance.self, from: data))
+            let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(
+                ofClass: SPTabBarAppearance.self,
+                from: data
+            ))
             XCTAssertEqual(decoded.selectionColor, color)
             let item = SPTabBarItem(title: "Item 外观")
             item.standardAppearance = decoded
             let bar = mount([item])
             bar.tintColor = .systemBlue
             bar.selectedItem = item
-            let indicator = try XCTUnwrap(collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" })
+            let indicator = try XCTUnwrap(collection(bar).subviews
+                .first { $0.accessibilityIdentifier == "sp.tabBar.selection" })
             XCTAssertEqual(indicator.backgroundColor, color ?? .systemBlue)
             item.standardAppearance?.selectionColor = .systemRed
             XCTAssertEqual(indicator.backgroundColor, .systemRed)
@@ -190,7 +208,10 @@ final class SPTabBarModelTests: XCTestCase {
         base.title = "基类标题"
         base.tag = 42
         base.image = UIImage(systemName: "star")
-        base.setTitleTextAttributes([.foregroundColor: UIColor.systemPurple, .font: UIFont.systemFont(ofSize: 23)], for: .normal)
+        base.setTitleTextAttributes(
+            [.foregroundColor: UIColor.systemPurple, .font: UIFont.systemFont(ofSize: 23)],
+            for: .normal
+        )
         bar.layoutIfNeeded()
         XCTAssertEqual(button(bar).configuration?.title, "基类标题")
         XCTAssertEqual(item.tag, 42)
@@ -254,7 +275,11 @@ final class SPTabBarModelTests: XCTestCase {
     }
 
     func testItemArchivePreservesInheritedAndCustomProperties() throws {
-        let item = SPTabBarItem(title: "归档", image: UIImage(systemName: "star"), selectedImage: UIImage(systemName: "star.fill"))
+        let item = SPTabBarItem(
+            title: "归档",
+            image: UIImage(systemName: "star"),
+            selectedImage: UIImage(systemName: "star.fill")
+        )
         item.tag = 73
         item.isEnabled = false
         item.badgeValue = "8"
@@ -289,7 +314,8 @@ final class SPTabBarModelTests: XCTestCase {
             child.overrideUserInterfaceStyle = style
             for category: UIContentSizeCategory in [.large, .accessibilityExtraExtraExtraLarge] {
                 host.setOverrideTraitCollection(UITraitCollection(traitsFrom: [
-                    UITraitCollection(verticalSizeClass: .regular), UITraitCollection(preferredContentSizeCategory: category)
+                    UITraitCollection(verticalSizeClass: .regular),
+                    UITraitCollection(preferredContentSizeCategory: category)
                 ]), forChild: child)
                 host.view.layoutIfNeeded()
                 child.view.layoutIfNeeded()
@@ -302,7 +328,8 @@ final class SPTabBarModelTests: XCTestCase {
                 XCTAssertEqual(tab.configuration?.imagePlacement, .top)
                 XCTAssertGreaterThanOrEqual(tab.frame.height, tab.titleLabel!.font.lineHeight + 24 + 4)
                 host.setOverrideTraitCollection(UITraitCollection(traitsFrom: [
-                    UITraitCollection(verticalSizeClass: .compact), UITraitCollection(preferredContentSizeCategory: category)
+                    UITraitCollection(verticalSizeClass: .compact),
+                    UITraitCollection(preferredContentSizeCategory: category)
                 ]), forChild: child)
                 host.view.layoutIfNeeded()
                 child.view.layoutIfNeeded()
@@ -393,14 +420,22 @@ final class SPTabBarModelTests: XCTestCase {
     }
 
     func testAppearanceOverrideAndStableSelectedMetrics() {
-        let item = SPTabBarItem(title: "标题", image: UIImage(systemName: "star"), selectedImage: UIImage(systemName: "star.fill"))
+        let item = SPTabBarItem(
+            title: "标题",
+            image: UIImage(systemName: "star"),
+            selectedImage: UIImage(systemName: "star.fill")
+        )
         let bar = mount([item, SPTabBarItem(title: "第二项")])
         bar.standardAppearance.itemAppearance.selected.font = .systemFont(ofSize: 28)
         bar.layoutIfNeeded()
-        let before = collection(bar).collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame
+        let before = collection(bar).collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!
+            .frame
         bar.selectedItem = item
         bar.layoutIfNeeded()
-        XCTAssertEqual(before, collection(bar).collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame)
+        XCTAssertEqual(
+            before,
+            collection(bar).collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame
+        )
         let appearance = SPTabBarAppearance()
         appearance.selectionStyle = .none
         item.standardAppearance = appearance
@@ -441,6 +476,11 @@ final class SPTabBarModelTests: XCTestCase {
 final class SelectionSpy: SPTabBarDelegate {
     var allowed = true
     var selected: [SPTabBarItem] = []
-    func tabBar(_ tabBar: SPTabBar, shouldSelect item: SPTabBarItem) -> Bool { allowed }
-    func tabBar(_ tabBar: SPTabBar, didSelect item: SPTabBarItem) { selected.append(item) }
+    func tabBar(_ tabBar: SPTabBar, shouldSelect item: SPTabBarItem) -> Bool {
+        allowed
+    }
+
+    func tabBar(_ tabBar: SPTabBar, didSelect item: SPTabBarItem) {
+        selected.append(item)
+    }
 }

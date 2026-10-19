@@ -8,30 +8,44 @@ public final class SPTabBarItem: UIBarItem {
         get { storedTitle }
         set { storedTitle = newValue; changed() }
     }
+
     private var storedImage: UIImage? = nil
     public override var image: UIImage? {
         get { storedImage }
         set { storedImage = newValue; changed() }
     }
-    public var selectedImage: UIImage? { didSet { changed() } }
+
+    public var selectedImage: UIImage? {
+        didSet { changed() }
+    }
+
     private var storedIsEnabled: Bool = true
     public override var isEnabled: Bool {
         get { storedIsEnabled }
         set { storedIsEnabled = newValue; changed() }
     }
+
     /// nil 隐藏、空字符串显示圆点，其余值显示文本。
-    public var badgeValue: String? { didSet { changed() } }
-    public var badgeColor: UIColor? { didSet { changed() } }
+    public var badgeValue: String? {
+        didSet { changed() }
+    }
+
+    public var badgeColor: UIColor? {
+        didSet { changed() }
+    }
+
     private var storedAccessibilityLabel: String? = nil
     public override var accessibilityLabel: String? {
         get { storedAccessibilityLabel }
         set { storedAccessibilityLabel = newValue; changed() }
     }
+
     private var storedAccessibilityHint: String? = nil
     public override var accessibilityHint: String? {
         get { storedAccessibilityHint }
         set { storedAccessibilityHint = newValue; changed() }
     }
+
     private var storedAppearance: SPTabBarAppearance?
     /// 赋值时复制；nil 表示采用宿主标签栏的外观。
     public var standardAppearance: SPTabBarAppearance? {
@@ -43,6 +57,7 @@ public final class SPTabBarItem: UIBarItem {
             changed()
         }
     }
+
     private let hosts = NSHashTable<SPTabBar>.weakObjects()
 
     public init(title: String?, image: UIImage? = nil, selectedImage: UIImage? = nil) {
@@ -57,8 +72,11 @@ public final class SPTabBarItem: UIBarItem {
         get { storedTag }
         set { storedTag = newValue }
     }
+
     private var titleAttributes: [UInt: [NSAttributedString.Key: Any]] = [:]
-    public override init() { super.init() }
+    public override init() {
+        super.init()
+    }
 
     public required init?(coder: NSCoder) {
         // UIBarItem 是抽象基类；具体属性及归档由本类实现。
@@ -76,7 +94,12 @@ public final class SPTabBarItem: UIBarItem {
         largeContentSizeImageInsets = coder.decodeUIEdgeInsets(forKey: "SP.largeInsets")
         if let attributes = coder.decodeObject(forKey: "SP.titleAttributes") as? [String: [String: Any]] {
             for (key, value) in attributes {
-                if let raw = UInt(key) { titleAttributes[raw] = Dictionary(uniqueKeysWithValues: value.map { (NSAttributedString.Key($0.key), $0.value) }) }
+                if let raw = UInt(key) {
+                    titleAttributes[raw] = Dictionary(uniqueKeysWithValues: value.map { (
+                        NSAttributedString.Key($0.key),
+                        $0.value
+                    ) })
+                }
             }
         }
         selectedImage = coder.decodeObject(forKey: "SP.selectedImage") as? UIImage
@@ -112,21 +135,25 @@ public final class SPTabBarItem: UIBarItem {
         get { storedLandscapeImagePhone }
         set { storedLandscapeImagePhone = newValue; changed() }
     }
+
     private var storedImageInsets: UIEdgeInsets = .zero
     public override var imageInsets: UIEdgeInsets {
         get { storedImageInsets }
         set { storedImageInsets = newValue; changed() }
     }
+
     private var storedLandscapeImagePhoneInsets: UIEdgeInsets = .zero
     public override var landscapeImagePhoneInsets: UIEdgeInsets {
         get { storedLandscapeImagePhoneInsets }
         set { storedLandscapeImagePhoneInsets = newValue; changed() }
     }
+
     private var storedLargeContentSizeImage: UIImage? = nil
     public override var largeContentSizeImage: UIImage? {
         get { storedLargeContentSizeImage }
         set { storedLargeContentSizeImage = newValue; changed() }
     }
+
     private var storedLargeContentSizeImageInsets: UIEdgeInsets = .zero
     public override var largeContentSizeImageInsets: UIEdgeInsets {
         get { storedLargeContentSizeImageInsets }
@@ -134,7 +161,10 @@ public final class SPTabBarItem: UIBarItem {
     }
 
     /// 单项文字属性优先于栏级状态外观；支持字体、前景色和阴影。
-    public override func setTitleTextAttributes(_ attributes: [NSAttributedString.Key: Any]?, for state: UIControl.State) {
+    public override func setTitleTextAttributes(
+        _ attributes: [NSAttributedString.Key: Any]?,
+        for state: UIControl.State
+    ) {
         titleAttributes[state.rawValue] = attributes
         changed()
     }
@@ -143,10 +173,23 @@ public final class SPTabBarItem: UIBarItem {
         titleAttributes[state.rawValue]
     }
 
-    internal func attach(_ bar: SPTabBar) { hosts.add(bar) }
-    internal func detach(_ bar: SPTabBar) { hosts.remove(bar) }
-    internal func appearanceDidChange() { changed() }
-    private func changed() { for bar in hosts.allObjects { bar.itemDidChange() } }
+    internal func attach(_ bar: SPTabBar) {
+        hosts.add(bar)
+    }
+
+    internal func detach(_ bar: SPTabBar) {
+        hosts.remove(bar)
+    }
+
+    internal func appearanceDidChange() {
+        changed()
+    }
+
+    private func changed() {
+        for bar in hosts.allObjects {
+            bar.itemDidChange()
+        }
+    }
 }
 
 @MainActor
@@ -156,6 +199,9 @@ public protocol SPTabBarDelegate: AnyObject {
 }
 
 public extension SPTabBarDelegate {
-    func tabBar(_ tabBar: SPTabBar, shouldSelect item: SPTabBarItem) -> Bool { true }
+    func tabBar(_ tabBar: SPTabBar, shouldSelect item: SPTabBarItem) -> Bool {
+        true
+    }
+
     func tabBar(_ tabBar: SPTabBar, didSelect item: SPTabBarItem) {}
 }

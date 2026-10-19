@@ -7,7 +7,10 @@ final class DemoSystemContainer: UITabBarController {
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
     }
-    required init?(coder: NSCoder) { fatalError() }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()

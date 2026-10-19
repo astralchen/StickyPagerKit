@@ -17,11 +17,16 @@ public struct SPPageLayout: Equatable, Sendable {
 
     internal var normalized: Self {
         let height = headerHeight.isFinite ? max(0, headerHeight) : 0
-        return .init(headerHeight: height,
-                     minimumHeaderHeight: minimumHeaderHeight.isFinite ? min(height, max(0, minimumHeaderHeight)) : 0,
-                     tabBarHeight: tabBarHeight.isFinite ? max(0, tabBarHeight) : 44)
+        return .init(
+            headerHeight: height,
+            minimumHeaderHeight: minimumHeaderHeight.isFinite ? min(height, max(0, minimumHeaderHeight)) : 0,
+            tabBarHeight: tabBarHeight.isFinite ? max(0, tabBarHeight) : 44
+        )
     }
-    internal var collapseRange: CGFloat { normalized.headerHeight - normalized.minimumHeaderHeight }
+
+    internal var collapseRange: CGFloat {
+        normalized.headerHeight - normalized.minimumHeaderHeight
+    }
 }
 
 /// Header 的离散状态；连续变化通过代理的 progress 参数提供。

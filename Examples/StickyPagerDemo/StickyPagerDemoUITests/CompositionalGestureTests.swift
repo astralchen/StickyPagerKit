@@ -3,19 +3,27 @@ import XCTest
 @MainActor
 final class CompositionalGestureTests: XCTestCase {
     private var app: XCUIApplication!
-    private var collection: XCUIElement { app.collectionViews["demo.compositional"] }
-    private var status: XCUIElement { app.staticTexts["demo.status"] }
+    private var collection: XCUIElement {
+        app.collectionViews["demo.compositional"]
+    }
+
+    private var status: XCUIElement {
+        app.staticTexts["demo.status"]
+    }
 
     override func setUp() async throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
         app.launchArguments = ["--open-demo", "--compositional", "--window-regression", "--paging-trace"]
-        if name.contains("RTL") { app.launchArguments.append("--rtl") }
+        if name.contains("RTL") {
+            app.launchArguments.append("--rtl")
+        }
         app.launch()
         XCTAssertTrue(collection.waitForExistence(timeout: 10))
         expectPage("compositional")
     }
+
     override func tearDown() async throws {
         print("FINAL COMPOSITIONAL \(collection.exists ? collection.value ?? "" : "offscreen")")
         let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -23,35 +31,62 @@ final class CompositionalGestureTests: XCTestCase {
         add(attachment)
         app.terminate()
     }
+
     private func expectPage(_ page: String) {
         let predicate = NSPredicate { [self] _, _ in (status.value as? String)?.contains("page=\(page);") == true }
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 5), .completed)
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 5),
+            .completed
+        )
     }
+
     private func geometry() throws -> [String: Double] {
         let data = try XCTUnwrap((collection.value as? String)?.data(using: .utf8))
         let result = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Double])
         print("COMPOSITIONAL GEOMETRY \(result)")
         return result
     }
+
     private func trace() throws -> [String: Any] {
-        let encoded = (status.value as? String ?? "").components(separatedBy: ";")[0].replacingOccurrences(of: "gesture=", with: "")
+        let encoded = (status.value as? String ?? "").components(separatedBy: ";")[0].replacingOccurrences(
+            of: "gesture=",
+            with: ""
+        )
         let data = try XCTUnwrap(Data(base64Encoded: encoded))
         print("COMPOSITIONAL TRACE \(String(data: data, encoding: .utf8) ?? "")")
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
-    private func drag(y: CGFloat, from start: CGFloat, to end: CGFloat, dy: CGFloat = 0,
-                      velocity: XCUIGestureVelocity = .slow, hold: TimeInterval = 0.2) {
+
+    private func drag(
+        y: CGFloat,
+        from start: CGFloat,
+        to end: CGFloat,
+        dy: CGFloat = 0,
+        velocity: XCUIGestureVelocity = .slow,
+        hold: TimeInterval = 0.2
+    ) {
         let window = app.windows.firstMatch
         let frame = window.frame
         let origin = window.coordinate(withNormalizedOffset: .zero)
-        origin.withOffset(CGVector(dx: frame.width * start, dy: y - frame.minY)).press(forDuration: 0.05,
-            thenDragTo: origin.withOffset(CGVector(dx: frame.width * end, dy: y - frame.minY + dy)),
-            withVelocity: velocity, thenHoldForDuration: hold)
+        origin.withOffset(CGVector(dx: frame.width * start, dy: y - frame.minY)).press(
+            forDuration: 0.05,
+            thenDragTo: origin
+                .withOffset(CGVector(
+                    dx: frame.width * end,
+                    dy: y - frame.minY + dy
+                )),
+            withVelocity: velocity,
+            thenHoldForDuration: hold
+        )
     }
+
     private func sectionY(_ section: Int) throws -> CGFloat {
         let viewport = collection.frame.intersection(app.windows.firstMatch.frame)
         let bottom = min(viewport.maxY, app.toolbars.firstMatch.frame.minY)
-        let cell = collection.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@", "demo.compositional.\(section).")).allElementsBoundByIndex
+        let cell = collection.cells.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@",
+            "demo.compositional.\(section)."
+        )).allElementsBoundByIndex
             .first {
                 let frame = $0.frame
                 // 部分露出的首项中心可能已经位于标签栏后方；输入点必须真正落在可见内容内。
@@ -63,8 +98,15 @@ final class CompositionalGestureTests: XCTestCase {
         XCTAssertLessThan(frame.midY, app.toolbars.firstMatch.frame.minY)
         return frame.midY
     }
-    private func assertInnerGesture(_ section: Int, from: CGFloat, to: CGFloat, dy: CGFloat = 0,
-                                    velocity: XCUIGestureVelocity = .slow, hold: TimeInterval = 0.2) throws {
+
+    private func assertInnerGesture(
+        _ section: Int,
+        from: CGFloat,
+        to: CGFloat,
+        dy: CGFloat = 0,
+        velocity: XCUIGestureVelocity = .slow,
+        hold: TimeInterval = 0.2
+    ) throws {
         let before = try trace()
         drag(y: try sectionY(section), from: from, to: to, dy: dy, velocity: velocity, hold: hold)
         expectPage("compositional")
@@ -72,10 +114,20 @@ final class CompositionalGestureTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(after["sequence"] as? Int), try XCTUnwrap(before["sequence"] as? Int))
         let samples = try XCTUnwrap(after["samples"] as? [[String: Double]])
         XCTAssertEqual(samples.last?["phase"], 3)
-        XCTAssertGreaterThan(abs(try XCTUnwrap(samples.last?["x"]) - XCTUnwrap(samples.first?["x"])), app.windows.firstMatch.frame.width * 0.4)
-        XCTAssertLessThanOrEqual(try XCTUnwrap(after["maxOffset"] as? Double) - XCTUnwrap(after["minOffset"] as? Double), 1,
-                                "Section 拖动过程中容器不能同时横移")
-        XCTAssertEqual(try XCTUnwrap(after["offset"] as? Double), try XCTUnwrap(before["offset"] as? Double), accuracy: 1)
+        XCTAssertGreaterThan(
+            abs(try XCTUnwrap(samples.last?["x"]) - XCTUnwrap(samples.first?["x"])),
+            app.windows.firstMatch.frame.width * 0.4
+        )
+        XCTAssertLessThanOrEqual(
+            try XCTUnwrap(after["maxOffset"] as? Double) - XCTUnwrap(after["minOffset"] as? Double),
+            1,
+            "Section 拖动过程中容器不能同时横移"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(after["offset"] as? Double),
+            try XCTUnwrap(before["offset"] as? Double),
+            accuracy: 1
+        )
     }
 
     private func assertPageDrag(y: CGFloat, movesLeft: Bool, expectedPage: String) throws {
@@ -88,9 +140,15 @@ final class CompositionalGestureTests: XCTestCase {
         XCTAssertEqual(samples.first?["phase"], 0)
         XCTAssertEqual(samples.last?["phase"], 3)
         XCTAssertGreaterThan(abs(try XCTUnwrap(samples.last?["x"]) - XCTUnwrap(samples.first?["x"])), width * 0.65)
-        XCTAssertGreaterThan(try XCTUnwrap(after["maxOffset"] as? Double) - XCTUnwrap(after["minOffset"] as? Double), width * 0.5)
-        XCTAssertEqual(try XCTUnwrap(after["offset"] as? Double),
-                       try XCTUnwrap(before["offset"] as? Double) + (movesLeft ? width : -width), accuracy: 1)
+        XCTAssertGreaterThan(
+            try XCTUnwrap(after["maxOffset"] as? Double) - XCTUnwrap(after["minOffset"] as? Double),
+            width * 0.5
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(after["offset"] as? Double),
+            try XCTUnwrap(before["offset"] as? Double) + (movesLeft ? width : -width),
+            accuracy: 1
+        )
         XCTAssertEqual(after["dragging"] as? Bool, false)
         XCTAssertEqual(after["decelerating"] as? Bool, false)
     }
@@ -109,8 +167,10 @@ final class CompositionalGestureTests: XCTestCase {
             let y = try sectionY(section)
             try assertPageDrag(y: y, movesLeft: false, expectedPage: "topics")
             try assertPageDrag(y: y, movesLeft: true, expectedPage: "compositional")
-            for _ in 0..<15 {
-                if try XCTUnwrap(geometry()[key + "RemainingRight"]) <= 0.5 { break }
+            for _ in 0 ..< 15 {
+                if try XCTUnwrap(geometry()[key + "RemainingRight"]) <= 0.5 {
+                    break
+                }
                 try assertInnerGesture(section, from: 0.8, to: 0.2)
             }
             XCTAssertLessThanOrEqual(try XCTUnwrap(geometry()[key + "RemainingRight"]), 0.5)
@@ -132,8 +192,10 @@ final class CompositionalGestureTests: XCTestCase {
             // 快速连续输入后检查新触摸能否继续改变内部偏移。
             try assertInnerGesture(section, from: 0.8, to: 0.2, velocity: .fast, hold: 0)
             try assertInnerGesture(section, from: 0.2, to: 0.8, velocity: .fast, hold: 0)
-            for _ in 0..<15 {
-                if try XCTUnwrap(geometry()[key + "RemainingRight"]) <= 0.5 { break }
+            for _ in 0 ..< 15 {
+                if try XCTUnwrap(geometry()[key + "RemainingRight"]) <= 0.5 {
+                    break
+                }
                 try assertInnerGesture(section, from: 0.8, to: 0.2)
             }
             XCTAssertLessThanOrEqual(try XCTUnwrap(geometry()[key + "RemainingRight"]), 0.5)
@@ -170,7 +232,9 @@ final class CompositionalGestureTests: XCTestCase {
         }
         collection.swipeDown()
         XCTAssertLessThan(try XCTUnwrap(geometry()["position"]), before - 40)
-        for _ in 0..<3 { collection.swipeDown() }
+        for _ in 0 ..< 3 {
+            collection.swipeDown()
+        }
         XCTAssertTrue((status.value as? String)?.contains("progress=0.00") == true)
         XCTAssertEqual(collection.frame.minY, initialY, accuracy: 1)
     }
@@ -192,5 +256,4 @@ final class CompositionalGestureTests: XCTestCase {
         try assertInnerGesture(0, from: 0.2, to: 0.8)
         XCTAssertLessThan(try XCTUnwrap(geometry()["continuous"]), try XCTUnwrap(before["continuous"]) - 40)
     }
-
 }

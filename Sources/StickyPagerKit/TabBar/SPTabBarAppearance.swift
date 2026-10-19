@@ -28,21 +28,50 @@ public struct SPTabBarItemAppearance {
 /// 栏背景复用 UIKit；赋值到标签栏或 Item 时复制，当前实例支持实时修改。
 @MainActor
 public final class SPTabBarAppearance: UIBarAppearance {
-    public override class var supportsSecureCoding: Bool { true }
+    public override class var supportsSecureCoding: Bool {
+        true
+    }
+
     public enum SelectionStyle: Int, Sendable { case capsule, underline, none }
-    public var selectionStyle: SelectionStyle = .capsule { didSet { changed() } }
+    public var selectionStyle: SelectionStyle = .capsule {
+        didSet { changed() }
+    }
+
     /// nil 使用样式默认颜色：下划线跟随选中文字，胶囊使用 tertiarySystemFill。
-    public var selectionColor: UIColor? { didSet { changed() } }
-    public var itemAppearance = SPTabBarItemAppearance() { didSet { changed() } }
+    public var selectionColor: UIColor? {
+        didSet { changed() }
+    }
+
+    public var itemAppearance = SPTabBarItemAppearance() {
+        didSet { changed() }
+    }
+
     private let bars = NSHashTable<SPTabBar>.weakObjects()
     private let items = NSHashTable<SPTabBarItem>.weakObjects()
 
-    public override var backgroundEffect: UIBlurEffect? { didSet { changed() } }
-    public override var backgroundColor: UIColor? { didSet { changed() } }
-    public override var backgroundImage: UIImage? { didSet { changed() } }
-    public override var backgroundImageContentMode: UIView.ContentMode { didSet { changed() } }
-    public override var shadowColor: UIColor? { didSet { changed() } }
-    public override var shadowImage: UIImage? { didSet { changed() } }
+    public override var backgroundEffect: UIBlurEffect? {
+        didSet { changed() }
+    }
+
+    public override var backgroundColor: UIColor? {
+        didSet { changed() }
+    }
+
+    public override var backgroundImage: UIImage? {
+        didSet { changed() }
+    }
+
+    public override var backgroundImageContentMode: UIView.ContentMode {
+        didSet { changed() }
+    }
+
+    public override var shadowColor: UIColor? {
+        didSet { changed() }
+    }
+
+    public override var shadowImage: UIImage? {
+        didSet { changed() }
+    }
 
     public override init(idiom: UIUserInterfaceIdiom) {
         super.init(idiom: idiom)
@@ -62,7 +91,8 @@ public final class SPTabBarAppearance: UIBarAppearance {
         super.init(coder: coder)
         selectionStyle = SelectionStyle(rawValue: coder.decodeInteger(forKey: "SP.selectionStyle")) ?? .capsule
         selectionColor = coder.decodeObject(of: UIColor.self, forKey: "SP.selectionColor")
-        itemAppearance.layout = SPTabBarItemAppearance.Layout(rawValue: coder.decodeInteger(forKey: "SP.layout")) ?? .automatic
+        itemAppearance.layout = SPTabBarItemAppearance
+            .Layout(rawValue: coder.decodeInteger(forKey: "SP.layout")) ?? .automatic
         itemAppearance.normal = Self.decodeState(coder, key: "normal", fallback: itemAppearance.normal)
         itemAppearance.selected = Self.decodeState(coder, key: "selected", fallback: itemAppearance.selected)
         itemAppearance.disabled = Self.decodeState(coder, key: "disabled", fallback: itemAppearance.disabled)
@@ -98,13 +128,29 @@ public final class SPTabBarAppearance: UIBarAppearance {
         changed()
     }
 
-    internal func attach(_ bar: SPTabBar) { bars.add(bar) }
-    internal func detach(_ bar: SPTabBar) { bars.remove(bar) }
-    internal func attach(_ item: SPTabBarItem) { items.add(item) }
-    internal func detach(_ item: SPTabBarItem) { items.remove(item) }
+    internal func attach(_ bar: SPTabBar) {
+        bars.add(bar)
+    }
+
+    internal func detach(_ bar: SPTabBar) {
+        bars.remove(bar)
+    }
+
+    internal func attach(_ item: SPTabBarItem) {
+        items.add(item)
+    }
+
+    internal func detach(_ item: SPTabBarItem) {
+        items.remove(item)
+    }
+
     private func changed() {
-        for bar in bars.allObjects { bar.itemDidChange() }
-        for item in items.allObjects { item.appearanceDidChange() }
+        for bar in bars.allObjects {
+            bar.itemDidChange()
+        }
+        for item in items.allObjects {
+            item.appearanceDidChange()
+        }
     }
 
     private static func encodeState(_ state: SPTabBarItemStateAppearance, coder: NSCoder, key: String) {
@@ -115,7 +161,11 @@ public final class SPTabBarAppearance: UIBarAppearance {
         coder.encode(state.badgeTextColor, forKey: key + ".badgeText")
     }
 
-    private static func decodeState(_ coder: NSCoder, key: String, fallback: SPTabBarItemStateAppearance) -> SPTabBarItemStateAppearance {
+    private static func decodeState(
+        _ coder: NSCoder,
+        key: String,
+        fallback: SPTabBarItemStateAppearance
+    ) -> SPTabBarItemStateAppearance {
         var state = fallback
         state.font = coder.decodeObject(of: UIFont.self, forKey: key + ".font")
         if coder.containsValue(forKey: key + ".title") {
@@ -124,7 +174,8 @@ public final class SPTabBarAppearance: UIBarAppearance {
         if coder.containsValue(forKey: key + ".icon") {
             state.iconColor = coder.decodeObject(of: UIColor.self, forKey: key + ".icon")
         }
-        state.badgeBackgroundColor = coder.decodeObject(of: UIColor.self, forKey: key + ".badgeBackground") ?? state.badgeBackgroundColor
+        state.badgeBackgroundColor = coder.decodeObject(of: UIColor.self, forKey: key + ".badgeBackground") ?? state
+            .badgeBackgroundColor
         state.badgeTextColor = coder.decodeObject(of: UIColor.self, forKey: key + ".badgeText") ?? state.badgeTextColor
         return state
     }

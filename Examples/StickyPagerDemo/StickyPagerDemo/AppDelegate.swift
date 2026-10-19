@@ -9,7 +9,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         configurationForConnecting connectingSceneSession: UISceneSession,
         options: UIScene.ConnectionOptions
     ) -> UISceneConfiguration {
-        let configuration = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        let configuration = UISceneConfiguration(
+            name: "Default Configuration",
+            sessionRole: connectingSceneSession.role
+        )
         configuration.delegateClass = SceneDelegate.self
         return configuration
     }
@@ -28,7 +31,10 @@ final class DemoLauncher: UIViewController {
         button.setTitle("打开演示", for: .normal)
         button.titleLabel?.font = .preferredFont(forTextStyle: .title2)
         button.accessibilityIdentifier = "demo.open"
-        button.addAction(UIAction { [weak self] _ in self?.navigationController?.pushViewController(DemoPager(), animated: true) }, for: .touchUpInside)
+        button.addAction(
+            UIAction { [weak self] _ in self?.navigationController?.pushViewController(DemoPager(), animated: true) },
+            for: .touchUpInside
+        )
         let systemButton = UIButton(type: .system)
         systemButton.setTitle("系统容器演示", for: .normal)
         systemButton.titleLabel?.font = .preferredFont(forTextStyle: .title2)
@@ -61,12 +67,36 @@ final class DemoLauncher: UIViewController {
 final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPPageViewControllerDelegate {
     /// 由入口在加载视图前设置；系统容器场景只保留 UITabBar 的底部遮挡。
     var usesSystemContainer = false
-    private var pageIDs = ["grid", "list", "short", "empty", "plain", "async",
-                           "hot", "recommended", "following", "weekly", "saved", "compositional", "topics"]
-    private let names = ["grid": "网格", "list": "列表", "short": "短列表", "empty": "空列表",
-                         "plain": "普通页", "async": "异步页", "hot": "热", "recommended": "推荐内容",
-                         "following": "关注", "weekly": "本周热门精选", "saved": "收藏", "topics": "更多专题与活动",
-                         "compositional": "组合布局"]
+    private var pageIDs = [
+        "grid",
+        "list",
+        "short",
+        "empty",
+        "plain",
+        "async",
+        "hot",
+        "recommended",
+        "following",
+        "weekly",
+        "saved",
+        "compositional",
+        "topics"
+    ]
+    private let names = [
+        "grid": "网格",
+        "list": "列表",
+        "short": "短列表",
+        "empty": "空列表",
+        "plain": "普通页",
+        "async": "异步页",
+        "hot": "热",
+        "recommended": "推荐内容",
+        "following": "关注",
+        "weekly": "本周热门精选",
+        "saved": "收藏",
+        "topics": "更多专题与活动",
+        "compositional": "组合布局"
+    ]
     private let status = RegressionStatusLabel()
     private var controllerHeader = false
     private var generation = 0
@@ -74,7 +104,9 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
     override func viewDidLoad() {
         super.viewDidLoad()
         title = usesSystemContainer ? "联动演示" : "StickyPagerKit"
-        if ProcessInfo.processInfo.arguments.contains("--rtl") { view.semanticContentAttribute = .forceRightToLeft }
+        if ProcessInfo.processInfo.arguments.contains("--rtl") {
+            view.semanticContentAttribute = .forceRightToLeft
+        }
         edgesForExtendedLayout = .all
         extendedLayoutIncludesOpaqueBars = true
         // iOS 26 使用系统透明导航栏和 scroll edge effect，保留原生玻璃外观。
@@ -94,42 +126,71 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         let header = UIBarButtonItem(title: "Header", primaryAction: headerAction)
         header.accessibilityIdentifier = "demo.header"
         let heightAction = UIAction(title: "切换 Header 高度") { [weak self] _ in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.layout.headerHeight = self.layout.headerHeight == 220 ? 300 : 220
             self.updateStatus()
         }
         let height = UIBarButtonItem(title: "高度", primaryAction: heightAction)
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
-            headerAction, heightAction,
+            headerAction,
+            heightAction,
             UIAction(title: "组合布局 · 嵌套滚动") { [weak self] _ in
-                guard let self, let index = self.pageIDs.firstIndex(of: "compositional") else { return }
+                guard let self, let index = self.pageIDs.firstIndex(of: "compositional") else {
+                    return
+                }
                 self.setSelectedIndex(index, animated: false)
             },
             UIAction(title: "切换图文标签") { [weak self] _ in
-                guard let self else { return }
+                guard let self else {
+                    return
+                }
                 for (index, item) in self.tabBar.items.enumerated() {
-                    item.image = item.image == nil ? UIImage(systemName: index.isMultiple(of: 2) ? "star" : "folder") : nil
-                    item.selectedImage = item.image == nil ? nil : UIImage(systemName: index.isMultiple(of: 2) ? "star.fill" : "folder.fill")
+                    item.image = item
+                        .image == nil ? UIImage(systemName: index.isMultiple(of: 2) ? "star" : "folder") : nil
+                    item.selectedImage = item
+                        .image == nil ? nil : UIImage(systemName: index.isMultiple(of: 2) ? "star.fill" : "folder.fill")
                 }
             },
             UIAction(title: "更新角标和标题") { [weak self] _ in
-                guard let item = self?.tabBar.items.first else { return }
+                guard let item = self?.tabBar.items.first else {
+                    return
+                }
                 item.badgeValue = item.badgeValue == nil ? "99+" : nil
                 item.title = item.badgeValue == nil ? "网格" : "新作品"
             },
             UIAction(title: "切换第二项禁用") { [weak self] _ in
-                guard let self, self.tabBar.items.count > 1 else { return }
+                guard let self, self.tabBar.items.count > 1 else {
+                    return
+                }
                 self.tabBar.items[1].isEnabled.toggle()
             },
             UIAction(title: "切换选中样式") { [weak self] _ in
-                guard let self else { return }
-                self.tabBar.standardAppearance.selectionStyle = self.tabBar.standardAppearance.selectionStyle == .capsule ? .underline : .capsule
+                guard let self else {
+                    return
+                }
+                self.tabBar.standardAppearance.selectionStyle = self.tabBar.standardAppearance
+                    .selectionStyle == .capsule ? .underline : .capsule
                 self.tabBar.standardAppearance.selectionColor = nil
             },
-            UIAction(title: "重排页面") { [weak self] _ in guard let self else { return }; self.pageIDs.reverse(); self.reloadData(); self.updateStatus() },
-            UIAction(title: "删除当前页") { [weak self] _ in guard let self, let i = self.selectedIndex else { return }; self.pageIDs.remove(at: i); self.reloadData(); self.updateStatus() },
-            UIAction(title: "添加页面") { [weak self] _ in guard let self else { return }; self.generation += 1; self.pageIDs.append("new\(self.generation)"); self.reloadData() },
+            UIAction(title: "重排页面") { [weak self] _ in
+                guard let self else {
+                    return
+                }; self.pageIDs.reverse(); self.reloadData(); self.updateStatus()
+            },
+            UIAction(title: "删除当前页") { [weak self] _ in
+                guard let self,
+                      let i = self.selectedIndex else {
+                    return
+                }; self.pageIDs.remove(at: i); self.reloadData(); self.updateStatus()
+            },
+            UIAction(title: "添加页面") { [weak self] _ in
+                guard let self else {
+                    return
+                }; self.generation += 1; self.pageIDs.append("new\(self.generation)"); self.reloadData()
+            },
             UIAction(title: "清空页面") { [weak self] _ in self?.pageIDs = []; self?.reloadData(); self?.updateStatus() }
         ]))
         pages.accessibilityIdentifier = "demo.pages"
@@ -153,48 +214,84 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         }
         updateStatus()
     }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setToolbarHidden(usesSystemContainer, animated: animated)
     }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateHeaderContentClip()
     }
+
     private func updateHeaderContentClip() {
-        guard let header = (headerView ?? headerViewController?.view) as? DemoHeaderView else { return }
-        if #available(iOS 26.0, *) { header.clipContent(below: 0); return }
+        guard let header = (headerView ?? headerViewController?.view) as? DemoHeaderView else {
+            return
+        }
+        if #available(iOS 26.0, *) {
+            header.clipContent(below: 0); return
+        }
         // 旧系统没有 scroll edge effect，标题在导航栏下缘裁剪。
         let top = header.convert(CGPoint(x: 0, y: view.safeAreaInsets.top), from: view).y
         header.clipContent(below: top)
     }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         navigationController?.setToolbarHidden(true, animated: animated)
     }
+
     private func toggleHeader() {
         controllerHeader.toggle()
-        if controllerHeader { headerViewController = DemoHeaderController() }
-        else { headerView = DemoHeaderView() }
+        if controllerHeader {
+            headerViewController = DemoHeaderController()
+        } else {
+            headerView = DemoHeaderView()
+        }
         updateStatus()
     }
+
     private func updateStatus(progress: CGFloat? = nil) {
         let page = selectedIndex.map { pageIDs[$0] } ?? "none"
         let oldProgress = status.accessibilityValue?.components(separatedBy: "progress=").last ?? "0.00"
         status.text = "\(names[page] ?? page) · \(controllerHeader ? "Controller" : "View") · H\(Int(layout.headerHeight))"
-        if usesSystemContainer { status.text = "系统容器演示\n\(names[page] ?? page) · H\(Int(layout.headerHeight))" }
+        if usesSystemContainer {
+            status.text = "系统容器演示\n\(names[page] ?? page) · H\(Int(layout.headerHeight))"
+        }
         status.accessibilityValue = "direction=\(view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? "rtl" : "ltr");page=\(page);header=\(controllerHeader ? "controller" : "view");height=\(Int(layout.headerHeight));progress=\(progress.map { String(format: "%.2f", Double($0)) } ?? oldProgress)"
         status.sizeToFit()
     }
-    func numberOfPages(in pageViewController: SPPageViewController) -> Int { pageIDs.count }
-    func pageViewController(_ pageViewController: SPPageViewController, identifierForPageAt index: Int) -> AnyHashable { pageIDs[index] }
-    func pageViewController(_ pageViewController: SPPageViewController, tabBarItemAt index: Int) -> SPTabBarItem { SPTabBarItem(title: names[pageIDs[index]] ?? "新增") }
-    func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController {
+
+    func numberOfPages(in pageViewController: SPPageViewController) -> Int {
+        pageIDs.count
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        identifierForPageAt index: Int
+    ) -> AnyHashable {
+        pageIDs[index]
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        tabBarItemAt index: Int
+    ) -> SPTabBarItem {
+        SPTabBarItem(title: names[pageIDs[index]] ?? "新增")
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        viewControllerAt index: Int
+    ) -> UIViewController {
         switch pageIDs[index] {
         case "grid": return DemoGrid()
         case "compositional": return DemoCompositional()
         case "list":
-            if ProcessInfo.processInfo.arguments.contains("--mixed-page") { return DemoMixedPage() }
+            if ProcessInfo.processInfo.arguments.contains("--mixed-page") {
+                return DemoMixedPage()
+            }
             return DemoList(count: 80)
         case "short": return DemoList(count: 3)
         case "empty": return DemoList(count: 0)
@@ -202,19 +299,38 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         case "async":
             let page = DemoAsync()
             page.onReplace = { [weak self, weak page] in
-                guard let self, let page, let index = self.pageIDs.firstIndex(of: "async"), page.parent === self else { return }
+                guard let self, let page, let index = self.pageIDs.firstIndex(of: "async"),
+                      page.parent === self else {
+                    return
+                }
                 self.rediscoverScrollView(forPageAt: index)
             }
             return page
         default: return DemoList(count: 10)
         }
     }
-    func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) { updateStatus() }
-    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
-                                  targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        (view.window as? PagingTraceWindow)?.recordRelease(scrollView, velocity: velocity, target: targetContentOffset.pointee)
+
+    func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) {
+        updateStatus()
     }
-    func pageViewController(_ pageViewController: SPPageViewController, didChangeHeaderState state: SPHeaderState, progress: CGFloat) {
+
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        (view.window as? PagingTraceWindow)?.recordRelease(
+            scrollView,
+            velocity: velocity,
+            target: targetContentOffset.pointee
+        )
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        didChangeHeaderState state: SPHeaderState,
+        progress: CGFloat
+    ) {
         updateHeaderContentClip()
         updateStatus(progress: progress)
     }
@@ -243,11 +359,15 @@ final class DemoHeaderView: UIView {
             title.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor)
         ])
     }
+
     func clipContent(below top: CGFloat) {
         let y = max(0, top)
         contentClip.frame = CGRect(x: 0, y: y, width: bounds.width, height: max(0, bounds.height - y))
     }
-    required init?(coder: NSCoder) { fatalError() }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
 }
 
 @MainActor
@@ -264,7 +384,9 @@ final class DemoHeaderController: UIViewController {
 private final class RegressionStatusLabel: UILabel {
     override var accessibilityValue: String? {
         get {
-            guard ProcessInfo.processInfo.arguments.contains("--window-regression") else { return super.accessibilityValue }
+            guard ProcessInfo.processInfo.arguments.contains("--window-regression") else {
+                return super.accessibilityValue
+            }
             let orientation: UIInterfaceOrientation
             if #available(iOS 26.0, *) {
                 orientation = window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .unknown
@@ -283,7 +405,9 @@ private final class RegressionStatusLabel: UILabel {
 private final class RegressionTableView: UITableView {
     override var accessibilityValue: String? {
         get {
-            guard ProcessInfo.processInfo.arguments.contains("--window-regression") else { return super.accessibilityValue }
+            guard ProcessInfo.processInfo.arguments.contains("--window-regression") else {
+                return super.accessibilityValue
+            }
             var geometry: [String: Double] = [
                 "position": Double(contentOffset.y + adjustedContentInset.top),
                 "safeLeft": Double(safeAreaInsets.left),
@@ -307,7 +431,9 @@ private final class RegressionTableView: UITableView {
                 geometry["estimatedRowHeight"] = Double(estimatedRowHeight)
                 geometry["contentHeight"] = Double(contentSize.height)
             }
-            guard let data = try? JSONSerialization.data(withJSONObject: geometry, options: [.sortedKeys]) else { return nil }
+            guard let data = try? JSONSerialization.data(withJSONObject: geometry, options: [.sortedKeys]) else {
+                return nil
+            }
             return String(data: data, encoding: .utf8)
         }
         set { super.accessibilityValue = newValue }
@@ -342,7 +468,11 @@ final class DemoMixedPage: UIViewController, UITableViewDataSource {
             table.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 80 }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        80
+    }
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
         cell.textLabel?.text = "混合页面内容 \(indexPath.row + 1)"
@@ -352,18 +482,29 @@ final class DemoMixedPage: UIViewController, UITableViewDataSource {
 
 @MainActor
 final class DemoList: UITableViewController {
-    override func loadView() { tableView = RegressionTableView(frame: .zero, style: .plain) }
+    override func loadView() {
+        tableView = RegressionTableView(frame: .zero, style: .plain)
+    }
+
     let count: Int
     private var refreshCount = 0
-    init(count: Int) { self.count = count; super.init(style: .plain) }
-    required init?(coder: NSCoder) { fatalError() }
+    init(count: Int) {
+        self.count = count; super.init(style: .plain)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         tableView.accessibilityIdentifier = "demo.list"
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 84
-        if #available(iOS 15.0, *) { tableView.sectionHeaderTopPadding = 0 }
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
         let refresh = UIRefreshControl()
         refresh.accessibilityIdentifier = "demo.refresh"
         refresh.addTarget(self, action: #selector(refreshContent), for: .valueChanged)
@@ -373,16 +514,23 @@ final class DemoList: UITableViewController {
             tableView.backgroundView = label
         }
     }
+
     @objc private func refreshContent() {
         refreshCount += 1
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.tableView.reloadData()
             self.refreshControl?.endRefreshing()
         }
     }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { count }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        count
+    }
+
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
         var content = cell.defaultContentConfiguration()
@@ -402,23 +550,32 @@ final class DemoGrid: UICollectionViewController {
         layout.sectionInsetReference = .fromSafeArea
         super.init(collectionViewLayout: layout)
     }
-    required init?(coder: NSCoder) { fatalError() }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         collectionView.backgroundColor = .systemBackground
         collectionView.accessibilityIdentifier = "demo.grid"
         collectionView.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "cell")
     }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateItemSize()
     }
+
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         updateItemSize()
     }
+
     private func updateItemSize() {
-        guard isViewLoaded, let layout = collectionViewLayout as? UICollectionViewFlowLayout else { return }
+        guard isViewLoaded, let layout = collectionViewLayout as? UICollectionViewFlowLayout else {
+            return
+        }
         // 根视图保持全宽；Cell 与 section 共用安全区域边界，避免横屏遮挡或三列换行。
         // 与 fromSafeArea 一致：若业务调整后的 content inset 更大，则尊重该边界。
         let safe = collectionView.safeAreaInsets
@@ -428,12 +585,22 @@ final class DemoGrid: UICollectionViewController {
         let width = collectionView.bounds.width - left - right - layout.minimumInteritemSpacing * 2
         let side = max(1, floor(width / 3))
         let size = CGSize(width: side, height: side * 1.25)
-        if layout.itemSize != size { layout.itemSize = size }
+        if layout.itemSize != size {
+            layout.itemSize = size
+        }
     }
-    override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { 90 }
-    override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+
+    override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        90
+    }
+
+    override func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath
+    ) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "cell", for: indexPath)
-        cell.backgroundColor = [UIColor.systemIndigo, .systemTeal, .systemOrange, .systemPink][indexPath.item % 4].withAlphaComponent(0.7)
+        cell.backgroundColor = [UIColor.systemIndigo, .systemTeal, .systemOrange, .systemPink][indexPath.item % 4]
+            .withAlphaComponent(0.7)
         var content = UIListContentConfiguration.cell()
         content.text = "\(indexPath.item + 1)"
         cell.contentConfiguration = content
@@ -468,13 +635,19 @@ final class DemoAsync: UIViewController {
         button.addAction(UIAction { [weak self] _ in self?.replaceScroll() }, for: .touchUpInside)
         view.addSubview(button)
     }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         scroll?.frame = view.bounds
         let safeFrame = view.safeAreaLayoutGuide.layoutFrame
-        button.frame = CGRect(x: safeFrame.minX + 20, y: max(safeFrame.minY + 24, safeFrame.maxY - 64),
-                              width: max(0, safeFrame.width - 40), height: 44)
+        button.frame = CGRect(
+            x: safeFrame.minX + 20,
+            y: max(safeFrame.minY + 24, safeFrame.maxY - 64),
+            width: max(0, safeFrame.width - 40),
+            height: 44
+        )
     }
+
     private func replaceScroll() {
         scroll?.removeFromSuperview()
         let scroll = UIScrollView(frame: view.bounds)

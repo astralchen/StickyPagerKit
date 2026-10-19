@@ -5,28 +5,38 @@ internal final class SPPagingScrollView: UIScrollView, UIGestureRecognizerDelega
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer === panGestureRecognizer {
             let velocity = panGestureRecognizer.velocity(in: self)
-            guard shouldPage(at: panGestureRecognizer.location(in: self), velocity: velocity) else { return false }
+            guard shouldPage(at: panGestureRecognizer.location(in: self), velocity: velocity) else {
+                return false
+            }
         }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
 
     /// 内部横向列表先等待容器判定；容器仅在内部无法沿拖动方向继续滚动时开始分页。
     /// 保留 UIScrollView 自身作为 pan 的 delegate，不更换业务或 UIKit 内部代理。
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                           shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
         guard gestureRecognizer === panGestureRecognizer,
               let scroll = otherGestureRecognizer.view as? UIScrollView,
               otherGestureRecognizer === scroll.panGestureRecognizer,
-              scroll !== self, scroll.isDescendant(of: self) else { return false }
+              scroll !== self, scroll.isDescendant(of: self) else {
+            return false
+        }
         return horizontalRange(of: scroll).count > 0.5
     }
 
     internal func shouldPage(at point: CGPoint, velocity: CGPoint) -> Bool {
-        guard abs(velocity.x) > abs(velocity.y), canScroll(self, velocityX: velocity.x) else { return false }
+        guard abs(velocity.x) > abs(velocity.y), canScroll(self, velocityX: velocity.x) else {
+            return false
+        }
         var candidate = hitTest(point, with: nil)
         while let view = candidate, view !== self {
             if let scroll = view as? UIScrollView, scroll.isScrollEnabled, scroll.panGestureRecognizer.isEnabled {
-                if canScroll(scroll, velocityX: velocity.x) { return false }
+                if canScroll(scroll, velocityX: velocity.x) {
+                    return false
+                }
             }
             candidate = view.superview
         }
@@ -41,7 +51,9 @@ internal final class SPPagingScrollView: UIScrollView, UIGestureRecognizerDelega
 
     private func canScroll(_ scroll: UIScrollView, velocityX: CGFloat) -> Bool {
         let range = horizontalRange(of: scroll)
-        guard range.count > 0.5 else { return false }
+        guard range.count > 0.5 else {
+            return false
+        }
         // 使用物理方向和实际边界，RTL 无需反转；弹性越界时仍允许向内容内部拖回。
         return velocityX > 0 ? scroll.contentOffset.x > range.lower + 0.5
             : scroll.contentOffset.x < range.upper - 0.5
@@ -52,7 +64,9 @@ internal final class SPPagingScrollView: UIScrollView, UIGestureRecognizerDelega
 @MainActor
 internal final class SPDisplayLinkTarget {
     var tick: (@MainActor (CADisplayLink) -> Void)?
-    @objc func step(_ link: CADisplayLink) { tick?(link) }
+    @objc func step(_ link: CADisplayLink) {
+        tick?(link)
+    }
 }
 
 @MainActor

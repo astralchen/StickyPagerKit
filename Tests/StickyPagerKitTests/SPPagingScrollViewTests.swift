@@ -34,8 +34,10 @@ final class SPPagingScrollViewTests: XCTestCase {
             XCTAssertFalse(pager.shouldPage(at: point, velocity: right))
             XCTAssertTrue(pager.shouldPage(at: point, velocity: left))
             XCTAssertFalse(pager.shouldPage(at: point, velocity: CGPoint(x: 10, y: 300)))
-            XCTAssertTrue(pager.gestureRecognizer(pager.panGestureRecognizer,
-                                                  shouldBeRequiredToFailBy: inner.panGestureRecognizer))
+            XCTAssertTrue(pager.gestureRecognizer(
+                pager.panGestureRecognizer,
+                shouldBeRequiredToFailBy: inner.panGestureRecognizer
+            ))
         }
         // 内容外区域保留普通分页；容器本身已到边界时，不抢走内部弹性拖动。
         XCTAssertTrue(pager.shouldPage(at: CGPoint(x: 585, y: 300), velocity: right))
@@ -56,11 +58,15 @@ final class SPPagingScrollViewTests: XCTestCase {
         let vertical = UIScrollView(frame: pager.bounds)
         vertical.contentSize = CGSize(width: 390, height: 2000)
         pager.addSubview(vertical)
-        XCTAssertFalse(pager.gestureRecognizer(pager.panGestureRecognizer,
-                                               shouldBeRequiredToFailBy: vertical.panGestureRecognizer))
+        XCTAssertFalse(pager.gestureRecognizer(
+            pager.panGestureRecognizer,
+            shouldBeRequiredToFailBy: vertical.panGestureRecognizer
+        ))
         let unrelated = UIScrollView(frame: pager.bounds)
         unrelated.contentSize.width = 2000
-        XCTAssertFalse(pager.gestureRecognizer(pager.panGestureRecognizer,
-                                               shouldBeRequiredToFailBy: unrelated.panGestureRecognizer))
+        XCTAssertFalse(pager.gestureRecognizer(
+            pager.panGestureRecognizer,
+            shouldBeRequiredToFailBy: unrelated.panGestureRecognizer
+        ))
     }
 }

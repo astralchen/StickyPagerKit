@@ -9,12 +9,18 @@ final class StickyPagerKitTests: XCTestCase {
     private var pager: SPPageViewController?
 
     override func tearDown() async throws {
-            window?.isHidden = true
-            window?.rootViewController = nil
-            window = nil; pager = nil; source = nil
+        window?.isHidden = true
+        window?.rootViewController = nil
+        window = nil; pager = nil; source = nil
     }
 
-    private func mount(ids: [Int] = [0, 1, 2, 3], plain: Set<Int> = [], height: CGFloat = 1800, inNavigation: Bool = false, mixedLayout: Bool? = nil) -> SPPageViewController {
+    private func mount(
+        ids: [Int] = [0, 1, 2, 3],
+        plain: Set<Int> = [],
+        height: CGFloat = 1800,
+        inNavigation: Bool = false,
+        mixedLayout: Bool? = nil
+    ) -> SPPageViewController {
         let source = FixtureSource(ids: ids, plain: plain, contentHeight: height)
         source.mixedLayout = mixedLayout
         let pager = SPPageViewController()
@@ -110,8 +116,14 @@ final class StickyPagerKitTests: XCTestCase {
                     XCTAssertEqual(label.minY, pager.tabBar.frame.maxY + 12, accuracy: 0.01)
                     XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
                     let contentTop = scroll.convert(.zero, to: pager.view).y
-                    XCTAssertEqual(contentTop, scrollFrame.minY - max(0, position - 200) - min(0, position), accuracy: 0.01)
-                    if belowLabel { XCTAssertEqual(scrollFrame.minY, label.maxY + 8, accuracy: 0.01) }
+                    XCTAssertEqual(
+                        contentTop,
+                        scrollFrame.minY - max(0, position - 200) - min(0, position),
+                        accuracy: 0.01
+                    )
+                    if belowLabel {
+                        XCTAssertEqual(scrollFrame.minY, label.maxY + 8, accuracy: 0.01)
+                    }
                 }
             }
         }
@@ -138,7 +150,11 @@ final class StickyPagerKitTests: XCTestCase {
                         XCTAssertEqual(root.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
                         XCTAssertEqual(root.maxY, pager.view.bounds.maxY, accuracy: 0.01)
                         XCTAssertEqual(label.minY, root.minY + 12, accuracy: 0.01)
-                        XCTAssertEqual(label.width, root.width - child.view.safeAreaInsets.left - child.view.safeAreaInsets.right - 32, accuracy: 0.01)
+                        XCTAssertEqual(
+                            label.width,
+                            root.width - child.view.safeAreaInsets.left - child.view.safeAreaInsets.right - 32,
+                            accuracy: 0.01
+                        )
                     }
                     pager.setSelectedIndex(0, animated: false)
                     XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
@@ -159,10 +175,15 @@ final class StickyPagerKitTests: XCTestCase {
                 XCTAssertEqual(pager.collapseOffset, position, accuracy: 0.01)
                 XCTAssertEqual(scroll.contentInset.top, base.top + position, accuracy: 0.01)
                 // 直接检查 UIKit 的实际可滚动范围，不能只依赖 maximumPosition 的下限钳制。
-                let physicalRange = scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom - scroll.bounds.height
+                let physicalRange = scroll.contentSize.height + scroll.adjustedContentInset.top + scroll
+                    .adjustedContentInset.bottom - scroll.bounds.height
                 XCTAssertEqual(physicalRange, 200, accuracy: 0.01)
                 XCTAssertFalse(scroll.showsVerticalScrollIndicator)
-                XCTAssertEqual(scroll.convert(.zero, to: pager.view).y, page.label.convert(page.label.bounds, to: pager.view).maxY + 8 + base.top, accuracy: 0.01)
+                XCTAssertEqual(
+                    scroll.convert(.zero, to: pager.view).y,
+                    page.label.convert(page.label.bounds, to: pager.view).maxY + 8 + base.top,
+                    accuracy: 0.01
+                )
             }
             source!.ids.removeFirst()
             pager.reloadData()
@@ -199,7 +220,8 @@ final class StickyPagerKitTests: XCTestCase {
         let horizontal = scroll.horizontalScrollIndicatorInsets
         for position: CGFloat in [-30, 0, 100, 200, 350, 50] {
             scroll.contentOffset.y = position - scroll.adjustedContentInset.top
-            let trackTop = scroll.convert(scroll.bounds.origin, to: pager.view).y + scroll.verticalScrollIndicatorInsets.top
+            let trackTop = scroll.convert(scroll.bounds.origin, to: pager.view).y + scroll.verticalScrollIndicatorInsets
+                .top
             XCTAssertEqual(trackTop, pager.tabBar.frame.maxY + base.top, accuracy: 0.01)
             XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, base.bottom)
             XCTAssertEqual(scroll.verticalScrollIndicatorInsets.left, base.left)
@@ -369,20 +391,24 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(SPScrollGeometry.collapse(-50, range: 200), 0)
         XCTAssertEqual(SPScrollGeometry.position(collapse: 100, content: 900, range: 200), 100)
     }
+
     func testLayoutNormalizesInvalidHeights() {
         XCTAssertEqual(SPPageLayout(headerHeight: -2, minimumHeaderHeight: 50).normalized.headerHeight, 0)
         XCTAssertEqual(SPPageLayout(headerHeight: 30, minimumHeaderHeight: 50).normalized.minimumHeaderHeight, 30)
         XCTAssertEqual(SPPageLayout(headerHeight: .infinity, tabBarHeight: .nan).normalized.tabBarHeight, 44)
     }
+
     func testSnapshotSelection() {
         XCTAssertEqual(SPScrollGeometry.selectedIndex(oldID: 2, oldIndex: 1, identifiers: [2, 0, 1]), 0)
         XCTAssertEqual(SPScrollGeometry.selectedIndex(oldID: 3, oldIndex: 3, identifiers: [0, 1]), 1)
         XCTAssertNil(SPScrollGeometry.selectedIndex(oldID: 0, oldIndex: 0, identifiers: []))
     }
+
     func testDiscoveryRootAndEmptyList() {
         let list = UITableView(frame: CGRect(x: 0, y: 0, width: 300, height: 400))
         XCTAssertTrue(SPScrollViewDiscovery.find(in: list) === list)
     }
+
     func testDiscoveryExcludesHiddenAndHorizontalAndUsesArea() {
         let root = UIView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
         let hidden = UIScrollView(frame: root.bounds); hidden.isHidden = true; hidden.alwaysBounceVertical = true
@@ -394,6 +420,7 @@ final class StickyPagerKitTests: XCTestCase {
         large.isUserInteractionEnabled = false
         XCTAssertTrue(SPScrollViewDiscovery.find(in: root) === small)
     }
+
     func testDiscoveryStableTieAndHiddenAncestor() {
         let root = UIView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
         let first = UIScrollView(frame: root.bounds), second = UIScrollView(frame: root.bounds)
@@ -402,6 +429,7 @@ final class StickyPagerKitTests: XCTestCase {
         root.isHidden = true
         XCTAssertNil(SPScrollViewDiscovery.find(in: root))
     }
+
     func testBindingPreservesDelegateAndRestoresInsets() {
         let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
         scroll.contentSize.height = 1000
@@ -419,6 +447,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertFalse(scroll.alwaysBounceVertical)
         XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 150, accuracy: 0.01)
     }
+
     func testBindingExternalInsetAndShortContentResize() {
         let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
         let binding = SPScrollBinding(scrollView: scroll)
@@ -432,6 +461,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(scroll.contentInset.top, 12)
         XCTAssertEqual(scroll.contentInset.bottom, 8)
     }
+
     func testWindowFramesAndHeaderCollapse() {
         let pager = mount()
         let scroll = pager.currentScrollView!
@@ -491,7 +521,11 @@ final class StickyPagerKitTests: XCTestCase {
             pager.view.setNeedsLayout()
             pager.view.layoutIfNeeded()
             XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top, accuracy: 0.01)
-            XCTAssertEqual(scroll.convert(CGPoint.zero, to: pager.view).y - pager.tabBar.frame.maxY, before, accuracy: 0.01)
+            XCTAssertEqual(
+                scroll.convert(CGPoint.zero, to: pager.view).y - pager.tabBar.frame.maxY,
+                before,
+                accuracy: 0.01
+            )
         }
         scroll.contentOffset.y = -scroll.adjustedContentInset.top
         pager.additionalSafeAreaInsets.top = 30
@@ -512,6 +546,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(scroll.contentInset.top, 0, accuracy: 0.01)
         XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top, accuracy: 0.01)
     }
+
     func testPageWidthFillsContainerAndPreservesHorizontalSafeArea() {
         let pager = mount(ids: [0, 1], plain: [1])
         for rtl in [false, true] {
@@ -535,9 +570,17 @@ final class StickyPagerKitTests: XCTestCase {
                         XCTAssertEqual(frame.maxX, pager.view.bounds.width, accuracy: 0.01)
                         XCTAssertEqual(child.bounds.width, pager.view.bounds.width, accuracy: 0.01)
                         let safeFrame = child.convert(child.safeAreaLayoutGuide.layoutFrame, to: pager.view)
-                        XCTAssertEqual(safeFrame.minX, pager.view.safeAreaInsets.left, accuracy: 0.01,
-                                       "index=\(index), rtl=\(rtl), size=\(size), inset=\(inset), childSafe=\(child.safeAreaInsets)")
-                        XCTAssertEqual(safeFrame.maxX, pager.view.bounds.width - pager.view.safeAreaInsets.right, accuracy: 0.01)
+                        XCTAssertEqual(
+                            safeFrame.minX,
+                            pager.view.safeAreaInsets.left,
+                            accuracy: 0.01,
+                            "index=\(index), rtl=\(rtl), size=\(size), inset=\(inset), childSafe=\(child.safeAreaInsets)"
+                        )
+                        XCTAssertEqual(
+                            safeFrame.maxX,
+                            pager.view.bounds.width - pager.view.safeAreaInsets.right,
+                            accuracy: 0.01
+                        )
                         XCTAssertEqual(pager.selectedIndex, index)
                     }
                 }
@@ -567,7 +610,11 @@ final class StickyPagerKitTests: XCTestCase {
             let binding = pager.records[0]!.binding!
             binding.setPosition(binding.maximumPosition)
             let contentBottom = scroll.convert(CGPoint(x: 0, y: scroll.contentSize.height), to: pager.view).y
-            XCTAssertEqual(contentBottom, pager.view.bounds.maxY - pager.view.safeAreaInsets.bottom - 17, accuracy: 0.01)
+            XCTAssertEqual(
+                contentBottom,
+                pager.view.bounds.maxY - pager.view.safeAreaInsets.bottom - 17,
+                accuracy: 0.01
+            )
             pager.setSelectedIndex(1, animated: false)
             pager.view.layoutIfNeeded()
             let plain = pager.records[1]!.controller.view!
@@ -583,6 +630,7 @@ final class StickyPagerKitTests: XCTestCase {
         binding.scrollView.contentOffset.y = 200 - binding.scrollView.adjustedContentInset.top
         XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
     }
+
     func testSwitchPreservesSharedHeaderAndPagePosition() {
         let pager = mount()
         let scroll = pager.currentScrollView!
@@ -592,6 +640,7 @@ final class StickyPagerKitTests: XCTestCase {
         pager.setSelectedIndex(0, animated: false)
         XCTAssertEqual(pager.records[0]!.binding!.position, 650, accuracy: 0.01)
     }
+
     func testPartiallyExpandedHeaderAlignsDestination() {
         let pager = mount()
         let scroll = pager.currentScrollView!
@@ -600,6 +649,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.records[1]!.binding!.position, 95, accuracy: 0.01)
         XCTAssertEqual(pager.collapseOffset, 95)
     }
+
     func testInactiveScrollCannotDriveHeader() {
         let pager = mount()
         let old = pager.currentScrollView!
@@ -607,6 +657,7 @@ final class StickyPagerKitTests: XCTestCase {
         old.contentOffset.y = 700
         XCTAssertEqual(pager.collapseOffset, 0)
     }
+
     func testPlainPageKeepsHeader() {
         let pager = mount(plain: [1])
         let scroll = pager.currentScrollView!
@@ -615,6 +666,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertNil(pager.currentScrollView)
         XCTAssertEqual(pager.collapseOffset, 90)
     }
+
     func testPlainPageDragGeometryAndSharedPosition() throws {
         let pager = mount(plain: [1])
         pager.setSelectedIndex(1, animated: false)
@@ -711,6 +763,7 @@ final class StickyPagerKitTests: XCTestCase {
         pan.testVelocity = CGPoint(x: 100, y: 10)
         XCTAssertFalse(pager.gestureRecognizerShouldBegin(pan))
     }
+
     func testReloadReorderReusesControllerAndSelection() {
         let pager = mount()
         pager.setSelectedIndex(1, animated: false)
@@ -720,6 +773,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.selectedIndex, 3)
         XCTAssertTrue(pager.records[1]!.controller === controller)
     }
+
     func testDeletionZeroPagesAndInvalidSelection() {
         let pager = mount()
         pager.setSelectedIndex(3, animated: false)
@@ -733,6 +787,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertTrue(pager.children.isEmpty)
         XCTAssertTrue(pager.records.isEmpty)
     }
+
     func testDuplicateIdentifiersRejectEntireSnapshot() {
         let pager = mount()
         source!.ids = [7, 7]
@@ -741,6 +796,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.tabBar.items.count, 4)
         XCTAssertNotNil(pager.records[0])
     }
+
     func testCacheEvictionReleasesControllerAndRestoresPosition() {
         weak var old: UIViewController?
         var scroll: UIScrollView!
@@ -759,6 +815,7 @@ final class StickyPagerKitTests: XCTestCase {
         pager!.setSelectedIndex(0, animated: false)
         XCTAssertEqual(pager!.records[0]!.binding!.position, 500, accuracy: 0.01)
     }
+
     func testHeaderReplacementContainment() {
         let pager = mount()
         let header = FixturePage(height: 0)
@@ -771,6 +828,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertNil(header.parent)
         XCTAssertEqual(header.disappearCount, 1)
     }
+
     func testHeaderHeightChangesPreserveContentAndClampCollapse() {
         let pager = mount()
         let scroll = pager.currentScrollView!
@@ -779,6 +837,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.collapseOffset, 140)
         XCTAssertEqual(pager.records[0]!.binding!.position, 440, accuracy: 0.01)
     }
+
     func testRediscoveryRestoresOldScrollAndBindsReplacement() {
         let pager = mount()
         let controller = pager.records[0]!.controller as! FixturePage
@@ -792,6 +851,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(old.contentInset.top, 0)
         XCTAssertEqual(replacement.contentInset.top, 0)
     }
+
     func testExplicitScrollSelectionRejectsForeignView() {
         let pager = mount()
         let original = pager.currentScrollView
@@ -804,6 +864,7 @@ final class StickyPagerKitTests: XCTestCase {
         pager.setScrollView(nil, forPageAt: 0)
         XCTAssertTrue(pager.currentScrollView === original)
     }
+
     func testLifecycleAndSelectionCallbackOnlyOnCommit() {
         let pager = mount()
         let delegate = PageDelegate(); pager.delegate = delegate
@@ -816,6 +877,7 @@ final class StickyPagerKitTests: XCTestCase {
         pager.setSelectedIndex(1, animated: false)
         XCTAssertEqual(delegate.selected, [1])
     }
+
     func testOverlappingSystemSizeTransitionsPreservePositionAndResumeScrolling() {
         let pager = mount()
         let binding = pager.records[0]!.binding!
@@ -887,14 +949,22 @@ final class StickyPagerKitTests: XCTestCase {
         let initialPosition = pager.records[0]!.binding!.position
         XCTAssertGreaterThan(initialPosition, 400)
         print("SELF SIZING INITIAL POSITION", initialPosition)
-        for size in [CGSize(width: 375, height: 630), CGSize(width: 690, height: 866),
-                     CGSize(width: 535, height: 750), CGSize(width: 834, height: 1210)] {
+        for size in [
+            CGSize(width: 375, height: 630),
+            CGSize(width: 690, height: 866),
+            CGSize(width: 535, height: 750),
+            CGSize(width: 834, height: 1210)
+        ] {
             pager.view.frame.size = size
             pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
             XCTAssertEqual(pager.records[0]!.binding!.position, initialPosition, accuracy: 0.5)
             XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.5)
-            XCTAssertEqual(table.convert(.zero, to: pager.view).y - pager.tabBar.frame.maxY, -(initialPosition - 200), accuracy: 0.5)
+            XCTAssertEqual(
+                table.convert(.zero, to: pager.view).y - pager.tabBar.frame.maxY,
+                -(initialPosition - 200),
+                accuracy: 0.5
+            )
             pager.setSelectedIndex(1, animated: false)
             pager.setSelectedIndex(0, animated: false)
             XCTAssertEqual(pager.records[0]!.binding!.position, initialPosition, accuracy: 0.5)
@@ -904,9 +974,13 @@ final class StickyPagerKitTests: XCTestCase {
     // 真实 UIWindow 内的尺寸矩阵；系统分屏与窗口手柄另由 UI 测试验证。
     func testContinuousResizePreservesHeaderAndSavedPositions() {
         let pager = mount(height: 4000)
-        let sizes = [CGSize(width: 1194, height: 834), CGSize(width: 592, height: 834),
-                     CGSize(width: 375, height: 700), CGSize(width: 640, height: 480),
-                     CGSize(width: 834, height: 1194)]
+        let sizes = [
+            CGSize(width: 1194, height: 834),
+            CGSize(width: 592, height: 834),
+            CGSize(width: 375, height: 700),
+            CGSize(width: 640, height: 480),
+            CGSize(width: 834, height: 1194)
+        ]
         for rtl in [false, true] {
             pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
             pager.setSelectedIndex(1, animated: false)
@@ -919,11 +993,18 @@ final class StickyPagerKitTests: XCTestCase {
                     let binding = pager.records[1]!.binding!
                     XCTAssertEqual(binding.position, position, accuracy: 0.5)
                     XCTAssertEqual(pager.collapseOffset, min(position, 200), accuracy: 0.5)
-                    XCTAssertEqual(pager.tabBar.frame.minY, pager.layout.headerHeight - min(position, 200), accuracy: 0.5)
+                    XCTAssertEqual(
+                        pager.tabBar.frame.minY,
+                        pager.layout.headerHeight - min(position, 200),
+                        accuracy: 0.5
+                    )
                     let width = pager.pagingView.bounds.width
                     XCTAssertEqual(pager.pagingView.contentOffset.x, (rtl ? 2 : 1) * width, accuracy: 0.5)
-                    XCTAssertEqual(scroll.convert(.zero, to: pager.view).y - pager.tabBar.frame.maxY,
-                                   -max(0, position - 200), accuracy: 0.5)
+                    XCTAssertEqual(
+                        scroll.convert(.zero, to: pager.view).y - pager.tabBar.frame.maxY,
+                        -max(0, position - 200),
+                        accuracy: 0.5
+                    )
                     pager.setSelectedIndex(2, animated: false)
                     pager.setSelectedIndex(1, animated: false)
                     XCTAssertEqual(binding.position, position, accuracy: 0.5)
@@ -954,8 +1035,11 @@ final class StickyPagerKitTests: XCTestCase {
         let pager = mount()
         for rtl in [false, true] {
             pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
-            for insets in [UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 60),
-                           UIEdgeInsets(top: 0, left: 60, bottom: 0, right: 24), .zero] {
+            for insets in [
+                UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 60),
+                UIEdgeInsets(top: 0, left: 60, bottom: 0, right: 24),
+                .zero
+            ] {
                 pager.additionalSafeAreaInsets = insets
                 pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
                 let bar = pager.tabBar
@@ -964,7 +1048,11 @@ final class StickyPagerKitTests: XCTestCase {
                 XCTAssertEqual(bar.frame.minX, 0, accuracy: 0.01)
                 XCTAssertEqual(bar.frame.width, pager.view.bounds.width, accuracy: 0.01)
                 XCTAssertEqual(collection.frame.minX, pager.view.safeAreaInsets.left, accuracy: 0.01)
-                XCTAssertEqual(collection.frame.maxX, pager.view.bounds.width - pager.view.safeAreaInsets.right, accuracy: 0.01)
+                XCTAssertEqual(
+                    collection.frame.maxX,
+                    pager.view.bounds.width - pager.view.safeAreaInsets.right,
+                    accuracy: 0.01
+                )
                 if insets.left > 0 {
                     XCTAssertNil(bar.hitTest(CGPoint(x: 1, y: bar.bounds.midY), with: nil))
                     XCTAssertNil(bar.hitTest(CGPoint(x: bar.bounds.maxX - 1, y: bar.bounds.midY), with: nil))
@@ -985,7 +1073,10 @@ final class StickyPagerKitTests: XCTestCase {
         let pager = mount(inNavigation: true)
         let navigation = try XCTUnwrap(pager.navigationController)
         for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge, .large] {
-            navigation.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: category), forChild: pager)
+            navigation.setOverrideTraitCollection(
+                UITraitCollection(preferredContentSizeCategory: category),
+                forChild: pager
+            )
             pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
             let bar = pager.tabBar
             bar.layoutIfNeeded()
@@ -1018,6 +1109,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.pagingView.bounds.width, pager.view.bounds.width, accuracy: 0.01)
         XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width, accuracy: 0.01)
     }
+
     func testRTLPhysicalOrderKeepsLogicalIndex() {
         let pager = mount()
         pager.view.semanticContentAttribute = .forceRightToLeft
@@ -1026,6 +1118,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.selectedIndex, 1)
         XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width * 2, accuracy: 0.01)
     }
+
     func testInterruptedAdjacentAnimationAndImmediateSelectionsCommitOnceEach() {
         let pager = mount()
         let delegate = PageDelegate(); pager.delegate = delegate
@@ -1039,9 +1132,10 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(delegate.selected, [2, 3])
         XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width * 3, accuracy: 0.01)
     }
+
     func testNonAdjacentSelectionSkipsIntermediatePagesAndCommitsOnce() {
         for rtl in [false, true] {
-            let pager = mount(ids: Array(0..<10))
+            let pager = mount(ids: Array(0 ..< 10))
             pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
             pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
             pager.maximumCachedPageCount = 2
@@ -1053,7 +1147,11 @@ final class StickyPagerKitTests: XCTestCase {
             XCTAssertEqual(source!.createdIDs, [0, 9])
             XCTAssertEqual(delegate.progressEvents, 0)
             XCTAssertEqual(delegate.selected, [9])
-            XCTAssertEqual(pager.pagingView.contentOffset.x, rtl ? 0 : pager.pagingView.bounds.width * 9, accuracy: 0.01)
+            XCTAssertEqual(
+                pager.pagingView.contentOffset.x,
+                rtl ? 0 : pager.pagingView.bounds.width * 9,
+                accuracy: 0.01
+            )
             XCTAssertEqual(pager.collapseOffset, 120, accuracy: 0.01)
             XCTAssertEqual(first.disappearCount, 1)
             XCTAssertEqual((pager.records[9]!.controller as! FixturePage).appearCount, 1)
@@ -1066,6 +1164,7 @@ final class StickyPagerKitTests: XCTestCase {
             XCTAssertEqual(source!.createdIDs, [0, 9])
         }
     }
+
     func testSelectionAnimationFlagIsForwardedToCustomTabBar() {
         let pager = mount()
         let tabs = RecordingTabBar()
@@ -1090,6 +1189,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertTrue(delegate.selected.isEmpty)
         XCTAssertEqual(pager.pagingView.contentOffset.x, 0, accuracy: 0.01)
     }
+
     func testPlainPageStartsBelowVisibleTabBar() {
         let pager = mount(plain: [1])
         pager.setSelectedIndex(1, animated: false)
@@ -1097,6 +1197,7 @@ final class StickyPagerKitTests: XCTestCase {
         let child = pager.records[1]!.controller.view!
         XCTAssertEqual(child.convert(child.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
     }
+
     func testHeaderReplacedDuringParentAppearanceBalancesCallbacks() {
         let pager = mount()
         pager.beginAppearanceTransition(false, animated: false); pager.endAppearanceTransition()
@@ -1111,6 +1212,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(replacement.appearCount, 1)
         XCTAssertNil(old.parent)
     }
+
     func testSelectionDuringParentAppearanceForwardsToNewPage() {
         let pager = mount()
         pager.beginAppearanceTransition(false, animated: false); pager.endAppearanceTransition()
@@ -1124,6 +1226,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(incoming.appearCount, 1)
         XCTAssertEqual(pager.selectedIndex, 1)
     }
+
     func testRefreshPinsHeaderAndRetainsBusinessControl() {
         let pager = mount()
         let scroll = pager.currentScrollView!
@@ -1138,6 +1241,7 @@ final class StickyPagerKitTests: XCTestCase {
         scroll.contentOffset.y = 120 - scroll.adjustedContentInset.top
         XCTAssertEqual(pager.collapseOffset, 120, accuracy: 0.01)
     }
+
     func testContainerReleaseRestoresOwnedInsets() {
         weak var weakPager: SPPageViewController?
         var scroll: UIScrollView!
@@ -1164,8 +1268,11 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertNil(pager.records[0])
         pager.setSelectedIndex(0, animated: false)
         XCTAssertEqual(pager.records[0]!.binding!.position, 440, accuracy: 0.01)
-        XCTAssertEqual(pager.currentScrollView!.convert(.zero, to: pager.view).y,
-                       pager.tabBar.frame.maxY - 300, accuracy: 0.01)
+        XCTAssertEqual(
+            pager.currentScrollView!.convert(.zero, to: pager.view).y,
+            pager.tabBar.frame.maxY - 300,
+            accuracy: 0.01
+        )
     }
 
     func testInactiveRefreshingPageCannotExpandSharedHeaderDuringLayout() {
@@ -1205,8 +1312,11 @@ final class StickyPagerKitTests: XCTestCase {
         pager.setSelectedIndex(0, animated: false)
         XCTAssertTrue(pager.currentScrollView === replacement)
         XCTAssertEqual(pager.records[0]!.binding!.position, 440, accuracy: 0.01)
-        XCTAssertEqual(replacement.convert(.zero, to: pager.view).y,
-                       pager.tabBar.frame.maxY - 300, accuracy: 0.01)
+        XCTAssertEqual(
+            replacement.convert(.zero, to: pager.view).y,
+            pager.tabBar.frame.maxY - 300,
+            accuracy: 0.01
+        )
     }
 
     func testCancelledPagingToRefreshingPagePreservesCurrentHeader() {
@@ -1282,7 +1392,6 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(incoming.appearCount, 1)
         XCTAssertTrue(incoming.view.window === window)
     }
-
 }
 
 @MainActor
@@ -1292,15 +1401,33 @@ private final class FixtureSource: SPPageViewControllerDataSource {
     var createdIDs: [Int] = []
     let plain: Set<Int>
     let contentHeight: CGFloat
-    init(ids: [Int], plain: Set<Int>, contentHeight: CGFloat) { self.ids = ids; self.plain = plain; self.contentHeight = contentHeight }
-    func numberOfPages(in pageViewController: SPPageViewController) -> Int { ids.count }
-    func pageViewController(_ pageViewController: SPPageViewController, identifierForPageAt index: Int) -> AnyHashable { ids[index] }
-    func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController {
+    init(ids: [Int], plain: Set<Int>, contentHeight: CGFloat) {
+        self.ids = ids; self.plain = plain; self.contentHeight = contentHeight
+    }
+
+    func numberOfPages(in pageViewController: SPPageViewController) -> Int {
+        ids.count
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        identifierForPageAt index: Int
+    ) -> AnyHashable {
+        ids[index]
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        viewControllerAt index: Int
+    ) -> UIViewController {
         createdIDs.append(ids[index])
-        if let mixedLayout { return MixedFixturePage(height: contentHeight, belowLabel: mixedLayout) }
+        if let mixedLayout {
+            return MixedFixturePage(height: contentHeight, belowLabel: mixedLayout)
+        }
         return FixturePage(height: contentHeight, plain: plain.contains(ids[index]))
     }
 }
+
 @MainActor
 private final class MixedFixturePage: UIViewController {
     let label = UILabel()
@@ -1311,7 +1438,11 @@ private final class MixedFixturePage: UIViewController {
         self.height = height; self.belowLabel = belowLabel
         super.init(nibName: nil, bundle: nil)
     }
-    required init?(coder: NSCoder) { fatalError() }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         label.text = "标签栏下方的固定说明"
@@ -1325,13 +1456,17 @@ private final class MixedFixturePage: UIViewController {
             label.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
             label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             label.heightAnchor.constraint(equalToConstant: 28),
-            scroll.topAnchor.constraint(equalTo: belowLabel ? label.bottomAnchor : view.topAnchor, constant: belowLabel ? 8 : 0),
+            scroll.topAnchor.constraint(
+                equalTo: belowLabel ? label.bottomAnchor : view.topAnchor,
+                constant: belowLabel ? 8 : 0
+            ),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
 }
+
 @MainActor
 private final class FixturePage: UIViewController {
     let height: CGFloat
@@ -1339,8 +1474,17 @@ private final class FixturePage: UIViewController {
     var scroll: UIScrollView?
     var appearCount = 0, disappearCount = 0
     var onDisappear: (() -> Void)?
-    init(height: CGFloat, plain: Bool = false) { self.height = height; self.plain = plain; super.init(nibName: nil, bundle: nil) }
-    required init?(coder: NSCoder) { fatalError() }
+    init(height: CGFloat, plain: Bool = false) {
+        self.height = height; self.plain = plain; super.init(
+            nibName: nil,
+            bundle: nil
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         if !plain {
@@ -1350,33 +1494,69 @@ private final class FixturePage: UIViewController {
             view.addSubview(scroll); self.scroll = scroll
         }
     }
-    override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); appearCount += 1 }
-    override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); disappearCount += 1; onDisappear?() }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated); appearCount += 1
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated); disappearCount += 1; onDisappear?()
+    }
 }
+
 @MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {}
 @MainActor private final class IndicatorWriteTrackingScrollView: UIScrollView {
     var indicatorWrites = 0
-    override var showsVerticalScrollIndicator: Bool { didSet { indicatorWrites += 1 } }
-    override var showsHorizontalScrollIndicator: Bool { didSet { indicatorWrites += 1 } }
-    override var verticalScrollIndicatorInsets: UIEdgeInsets { didSet { indicatorWrites += 1 } }
+    override var showsVerticalScrollIndicator: Bool {
+        didSet { indicatorWrites += 1 }
+    }
+
+    override var showsHorizontalScrollIndicator: Bool {
+        didSet { indicatorWrites += 1 }
+    }
+
+    override var verticalScrollIndicatorInsets: UIEdgeInsets {
+        didSet { indicatorWrites += 1 }
+    }
 }
+
 @MainActor private final class FixturePan: UIPanGestureRecognizer {
     private var testState: UIGestureRecognizer.State = .possible
     private var testTranslation: CGPoint = .zero
     var testVelocity = CGPoint(x: 0, y: -100)
-    override var state: UIGestureRecognizer.State { get { testState } set { testState = newValue } }
-    override func translation(in view: UIView?) -> CGPoint { testTranslation }
-    override func velocity(in view: UIView?) -> CGPoint { testVelocity }
+    override var state: UIGestureRecognizer.State {
+        get { testState } set { testState = newValue }
+    }
+
+    override func translation(in view: UIView?) -> CGPoint {
+        testTranslation
+    }
+
+    override func velocity(in view: UIView?) -> CGPoint {
+        testVelocity
+    }
+
     func send(to pager: SPPageViewController, state: UIGestureRecognizer.State, y: CGFloat = 0) {
         testState = state; testTranslation = CGPoint(x: 0, y: y)
         pager.handleHeaderPan(self)
     }
 }
+
 @MainActor private final class PageDelegate: SPPageViewControllerDelegate {
     var selected: [Int] = []
     var progressEvents = 0
-    func pageViewController(_ pageViewController: SPPageViewController, didScrollFrom fromIndex: Int, to toIndex: Int, progress: CGFloat) { progressEvents += 1 }
-    func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) { selected.append(index) }
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        didScrollFrom fromIndex: Int,
+        to toIndex: Int,
+        progress: CGFloat
+    ) {
+        progressEvents += 1
+    }
+
+    func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) {
+        selected.append(index)
+    }
 }
 
 @MainActor private final class RecordingTabBar: SPTabBar {
@@ -1389,7 +1569,10 @@ private final class FixturePage: UIViewController {
 
 @MainActor
 private final class SelfSizingTableSource: NSObject, UITableViewDataSource {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 80 }
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        80
+    }
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
         var content = cell.defaultContentConfiguration()
@@ -1415,17 +1598,35 @@ private final class SizeTransitionCoordinator: NSObject, UIViewControllerTransit
     let containerView = UIView()
     let targetTransform = CGAffineTransform.identity
     private var completions: [(any UIViewControllerTransitionCoordinatorContext) -> Void] = []
-    func viewController(forKey key: UITransitionContextViewControllerKey) -> UIViewController? { nil }
-    func view(forKey key: UITransitionContextViewKey) -> UIView? { nil }
-    func animate(alongsideTransition animation: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?, completion: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?) -> Bool {
+    func viewController(forKey key: UITransitionContextViewControllerKey) -> UIViewController? {
+        nil
+    }
+
+    func view(forKey key: UITransitionContextViewKey) -> UIView? {
+        nil
+    }
+
+    func animate(
+        alongsideTransition animation: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?,
+        completion: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?
+    ) -> Bool {
         animation?(self)
-        if let completion { completions.append(completion) }
+        if let completion {
+            completions.append(completion)
+        }
         return true
     }
-    func animateAlongsideTransition(in view: UIView?, animation: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?, completion: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?) -> Bool {
+
+    func animateAlongsideTransition(
+        in view: UIView?,
+        animation: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?,
+        completion: ((any UIViewControllerTransitionCoordinatorContext) -> Void)?
+    ) -> Bool {
         animate(alongsideTransition: animation, completion: completion)
     }
-    func notifyWhenInteractionChanges(_ handler: @escaping (any UIViewControllerTransitionCoordinatorContext) -> Void) {}
+
+    func notifyWhenInteractionChanges(_ handler: @escaping (any UIViewControllerTransitionCoordinatorContext)
+        -> Void) {}
     func notifyWhenInteractionEnds(_ handler: @escaping (any UIViewControllerTransitionCoordinatorContext) -> Void) {}
     func finish() {
         let pending = completions

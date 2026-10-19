@@ -1,0 +1,83 @@
+# StickyPagerKit 与 Demo 共用的排版约定，验证版本：SwiftFormat 0.64.0。
+# API 设计参考 https://www.swift.org/documentation/api-design-guidelines/ 。
+# 下列缩进、行宽和换行策略是项目约定，不是 Apple 发布的统一格式化标准。
+# 仅启用排版规则；不自动改写 self、类型、访问控制、声明顺序或控制流。
+
+# 最低工具版本；复现本次结果请使用 0.64.0，升级时重新审查差异。
+--min-version 0.64.0
+# 对齐 Package.swift 的 Swift tools 版本。
+--swift-version 6.3
+# 对齐 Package 和 Demo 的 Swift 6 语言模式。
+--language-mode 6
+# 排除依赖、生成源码、构建产物、验证证据和用户配置目录。
+--exclude **/.build,**/.swiftpm,**/DerivedData,**/Build,**/Pods,**/Carthage,**/Generated,**/*.generated.swift,**/xcuserdata,Validation/Products,Validation/Results
+
+# 显式白名单：统一缩进、换行符与文件末尾换行。
+--rules indent,linebreaks,linebreakAtEndOfFile
+# 显式白名单：统一代码空白，保留注释正文及其组织。
+--rules consecutiveSpaces,trailingSpace,spaceAroundBraces,spaceAroundBrackets,spaceAroundGenerics,spaceAroundOperators,spaceAroundParens,spaceInsideBraces,spaceInsideBrackets,spaceInsideGenerics,spaceInsideParens
+# 显式白名单：整理重复空行、作用域边界和声明间距。
+--rules consecutiveBlankLines,blankLinesAtStartOfScope,blankLinesAtEndOfScope,blankLinesBetweenScopes,blankLineAfterImports
+# 显式白名单：统一大括号和 else/catch 的位置。
+--rules braces,elseOnSameLine
+# 显式白名单：按行宽展开参数及集合，保留表达式和声明顺序。
+--rules wrap,wrapArguments
+# 显式白名单：展开函数、属性及控制流语句体，便于设置断点和阅读。
+--rules wrapFunctionBodies,wrapPropertyBodies,wrapIfStatementBodies,wrapGuardStatementBodies,wrapLoopBodies,wrapDoBodies
+
+# 沿用仓库现有的四空格缩进。
+--indent 4
+# 对齐 Xcode 对多行表达式的缩进方式。
+--xcode-indentation enabled
+# switch 的 case 与 switch 同级，case 内语句正常缩进。
+--indent-case false
+# 保留条件编译分支原有缩进，不调整分支结构。
+--ifdef preserve
+# 不重排多行字符串内容，避免影响显示文本。
+--indent-strings false
+# 空白行不保留缩进字符。
+--indent-blank-lines false
+# 统一使用 LF 换行。
+--linebreaks lf
+# 删除行尾多余空白。
+--trim-whitespace always
+# 删除作用域起止位置的多余空行。
+--scope-blank-lines remove
+# 类型体起止位置不额外插入空行。
+--type-blank-lines remove
+
+# 左大括号保留在声明或条件所在行末。
+--allman false
+# else 和 catch 跟随上一段的右大括号。
+--else-position same-line
+# guard 的 else 跟随最后一个条件。
+--guard-else same-line
+# 空实现保持紧凑的 {}。
+--empty-braces no-space
+# 范围运算符两侧保留空格，提高条件表达式可读性。
+--ranges spaced
+# 类型冒号后保留空格。
+--type-delimiter space-after
+
+# 以 120 字符为可换行代码的目标宽度；不强拆注释或字符串。
+--max-width 120
+# 需要换行的调用参数从下一行开始，一行一个参数。
+--wrap-arguments before-first
+# 需要换行的函数声明参数采用同样布局。
+--wrap-parameters before-first
+# 多行集合的元素从下一行开始。
+--wrap-collections before-first
+# 条件列表保留现有换行方式，由缩进规则对齐。
+--wrap-conditions preserve
+# 不在同一行混排已展开的多个参数。
+--allow-partial-wrapping false
+# 多行声明的右圆括号独占一行。
+--closing-paren balanced
+# 多行调用的右圆括号独占一行。
+--call-site-paren balanced
+# 保留 async/throws 相对于声明的换行方式。
+--wrap-effects preserve
+# 保留返回类型的既有换行方式。
+--wrap-return-type preserve
+# 不调整字符串插值内部换行，保留字面量内容。
+--wrap-string-interpolation false

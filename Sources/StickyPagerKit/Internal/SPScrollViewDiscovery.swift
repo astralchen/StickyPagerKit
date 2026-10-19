@@ -6,10 +6,14 @@ internal enum SPScrollViewDiscovery {
         var candidates: [(view: UIScrollView, rank: Int, area: CGFloat, order: Int)] = []
         var order = 0
         func visit(_ view: UIView) {
-            guard !view.isHidden, view.alpha > 0.01, view.isUserInteractionEnabled else { return }
+            guard !view.isHidden, view.alpha > 0.01, view.isUserInteractionEnabled else {
+                return
+            }
             defer { order += 1 }
             if let scroll = view as? UIScrollView {
-                guard scroll.isScrollEnabled else { return }
+                guard scroll.isScrollEnabled else {
+                    return
+                }
                 let vertical = scroll.alwaysBounceVertical || scroll.contentSize.height > scroll.bounds.height
                 let horizontal = scroll.alwaysBounceHorizontal || scroll.contentSize.width > scroll.bounds.width + 1
                 if vertical || !horizontal {
@@ -23,8 +27,12 @@ internal enum SPScrollViewDiscovery {
         }
         visit(root)
         return candidates.sorted {
-            if $0.rank != $1.rank { return $0.rank > $1.rank }
-            if $0.area != $1.area { return $0.area > $1.area }
+            if $0.rank != $1.rank {
+                return $0.rank > $1.rank
+            }
+            if $0.area != $1.area {
+                return $0.area > $1.area
+            }
             return $0.order < $1.order
         }.first?.view
     }
