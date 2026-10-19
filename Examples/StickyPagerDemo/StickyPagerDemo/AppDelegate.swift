@@ -38,10 +38,11 @@ final class DemoLauncher: UIViewController {
 @MainActor
 final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPPageViewControllerDelegate {
     private var pageIDs = ["grid", "list", "short", "empty", "plain", "async",
-                           "hot", "recommended", "following", "weekly", "saved", "topics"]
+                           "hot", "recommended", "following", "weekly", "saved", "compositional", "topics"]
     private let names = ["grid": "网格", "list": "列表", "short": "短列表", "empty": "空列表",
                          "plain": "普通页", "async": "异步页", "hot": "热", "recommended": "推荐内容",
-                         "following": "关注", "weekly": "本周热门精选", "saved": "收藏", "topics": "更多专题与活动"]
+                         "following": "关注", "weekly": "本周热门精选", "saved": "收藏", "topics": "更多专题与活动",
+                         "compositional": "组合布局"]
     private let status = RegressionStatusLabel()
     private var controllerHeader = false
     private var generation = 0
@@ -74,6 +75,10 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         })
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
+            UIAction(title: "组合布局 · 嵌套滚动") { [weak self] _ in
+                guard let self, let index = self.pageIDs.firstIndex(of: "compositional") else { return }
+                self.setSelectedIndex(index, animated: false)
+            },
             UIAction(title: "切换图文标签") { [weak self] _ in
                 guard let self else { return }
                 for (index, item) in self.tabBar.items.enumerated() {
@@ -107,6 +112,10 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         status.textAlignment = .center
         toolbarItems = [UIBarButtonItem(customView: status)]
         reloadData()
+        if ProcessInfo.processInfo.arguments.contains("--compositional"),
+           let index = pageIDs.firstIndex(of: "compositional") {
+            setSelectedIndex(index, animated: false)
+        }
         updateStatus()
     }
     override func viewWillAppear(_ animated: Bool) {
@@ -147,6 +156,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
     func pageViewController(_ pageViewController: SPPageViewController, viewControllerAt index: Int) -> UIViewController {
         switch pageIDs[index] {
         case "grid": return DemoGrid()
+        case "compositional": return DemoCompositional()
         case "list":
             if ProcessInfo.processInfo.arguments.contains("--mixed-page") { return DemoMixedPage() }
             return DemoList(count: 80)

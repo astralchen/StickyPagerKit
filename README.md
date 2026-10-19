@@ -53,10 +53,13 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 打开 [StickyPagerDemo.xcodeproj](Examples/StickyPagerDemo/StickyPagerDemo.xcodeproj)，选择共享 scheme `StickyPagerDemo`，选择 iOS 模拟器并运行。真机运行需自行在 Xcode 中配置 Team。
 
 - 网格、长列表、短列表、空列表、普通页面和可动态创建滚动视图的异步页面。
+- “收藏”与“更多专题与活动”之间的“组合布局”标签使用 `UICollectionViewCompositionalLayout`：包含 `.continuous`、`.groupPaging` 横向 Section 和 30 项纵向内容；也可从“页面 → 组合布局 · 嵌套滚动”直接进入。
 - 导航栏 `Header` 切换 UIView / UIViewController，`高度` 切换 220 / 300。
 - `页面` 菜单可重排、删除、添加或清空页面。
 - 列表原生下拉刷新，底部状态显示当前页、Header 类型和高度。
 - 返回上一级可检查系统交互式返回；启动参数 `--rtl` 可切换 Demo 到 RTL。
+- 嵌套横向 Section 尚有可滚动空间时优先处理内部滚动；到达起点／终点后，下一次向外横滑切换相邻标签。手势归属在开始时判定，一次从内部开始的拖动不会在中途突然转为分页；容器也已到首尾时保留内部弹性滚动。
+- 启动参数 `--open-demo --compositional` 可直接打开组合布局页。横向卡片用于检查 Section 内部滚动及两端边界，纵向内容区域用于检查 Header 联动和容器横向分页。`CompositionalGestureTests` 通过真实触摸、内部布局偏移及分页轨迹验证这些行为。
 
 工程由 XcodeBuildMCP 创建，使用 Xcode 文件系统同步分组。`StickyPagerDemo` 和 `StickyPagerDemoUITests` 对应真实文件夹，新增源码会自动加入对应 target，无需重新生成工程。Demo 工程只包含应用和 UI 测试两个 target，应用通过本地 Package 依赖链接 `StickyPagerKit`。库测试位于根目录 `Tests/StickyPagerKitTests`，完全由根目录 `Package.swift` 管理，不再加入 Demo 工程或 Demo 的测试 scheme。构建配置位于 Demo 的 `Config` 目录。
 

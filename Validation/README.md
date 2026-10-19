@@ -2,6 +2,40 @@
 
 验证日期：2026-10-15 至 2026-10-19。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-19：横向 Section 边界交接
+
+- **需求纠正：** 此前把“Section 到边界仍不切页”作为预期，与实际需求不符。现在在手势开始时按物理方向与 `adjustedContentInset` 判断：内部仍有空间则内部滚动；到边界后，新一次向外拖动交给容器相邻页。RTL 按物理内容边界处理；容器本身也在首尾时不抢走内部弹性拖动。从内部开始的同一次触摸保持原归属，不做触摸中途切页。
+- **最小修复：** `SPPagingScrollView` 使用公开 `UIGestureRecognizerDelegate` 动态失败依赖，让内部横向 pan 等待容器的方向／边界判断。未更换任何内层滚动代理，未识别 UIKit 私有类名，未禁用业务手势，也未增加另一套分页动画。系统返回手势保留原有优先级。
+- **修复前复现：** `testSectionStartEdgeHandoff` 在起点向外拖动后仍留在组合布局页，**1 失败、0 通过**；见 [修复前结果](Results/compositional-edge-before/Result.xcresult)。相同用例在最小修复后 **1 通过**，同时验证 `.continuous` 和 `.groupPaging`，见 [起点复查](Results/compositional-edge-probe/Result.xcresult)。
+- **回归内容：** 两种模式的起点与终点向外翻页、反向返回、内部位置保留、RTL 两端交接、内部中段／斜向／快速拖动、纵向 Header 联动和普通区域双向分页；另检查旋转后的系统返回、斜向及短列表回弹。库测试补充真实窗口中的左右边界、业务 inset、RTL、内部弹性越界、禁用内部滚动、容器自身边界，以及纵向和无关滚动视图的失败依赖隔离。
+
+- **最终 Demo 回归通过：7 通过、0 失败、0 跳过。** Xcode 27.1 / Debug / iPhone 17 Pro / iOS 26.5。一次运行覆盖 5 个组合布局用例与 2 个既有手势用例；终态为 `TEST EXECUTE SUCCEEDED`，`.xcresult` 为 `Passed`，`sourceChangedSinceRun` 为空，见 [UI 摘要](Results/compositional-edge-accepted-demo/summary.json) 和 [结果包](Results/compositional-edge-accepted-demo/Result.xcresult)。工具调用在 300 秒后超时，继续检查同一个 xcodebuild 进程约 343 秒的完整日志和结果包后确认通过，没有重复启动测试。
+
+- **完整库回归通过：111 通过、0 失败、0 跳过。** 同一 iPhone 17 Pro / iOS 26.5 / Xcode 27.1 / Debug 环境，根 Package 的 `StickyPagerKit` scheme 独立构建并执行，包含新增 2 项边界判定测试。终态 `TEST SUCCEEDED`，结果包 `Passed`，源码哈希全部匹配，见 [库摘要](Results/compositional-edge-accepted-library/summary.json) 和 [结果包](Results/compositional-edge-accepted-library/Result.xcresult)。首次读取结果包受 `TestReport` 缓存写权限限制，获工具执行权限后读取同一结果包成功，未重跑测试。
+- **本轮范围：** 上述为完整库套件及 7 项 Demo 定向回归，未执行完整 Demo 套件、Release、iPad、真机或减速期 HID 专项复测；此前减速观测保留为历史证据。新手势从边界向外翻页已验证，不包含同一次触摸跨越内部边界后中途交接。已重新打开无回归标志的组合布局页，方便手动操作。
+
+- **保留的中间失败：** 首轮综合运行 **6 通过、1 失败**，失败来自 RTL 用例把横向 Section 也假定为镜像布局。实际截图与内部偏移表明：`--rtl` 反转容器标签顺序，但此 Demo 的原生 Section 仍从左侧开始。修正测试按实际物理边界拖动，未为通过测试而强制改变 Section 排列；见 [中间结果](Results/compositional-edge-final-demo/Result.xcresult)。因此本轮 RTL 证据覆盖“RTL 容器中嵌入当前 Demo 的 Section”，不宣称验证了额外镜像 transform 的业务滚动视图。
+
+- **提交前审查：** 已审查全部 9 个变更文件，检查手势失败依赖、滚动边界与 inset、系统返回优先级、标签索引、测试 target 归属及回归观测开关，未发现阻止提交的问题。再次核对两次最终运行的 36 个源码输入哈希均一致；本次为已有结果复核，未重复执行测试。`git diff --check` 通过；构建产物及结果包仍保留在 Git 忽略目录。
+
+## 2026-10-19：组合布局页双向分页
+
+- **位置调整：** 当前顺序为“收藏（index 10）→ 组合布局（index 11）→ 更多专题与活动（index 12）”。保留前 11 个标签的既有顺序；组合布局两侧都有可切换的页面。README 和标签栏首尾测试同步更新。
+- **真实滑动验收：** 在组合布局的普通纵向内容区域右滑至“收藏”、左滑返回；再左滑至“更多专题与活动”、右滑返回。每次检查触摸完整结束、行程超过 65% 页宽、容器位移超过半页、最终偏移准确落在相邻页、拖动和减速已结束；两次返回均检查纵向位置及吸顶状态。横向 Section 的两端边界也在这个非末页位置重新验证，避免容器末端钳制掩盖向后一页的误切换。
+- **位置恢复：** `.continuous` 和 `.groupPaging` 均记录真实内部偏移，分别切到左右相邻标签后返回，检查两种内部偏移和纵向位置保留。
+
+- **本轮通过：4 通过、0 失败、0 跳过。** Xcode 27.1 / Debug / iPhone 17 Pro / iOS 26.5。一次运行覆盖全部 3 个组合布局用例与 `testTabScrollEdgeAppearance`（LTR／RTL）。`.xcresult` 为 `Passed`，`sourceChangedSinceRun` 为空；见 [双向分页摘要](Results/compositional-middle-iphone/summary.json) 和 [结果包](Results/compositional-middle-iphone/Result.xcresult)。本轮未重跑减速期 HID 观测、完整套件或其他设备；初版证据保留在下节，不能代替此次位置调整后的验证。
+
+## 2026-10-19：Compositional Layout 嵌套滚动演示（初版）
+
+- **实现：** 初版 Demo 在末尾追加“组合布局”标签，保留原有标签索引，并增加“页面 → 组合布局 · 嵌套滚动”入口。新页面使用 `UICollectionViewCompositionalLayout`，包含各 8 项的 `.continuous` 与 `.groupPaging` 横向 Section，以及 30 项纵向内容；支持动态字体、系统配色和 directional insets。启动参数 `--open-demo --compositional` 可直达。未修改 `Sources/StickyPagerKit`，也未替换 UIKit 内部正交滚动视图的代理或手势识别器。
+- **验证环境：** Xcode 27.1 / Debug / iPhone 17 Pro / iOS 26.5。3 个新增 XCTest 用例读取真实内容偏移、页面 frame、Header 状态和分页触摸轨迹，覆盖横向 Section 起点／中间／末端、斜向及快速连续拖动、边界后的新触摸、横向卡片上的纵向拖动、Header 折叠／吸顶／展开、普通纵向内容区域的往返分页，以及纵横向位置恢复。追加标签后，原标签栏边缘测试改为检查第 13 项。
+- **初版定向验收通过（调整位置前）：5 通过、0 失败、0 跳过。** 同一次运行覆盖 3 个新增用例，以及原有 `testPagingAndRapidSelection` 和包含 LTR／RTL 的 `testTabScrollEdgeAppearance`。终态日志为 `TEST EXECUTE SUCCEEDED`，`.xcresult` 为 `Passed`，该次验收时 `sourceChangedSinceRun` 为空。见 [初版摘要](Results/compositional-accepted-iphone/summary.json) 和 [结果包](Results/compositional-accepted-iphone/Result.xcresult)。本结果是 5 项定向测试，不是全库或完整 Demo 套件。
+- **减速期直接观测通过：** XCTest 会等待滚动空闲，因此减速中的触摸另用 AXe 低层 HID 输入验证；只接受完整的 touch began / ended、正确首尾坐标、无重叠的时间顺序和原生 `isDecelerating`。有效样本中，两次触摸间隔约 **0.513 秒**，第二次开始时 `sourceDeceleratingAtTouchBegan=true`；内部偏移由 **675 → 497.33 pt**，容器偏移始终 **4824 pt**。后续新触摸 **248 → 72.67 pt**，容器仍不移动。见 [减速观测](Results/compositional-accepted-iphone/deceleration-observation.json)。这是一组实际运行观测，覆盖 `.continuous`；未将时机不稳定的 HID 调度加入默认 XCTest，也不等同于 `.groupPaging` 减速期覆盖。
+- **保留的中间失败：** 首次 UI 测试构建因同步 `setUp/tearDown` 与 Swift 主线程隔离不兼容而失败，改为项目已有的 async XCTest 形式；见 `compositional-baseline`。第一轮触摸测试 **2 通过、1 失败**：100 pt 纵向输入后 Header 实际移动 25 pt，未达到测试要求的 30 pt；后续把输入延长为 180 pt，保留原位移断言，再验证完整折叠、分页和恢复。见 [首轮结果](Results/compositional-gestures-1/Result.xcresult)。第二轮 **1 通过、1 失败**：纵向链路通过，减速测试因 XCTest 等待空闲而未命中减速期；见 [时机诊断](Results/compositional-probe-2/Result.xcresult)。高层 HID 的额外等待、并发输入重叠、touch ended 时偏移尚未提交等实验失败均留在 `compositional-probe-2`，不计为通过。
+- **可见输入定位修正：** 后续 5 项运行中 **4 通过、1 失败**，失败位于测试辅助方法 `sectionY`：纵向滚动后首个部分可见 Cell 的中心为 124.67 pt，已在 160 pt 的可见内容上缘之上。改为选择中心实际位于内容视口且未被底部工具栏遮挡的 Cell，保留位移与页面状态断言；见 [定位失败结果](Results/compositional-final-iphone/Result.xcresult)。
+- **验证边界：** 本轮未执行全库／完整 Demo 套件、iPad 分屏、iOS 15 真正运行、真机、VoiceOver、最大辅助字号与深色模式的完整交互验收。横向位置恢复仅验证页面保留在现有缓存中的往返；不承诺缓存淘汰后的内部 Section 状态保存。未提交或推送。
+
 ## 2026-10-19：线条自动颜色与胶囊圆角
 
 - **改动：** `selectionColor` 改为可选值，nil 表示按样式解析；线条跟随选中态文字颜色（Item 文字属性、selected.titleColor、tintColor），胶囊背景保持 `.tertiarySystemFill`。显式颜色独立覆盖，设回 nil 恢复自动解析；复制和安全归档保留 nil。Demo 切换样式恢复自动颜色。线条保持 3 pt 高度、1.5 pt 圆角，选中动画与分页进度期间保持圆角；更新 tint 不重置动画。

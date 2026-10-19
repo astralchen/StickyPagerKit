@@ -10,6 +10,7 @@ final class PagingTraceWindow: UIWindow {
     private weak var sourceScroll: UIScrollView?
     private var previousVertical: CGFloat = 0
     private var verticalChanges: [[String: Any]] = []
+    private var sourceDeceleratingAtTouchBegan = false
 
     func mark(_ stage: String) {
         guard let sourceScroll else { return }
@@ -42,6 +43,7 @@ final class PagingTraceWindow: UIWindow {
             var ancestor = touch?.view
             while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
             sourceScroll = ancestor as? UIScrollView
+            sourceDeceleratingAtTouchBegan = sourceScroll?.isDecelerating == true
             previousVertical = sourceScroll.map { $0.contentOffset.y + $0.adjustedContentInset.top } ?? 0
             hitView = touch?.view.map { String(describing: type(of: $0)) } ?? "nil"
         }
@@ -55,14 +57,19 @@ final class PagingTraceWindow: UIWindow {
             "x": point.x, "y": point.y, "offset": paging.contentOffset.x,
             "pan": Double(pan.state.rawValue), "velocity": pan.velocity(in: self).x,
             "translation": pan.translation(in: self).x,
+            "sourceOffsetX": sourceScroll?.contentOffset.x ?? 0,
             "verticalPosition": sourceScroll.map { $0.contentOffset.y + $0.adjustedContentInset.top } ?? 0
         ])
+        if touch.phase == .ended || touch.phase == .cancelled {
+            NSLog("PAGING_EVENT %@", pagingTrace)
+        }
     }
 
     var pagingTrace: String {
         guard let paging = pagingView(in: self) else { return "" }
         let value: [String: Any] = [
             "sequence": sequence, "hitView": hitView, "release": release,
+            "sourceDeceleratingAtTouchBegan": sourceDeceleratingAtTouchBegan,
             "verticalChanges": verticalChanges,
             "samples": [samples.first, samples.last].compactMap { $0 }, "sampleCount": samples.count,
             "minOffset": samples.compactMap { $0["offset"] }.min() ?? paging.contentOffset.x,

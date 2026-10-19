@@ -85,8 +85,8 @@ final class StickyPagerDemoUITests: XCTestCase {
         let tabs = app.collectionViews["sp.tabBar.collection"]
         let selected = app.buttons["sp.tab.\(index)"]
         let rtl = (status.value as? String)?.contains("direction=rtl") == true
-        let leftEdge = app.buttons["sp.tab.\(rtl ? 11 : 0)"]
-        let rightEdge = app.buttons["sp.tab.\(rtl ? 0 : 11)"]
+        let leftEdge = app.buttons["sp.tab.\(rtl ? 12 : 0)"]
+        let rightEdge = app.buttons["sp.tab.\(rtl ? 0 : 12)"]
         let aligned = NSPredicate { _, _ in
             let viewport = tabs.frame, frame = selected.frame
             guard selected.isSelected, frame.minX >= viewport.minX - 1,
@@ -727,7 +727,7 @@ final class StickyPagerDemoUITests: XCTestCase {
             XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
             rotate(to: .landscapeLeft)
             let tabs = app.collectionViews["sp.tabBar.collection"]
-            for index in [0, 10, 11] {
+            for index in [0, 10, 12] {
                 select(index)
                 expectSelectedTabAlignment(index)
                 let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -780,8 +780,8 @@ final class StickyPagerDemoUITests: XCTestCase {
             }
             if largeText { XCTAssertGreaterThan(viewport.height, 44) }
             else { XCTAssertEqual(viewport.height, 44, accuracy: 1) }
-            select(11); expect("page=topics")
-            expectSelectedTabAlignment(11)
+            select(12); expect("page=topics")
+            expectSelectedTabAlignment(12)
             select(9); expect("page=weekly")
             assertListSafeArea()
             expectSelectedTabAlignment(9)
