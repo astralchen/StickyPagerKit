@@ -97,6 +97,12 @@ open class SPTabBar: UIView {
     }
 
     @objc private func accessibilitySettingsChanged() { itemDidChange() }
+
+    open override func tintColorDidChange() {
+        super.tintColorDidChange()
+        // 包括继承自父视图的 tint 变化；仅刷新颜色，不中断选中动画与手动滚动。
+        updateVisibleCells()
+    }
     public private(set) var selectedIndex: Int?
     private let tabLayout = SPTabBarLayout()
     private let indicator = UIView()
@@ -344,6 +350,9 @@ open class SPTabBar: UIView {
         let item = items[index]
         let styles = appearance.itemAppearance
         let state = !item.isEnabled ? styles.disabled : (index == selectedIndex ? styles.selected : styles.normal)
+        let defaultColor: UIColor = !item.isEnabled ? .tertiaryLabel : (index == selectedIndex ? tintColor : .secondaryLabel)
+        let iconColor = state.iconColor ?? defaultColor
+        let titleColor = state.titleColor ?? defaultColor
         var configuration = UIButton.Configuration.plain()
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
         configuration.title = item.title
@@ -357,18 +366,18 @@ open class SPTabBar: UIView {
         }
         configuration.imagePlacement = stacked ? .top : .leading
         configuration.imagePadding = 4
-        configuration.baseForegroundColor = state.iconColor
+        configuration.baseForegroundColor = iconColor
         let controlState: UIControl.State = !item.isEnabled ? .disabled : (index == selectedIndex ? .selected : .normal)
         let titleAttributes = item.titleTextAttributes(for: controlState) ?? item.titleTextAttributes(for: .normal) ?? [:]
         let resolvedFont = itemFont(item, style: state, state: controlState)
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
             var result = attributes
             result.font = resolvedFont
-            result.foregroundColor = titleAttributes[.foregroundColor] as? UIColor ?? state.titleColor
+            result.foregroundColor = titleAttributes[.foregroundColor] as? UIColor ?? titleColor
             if let shadow = titleAttributes[.shadow] as? NSShadow { result.merge(AttributeContainer([.shadow: shadow])) }
             return result
         }
-        cell.button.tintColor = state.iconColor
+        cell.button.tintColor = iconColor
         cell.button.configuration = configuration
         cell.button.isEnabled = item.isEnabled
         cell.button.accessibilityIdentifier = "sp.tab.\(index)"

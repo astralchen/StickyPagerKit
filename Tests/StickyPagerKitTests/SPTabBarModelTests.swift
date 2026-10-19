@@ -33,6 +33,69 @@ final class SPTabBarModelTests: XCTestCase {
         return collection.cellForItem(at: IndexPath(item: index, section: 0))!.contentView.subviews.compactMap { $0 as? UIButton }.first!
     }
 
+    func testDefaultColorsFollowTintAndRespectExplicitOverrides() {
+        let selected = SPTabBarItem(title: "选中", image: UIImage(systemName: "star"))
+        let normal = SPTabBarItem(title: "普通", image: UIImage(systemName: "star"))
+        let disabled = SPTabBarItem(title: "禁用")
+        disabled.isEnabled = false
+        let host = window.rootViewController!.view!
+        host.tintColor = .systemGreen
+        let bar = mount([selected, normal, disabled])
+        bar.selectedItem = selected
+
+        func assertColor(_ index: Int, _ expected: UIColor, file: StaticString = #filePath, line: UInt = #line) {
+            let tab = button(bar, index)
+            tab.layoutIfNeeded()
+            XCTAssertEqual(tab.titleLabel?.textColor.resolvedColor(with: bar.traitCollection), expected.resolvedColor(with: bar.traitCollection), file: file, line: line)
+            XCTAssertEqual(tab.configuration?.baseForegroundColor, expected, file: file, line: line)
+        }
+        for style: UIUserInterfaceStyle in [.light, .dark] {
+            window.overrideUserInterfaceStyle = style
+            host.layoutIfNeeded()
+            assertColor(0, .systemGreen)
+            assertColor(1, .secondaryLabel)
+            // UIButton 对禁用图标还会应用系统的 disabled 配色变换。
+            XCTAssertEqual(button(bar, 2).configuration?.baseForegroundColor, .tertiaryLabel)
+        }
+        host.tintColor = .systemOrange
+        assertColor(0, .systemOrange)
+        bar.tintColor = .systemPurple
+        assertColor(0, .systemPurple)
+        bar.standardAppearance.itemAppearance.selected.titleColor = .systemRed
+        bar.standardAppearance.itemAppearance.selected.iconColor = .systemRed
+        bar.tintColor = .systemBlue
+        assertColor(0, .systemRed)
+        selected.setTitleTextAttributes([.foregroundColor: UIColor.systemBrown], for: .selected)
+        button(bar).layoutIfNeeded()
+        XCTAssertEqual(button(bar).titleLabel?.textColor, .systemBrown)
+        selected.setTitleTextAttributes(nil, for: .selected)
+        bar.standardAppearance.itemAppearance.selected.titleColor = nil
+        bar.standardAppearance.itemAppearance.selected.iconColor = nil
+        assertColor(0, .systemBlue)
+        bar.selectedItem = normal
+        assertColor(0, .secondaryLabel)
+        assertColor(1, .systemBlue)
+    }
+
+    func testAutomaticColorsSurviveAppearanceCopyAndSecureArchive() throws {
+        let appearance = SPTabBarAppearance()
+        appearance.itemAppearance.normal.titleColor = nil
+        appearance.itemAppearance.normal.iconColor = nil
+        let copy = try XCTUnwrap(appearance.copy() as? SPTabBarAppearance)
+        let data = try NSKeyedArchiver.archivedData(withRootObject: copy, requiringSecureCoding: true)
+        let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(ofClass: SPTabBarAppearance.self, from: data))
+        XCTAssertNil(decoded.itemAppearance.normal.titleColor)
+        XCTAssertNil(decoded.itemAppearance.normal.iconColor)
+        XCTAssertNil(decoded.itemAppearance.selected.titleColor)
+        XCTAssertNil(decoded.itemAppearance.selected.iconColor)
+        let bar = mount([SPTabBarItem(title: "自动颜色")])
+        bar.standardAppearance = decoded
+        bar.selectedItem = bar.items[0]
+        bar.tintColor = .systemTeal
+        button(bar).layoutIfNeeded()
+        XCTAssertEqual(button(bar).titleLabel?.textColor, .systemTeal)
+    }
+
     func testUIBarItemPropertiesUpdateRenderingThroughBaseReference() {
         let item = SPTabBarItem(title: nil)
         let base: UIBarItem = item

@@ -2,6 +2,13 @@
 
 验证日期：2026-10-15 至 2026-10-19。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-19：标签默认文字与选中颜色
+
+- **改动：** 未选中文字与模板图标保持 `.secondaryLabel`，选中颜色从固定 `.label` 改为跟随 `SPTabBar.tintColor`，包括继承父视图 tint 和运行时变更；禁用保持 `.tertiaryLabel`。显式状态颜色与 Item 文字属性继续优先。状态的 `titleColor` / `iconColor` 支持 nil，表示按状态自动解析；复制与安全归档保留 nil。
+- **通过：** 使用仓库脚本执行 library 完整 `clean test`，Xcode 26.6 / iPhone 17 Pro / iOS 26.5 / Debug，**106 通过、0 失败、0 跳过**。新增真实 UIWindow 测试检查实际文字颜色、图标配置、深浅色、继承／显式 tint、外观覆盖与恢复、归档后的自动颜色；原有标签与分页测试继续通过。完成日志为 `TEST SUCCEEDED`，终态 `.xcresult` 与源码哈希核对一致。见 [摘要](Results/tabbar-tint-library-final-20261019/summary.json) 和 [结果包](Results/tabbar-tint-library-final-20261019/Result.xcresult)。
+- **环境阻塞记录：** 首次沙箱执行无法连接 CoreSimulator，未开始测试；以已批准的沙箱外访问重新执行后完成上述运行，原日志保留于 `Results/tabbar-tint-library-20261019`。
+- **未执行：** 本次颜色调整没有重跑 Demo UI、Release、iOS 15 或真机测试；下方此前完整 Demo 结果属于颜色调整前的源码。
+
 ## 2026-10-19：标签栏完整回归续验
 
 - **源码核对：** 开始时当前源码与 `tabbar-refactor-library-accepted`、`tabbar-refactor-demo-iphone-recheck` 的全部输入哈希一致。本轮仅修订 Demo UI 测试的分屏陪测应用激活方式和本验证记录，库与 Demo 实现保持不变。

@@ -125,7 +125,9 @@ appearance.backgroundColor = .secondarySystemBackground
 tabs.standardAppearance = appearance // 复制配置，不共享可变外观
 
 tabs.standardAppearance.itemAppearance.layout = .automatic
-tabs.standardAppearance.itemAppearance.selected.titleColor = .systemBlue
+tabs.tintColor = .systemBlue // 默认选中文字和模板图标跟随 tintColor
+// 显式外观可覆盖默认颜色：
+tabs.standardAppearance.itemAppearance.selected.titleColor = .systemPurple
 tabs.standardAppearance.selectionStyle = .capsule
 // 需要旧版下划线时：
 tabs.standardAppearance.selectionStyle = .underline
@@ -133,6 +135,8 @@ tabs.standardAppearance.selectionColor = .label
 ```
 
 默认使用系统材质背景和胶囊选中背景。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中标识支持 `.capsule`、`.underline`、`.none`。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。原图保留 renderingMode，模板图片使用状态颜色。
+
+默认文字和模板图标采用 UITabBar 风格：未选中为 `.secondaryLabel`，选中跟随标签栏的 `tintColor`（包括从父视图继承的颜色），禁用为 `.tertiaryLabel`。显式状态颜色优先；`titleColor`、`iconColor` 设为 nil 时恢复该状态的默认颜色。运行时改变 tint 会立即刷新可见标签，不改变滚动位置和选中动画。深浅色使用动态颜色解析。
 
 标签宽度按正常、选中、禁用状态的最大内容尺寸预留，避免选择时字体变化导致跳动。最长项能容纳时均分宽度，否则按固有宽度分配剩余空间；超出一屏则横向滚动。点击区域最小 44 pt；选中项尽量居中，首尾受内容边界限制。布局和字体变化重新对齐，普通刷新保留用户手动滚动位置。RTL 仅反转视觉顺序，逻辑索引不变。
 

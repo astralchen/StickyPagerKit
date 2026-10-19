@@ -4,11 +4,12 @@ import UIKit
 @MainActor
 public struct SPTabBarItemStateAppearance {
     public var font: UIFont?
-    public var titleColor: UIColor
-    public var iconColor: UIColor
+    /// nil 按状态解析：选中跟随栏的 tintColor，普通与禁用使用系统标签色。
+    public var titleColor: UIColor?
+    public var iconColor: UIColor?
     public var badgeBackgroundColor: UIColor = .systemRed
     public var badgeTextColor: UIColor = .white
-    public init(titleColor: UIColor = .secondaryLabel, iconColor: UIColor = .secondaryLabel) {
+    public init(titleColor: UIColor? = .secondaryLabel, iconColor: UIColor? = .secondaryLabel) {
         self.titleColor = titleColor
         self.iconColor = iconColor
     }
@@ -19,7 +20,7 @@ public struct SPTabBarItemAppearance {
     public enum Layout: Int, Sendable { case automatic, stacked, inline }
     public var layout: Layout = .automatic
     public var normal = SPTabBarItemStateAppearance()
-    public var selected = SPTabBarItemStateAppearance(titleColor: .label, iconColor: .label)
+    public var selected = SPTabBarItemStateAppearance(titleColor: nil, iconColor: nil)
     public var disabled = SPTabBarItemStateAppearance(titleColor: .tertiaryLabel, iconColor: .tertiaryLabel)
     public init() {}
 }
@@ -116,8 +117,12 @@ public final class SPTabBarAppearance: UIBarAppearance {
     private static func decodeState(_ coder: NSCoder, key: String, fallback: SPTabBarItemStateAppearance) -> SPTabBarItemStateAppearance {
         var state = fallback
         state.font = coder.decodeObject(of: UIFont.self, forKey: key + ".font")
-        state.titleColor = coder.decodeObject(of: UIColor.self, forKey: key + ".title") ?? state.titleColor
-        state.iconColor = coder.decodeObject(of: UIColor.self, forKey: key + ".icon") ?? state.iconColor
+        if coder.containsValue(forKey: key + ".title") {
+            state.titleColor = coder.decodeObject(of: UIColor.self, forKey: key + ".title")
+        }
+        if coder.containsValue(forKey: key + ".icon") {
+            state.iconColor = coder.decodeObject(of: UIColor.self, forKey: key + ".icon")
+        }
         state.badgeBackgroundColor = coder.decodeObject(of: UIColor.self, forKey: key + ".badgeBackground") ?? state.badgeBackgroundColor
         state.badgeTextColor = coder.decodeObject(of: UIColor.self, forKey: key + ".badgeText") ?? state.badgeTextColor
         return state

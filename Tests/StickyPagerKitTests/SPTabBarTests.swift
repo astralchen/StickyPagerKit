@@ -275,7 +275,7 @@ final class SPTabBarTests: XCTestCase {
             button.accessibilityIdentifier = "旧标识"
             collection.delegate?.collectionView?(collection, willDisplay: cell, forItemAt: path)
             XCTAssertEqual(button.accessibilityTraits.contains(.selected), index == 1)
-            XCTAssertEqual(button.tintColor, index == 1 ? .label : .secondaryLabel)
+            XCTAssertEqual(button.tintColor, index == 1 ? bar.tintColor : .secondaryLabel)
             XCTAssertEqual(button.titleLabel?.font, UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: bar.traitCollection))
             XCTAssertEqual(button.configuration?.title, bar.items[index].title)
             XCTAssertEqual(button.accessibilityIdentifier, "sp.tab.\(index)")
