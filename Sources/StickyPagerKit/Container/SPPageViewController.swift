@@ -23,7 +23,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         set {
             guard newValue !== storedTabBar else { return }
             stopAnimation()
-            storedTabBar.onSelect = nil
+            storedTabBar.cancelUserSelection()
+            storedTabBar.selectionRequest = nil
             storedTabBar.removeFromSuperview()
             storedTabBar = newValue
             if isViewLoaded { configureTabBar(); view.setNeedsLayout() }
@@ -251,6 +252,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             newIDs.append(source.pageViewController(self, identifierForPageAt: index))
             newItems.append(source.pageViewController(self, tabBarItemAt: index))
         }
+        guard Set(newItems.map(ObjectIdentifier.init)).count == newItems.count else {
+            NSLog("StickyPagerKit: reloadData 拒绝重复标签对象")
+            return
+        }
         guard Set(newIDs).count == newIDs.count else {
             NSLog("StickyPagerKit: reloadData 拒绝重复页面标识")
             return
@@ -273,7 +278,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             align(record)
             if oldID != nextID, let record { appear(record.controller, true) }
         }
-        storedTabBar.setSelectedIndex(next, animated: false)
+        storedTabBar.setSelectedItem(next.map { items[$0] }, animated: false)
         view.setNeedsLayout()
         view.layoutIfNeeded()
         evictPages()
@@ -282,10 +287,18 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     /// 越界请求不改变状态。新请求取消尚未完成的旧转场。
     public func setSelectedIndex(_ index: Int, animated: Bool) {
+        selectPage(at: index, animated: animated, userItem: nil)
+    }
+
+    private func selectPage(at index: Int, animated: Bool, userItem: SPTabBarItem?) {
         guard identifiers.indices.contains(index) else { return }
         loadViewIfNeeded()
         cancelPaging()
-        guard index != selectedIndex else { return }
+        if let userItem { storedTabBar.beginUserSelection(userItem) }
+        guard index != selectedIndex else {
+            storedTabBar.completeUserSelection()
+            return
+        }
         stopAnimation()
         currentRecord?.binding?.stopDeceleration()
         view.layoutIfNeeded()
@@ -319,9 +332,12 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     private func configureTabBar() {
         view.addSubview(storedTabBar)
-        storedTabBar.onSelect = { [weak self] index in self?.setSelectedIndex(index, animated: true) }
+        storedTabBar.selectionRequest = { [weak self] item in
+            guard let self, let index = self.items.firstIndex(where: { $0 === item }) else { return }
+            self.selectPage(at: index, animated: true, userItem: item)
+        }
         storedTabBar.setItems(items)
-        storedTabBar.setSelectedIndex(selectedIndex, animated: false)
+        storedTabBar.setSelectedItem(selectedIndex.map { items[$0] }, animated: false)
         if let tabPan { storedTabBar.addGestureRecognizer(tabPan) }
     }
 
@@ -568,13 +584,17 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             // 自适应列表会在横向移出视口时修正 offset；取消后恢复拖动前保存的正文位置。
             align(currentRecord)
         }
-        storedTabBar.setSelectedIndex(selectedIndex, animated: commit && animated)
+        storedTabBar.synchronizeSelection(selectedIndex.map { items[$0] }, animated: commit && animated)
         evictPages()
         // 中途改变候选页仍属于同一次分页，保持隐藏；结束后按业务偏好恢复。
         if !continuingPaging { isPaging = false }
-        if commit { delegate?.pageViewController(self, didSelectPageAt: target) }
+        if commit {
+            storedTabBar.completeUserSelection()
+            delegate?.pageViewController(self, didSelectPageAt: target)
+        } else { storedTabBar.cancelUserSelection() }
     }
     private func cancelPaging() {
+        storedTabBar.cancelUserSelection()
         guard isViewLoaded else { return }
         suppressPaging = true
         pagingView.setContentOffset(pagingView.contentOffset, animated: false)
@@ -583,6 +603,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         suppressPaging = false
     }
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        storedTabBar.cancelUserSelection()
         isPaging = true
         stopAnimation()
         currentRecord?.binding?.stopDeceleration()

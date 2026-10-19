@@ -26,18 +26,25 @@ final class StickyPagerDemoUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         restoreFullScreen()
-        if name.contains("testSystemSplit") {
-            let companion = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
-            if companion.state != .notRunning { companion.terminate() }
-        }
+        // 陪测应用只提供窗口，不修改其内容；恢复 Demo 全屏后保留后台实例供后续分屏复用。
+        // 避免在每个用例间反复终止仍由系统窗口管理关联的进程。
         XCUIDevice.shared.orientation = .portrait
         app.terminate()
     }
     private var status: XCUIElement { app.staticTexts["demo.status"] }
     private func expect(_ fragment: String) {
-        let predicate = NSPredicate(format: "value CONTAINS %@", fragment)
-        expectation(for: predicate, evaluatedWith: status)
-        waitForExpectations(timeout: 5)
+        // 每次轮询重新解析元素，避免 KVC 谓词复用切页或旋转前的辅助快照。
+        var latestValue = "<尚未找到状态>"
+        let predicate = NSPredicate { [weak self] _, _ in
+            guard let self else { return false }
+            let current = self.app.staticTexts["demo.status"]
+            guard current.exists else { return false }
+            latestValue = current.value as? String ?? "<无状态值>"
+            return latestValue.contains(fragment)
+        }
+        let expected = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [expected], timeout: 5), .completed,
+                       "等待状态 \(fragment)，实际：\(latestValue)")
     }
     private func select(_ index: Int, file: StaticString = #filePath, line: UInt = #line) {
         let tabs = app.collectionViews["sp.tabBar.collection"]
@@ -357,7 +364,8 @@ final class StickyPagerDemoUITests: XCTestCase {
         let position = contentPosition()
         resizeSystemWindow(dx: -250, dy: -350)
         let companion = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
-        companion.launch(); arrangeSideBySide()
+        // 陪测应用只需提供第二个窗口；复用系统恢复的实例，避免 launch 强制终止再启动。
+        companion.activate(); arrangeSideBySide()
         for orientation: UIDeviceOrientation in [.portrait, .landscapeLeft] {
             rotate(to: orientation)
             if app.windows.firstMatch.frame.intersection(companion.windows.firstMatch.frame).width > 1 { arrangeSideBySide() }
@@ -395,7 +403,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         app.tables["demo.list"].swipeUp(); expect("progress=1.00")
         let initialPosition = contentPosition()
         resizeSystemWindow(dx: -250, dy: -350)
-        companion.launch()
+        companion.activate()
         arrangeSideBySide()
         print("SPLIT WINDOWS", app.windows.firstMatch.frame, companion.windows.firstMatch.frame)
         assertPinnedList(position: initialPosition); recordWindow("系统左右分屏")
@@ -570,6 +578,42 @@ final class StickyPagerDemoUITests: XCTestCase {
         plain.swipeDown(); expect("progress=0.00")
         app.scrollViews["sp.pages"].swipeRight(); expect("page=empty")
     }
+    func testDynamicTabContentAndDisabledItemStillAllowsPaging() {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let oldHeight = tabs.frame.height
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换图文标签"].tap()
+        XCTAssertGreaterThan(tabs.frame.height, oldHeight)
+        app.buttons["demo.pages"].tap()
+        app.buttons["更新角标和标题"].tap()
+        XCTAssertEqual(app.buttons["sp.tab.0"].label, "新作品")
+        XCTAssertEqual(app.buttons["sp.tab.0"].value as? String, "99+")
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换第二项禁用"].tap()
+        XCTAssertFalse(app.buttons["sp.tab.1"].isEnabled)
+        app.collectionViews["demo.grid"].swipeLeft()
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换选中样式"].tap()
+        expect("page=list")
+    }
+
+    func testStandaloneTabGallerySelectionAndLiveContent() {
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["标签外观"].tap()
+        let favorites = app.buttons["sp.tab.1"]
+        XCTAssertTrue(favorites.waitForExistence(timeout: 5))
+        favorites.tap()
+        XCTAssertTrue(favorites.isSelected)
+        app.buttons["配置"].tap()
+        app.buttons["更新内容"].tap()
+        XCTAssertEqual(favorites.value as? String, "99+")
+        app.buttons["配置"].tap()
+        app.buttons["横向图文"].tap()
+        XCTAssertTrue(favorites.isSelected)
+    }
+
     func testPagingAndRapidSelection() {
         app.collectionViews["demo.grid"].swipeLeft()
         expect("page=list")
@@ -810,6 +854,8 @@ final class StickyPagerDemoUITests: XCTestCase {
     func testScrollIndicatorWithShortEmptyAndLongContent() {
         for (index, page) in [(2, "short"), (3, "empty"), (1, "list")] {
             select(index)
+            // 相邻页动画期间可同时存在两个同名表格，提交选择后再发送新触摸。
+            expect("page=\(page)")
             let table = app.tables["demo.list"]
             table.swipeUp()
             expect("page=\(page)"); expect("progress=1.00")

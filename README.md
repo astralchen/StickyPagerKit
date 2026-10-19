@@ -69,7 +69,7 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 | `SPPageViewControllerDelegate` | 完成选中、连续分页进度、Header 状态与进度 |
 | `SPPageLayout` | Header 总高度、保留高度、标签栏高度 |
 | `SPHeaderState` | `expanded`、`collapsing`、`collapsed` |
-| `SPTabBar` / `SPTabBarItem` | 默认标签栏与标签标题 |
+| `SPTabBar` / `SPTabBarItem` | 可滚动标签栏与继承 UIBarItem 的动态标签对象 |
 
 数据源和代理均为弱引用；需要由业务方持有。代理方法具有默认空实现。
 
@@ -85,17 +85,84 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 - `setScrollView(_:forPageAt:)`：指定页面视图树内的滚动视图；nil 恢复自动发现。
 - `rediscoverScrollView(forPageAt:)`：内容页异步创建或替换滚动视图后调用。
 
-### 自定义标签栏
+### 标签内容、选择与外观
 
-非相邻选择时，标签栏居中偏移与指示器位置由同一帧进度驱动；相邻动画和手势翻页时，两者跟随分页进度，切页结束后不再补一段居中滚动。连续选择从当前动画位置继续；用户手动拖动标签栏时停止自动动画，尺寸、字体、方向或数据变化时结束旧动画并按新布局对齐。按住标签按钮后再横向移动时，标签栏允许取消按钮的触摸跟踪并接管滚动；单击仍正常选择页面。
+| 类型 | 基类／形态 | 职责 |
+| --- | --- | --- |
+| `SPTabBar` | `UIView` | 自绘、可滚动、分页进度联动 |
+| `SPTabBarItem` | `UIBarItem` | 标签内容、对象身份、动态更新 |
+| `SPTabBarAppearance` | `UIBarAppearance` | 栏背景、阴影、选中标识、复制与安全归档 |
+| `SPTabBarItemAppearance` | `struct` | 图文排列和状态集合 |
+| `SPTabBarItemStateAppearance` | `struct` | 单个状态的文字、图标和角标样式 |
 
-默认 `SPTabBar` 使用 `UICollectionView` 和自定义 Layout：先按每个标题的实际宽度加左右各 16 pt 计算固有宽度；只有最长标题也能放入均分项时才均分可用宽度；总宽度能放下但不能等宽时，保留各项固有宽度并均摊剩余空间；超出一屏时保留各自固有宽度并横向滚动。空标题等较窄项的最小点击宽度为 44 pt。选中项尽量滚动到中央，首尾受内容边界限制，不添加额外留白。旋转、容器尺寸和 Dynamic Type 变化后重新计算宽度并对齐选中项；普通布局刷新保留用户手动滚动的位置。RTL 反转视觉顺序，逻辑索引保持不变。Cell 在创建及显示前同步当前状态，保留 `sp.tab.<index>` 按钮无障碍标识和选中态，分页过渡指示器使用 Layout 几何信息，支持屏幕外目标。
+`UIBarItem` 是抽象基类，本库显式实现其属性存储、变更通知和归档；Item／State 外观不负责栏背景，因此不继承 `UIBarAppearance`。
 
-标签栏背景铺满容器宽度，内部 Collection View 仅占左右安全区域，文字、指示器和点击区域共用这一视口；两侧背景不接收标签栏触摸。滚动内容在仍有隐藏标签的一侧使用 16 pt 渐隐，接近首尾时逐步恢复不透明；到达端点或内容无需滚动时，首尾标题保持清晰。渐隐跟随物理滚动边界，不改变点击范围。安全区域变化时重新对齐选中项，RTL 仅改变内容顺序，不交换物理左右 inset。`tabBarHeight` 是最小高度（0 隐藏），默认标签栏通过 `sizeThatFits(_:)` 为大字体提供单行文字、上下留白和底部指示器所需高度；容器同步调整页面边界。独立使用 `SPTabBar` 时，宿主需采用该测量高度。自定义标签栏同样收到全宽 frame，应自行遵循安全区域，可重写 `sizeThatFits(_:)` 提供高度。
+`SPTabBarItem` 是 `@MainActor final class`，继承 `UIBarItem`，按对象身份区分标签。沿用基类的可选 `title`、`image`、`tag`、`isEnabled`、状态文字属性及无障碍属性，增加 `selectedImage`、`badgeValue`、`badgeColor`、`standardAppearance`。修改属性后自动刷新所有宿主，无需重载页面。宿主采用弱引用；同一对象可用于多个标签栏，同一个栏内不允许重复对象。它不再具有值语义，属性读写均受 `MainActor` 隔离。
 
-默认标签栏在数据缩减使原索引失效，或直接收到越界选中索引时清空选中态；`SPPageViewController` 仍按原有页面快照规则决定最终选中页。
+```swift
+let favorites = SPTabBarItem(
+    title: "收藏",
+    image: UIImage(systemName: "star"),
+    selectedImage: UIImage(systemName: "star.fill")
+)
+favorites.badgeValue = "12" // nil 隐藏，空字符串显示圆点
+let tabs = SPTabBar()
+tabs.items = [SPTabBarItem(title: "推荐"), favorites]
+tabs.selectedItem = favorites
+favorites.title = "我的收藏" // 自动更新标题和布局
+```
 
-继承 `SPTabBar`，重写 `setItems(_:)`、`setSelectedIndex(_:animated:)` 和 `setTransitionProgress(from:to:progress:)`。自定义视图收到用户选择后调用 `onSelect?(index)`。通过 `pager.tabBar = CustomTabBar()` 替换。逻辑索引与数据源一致，RTL 仅改变视觉页序。
+`items` 可以直接设置，也可调用 `setItems(_:)`；重复对象导致整次更新被拒绝。重排按对象身份保留选择，选中对象被移除则清空。`selectedItem` 可以设为 nil；不属于 items 的对象会被拒绝并保留原选择。`selectedIndex` 是只读索引映射；索引选择方法仍作为便利入口保留。分页容器的 `setSelectedIndex(_:animated:)` 和稳定页面 ID 规则不变。
+
+`delegate` 是弱引用，必须由业务方持有。`tabBar(_:shouldSelect:)` 可以否决标签点击；`tabBar(_:didSelect:)` 只在标签点击成功提交后调用，重复点击当前项也通知一次。程序化选择不会发送标签栏代理事件。独立标签栏自行提交选择；嵌入 `SPPageViewController` 后由容器在切页完成时提交，取消、中断、重载或替换栏会废弃旧点击请求。页面手势和程序化切页由 `SPPageViewControllerDelegate` 报告。`isEnabled = false` 仅禁止点击和无障碍激活，不阻止滑动或程序化进入对应页面。
+
+`SPTabBarAppearance` 继承 `UIBarAppearance`，复用背景材质、颜色、图片、阴影和三种 configureWith…Background 方法，支持 NSCopying 与 NSSecureCoding；`SPTabBarItemAppearance`、`SPTabBarItemStateAppearance` 保持主线程值类型。赋值给栏或 Item 时复制 Appearance，后续修改原对象不会影响宿主；通过宿主的 `standardAppearance` getter 修改当前实例或嵌套状态会立即刷新。选中 Item 的 `standardAppearance` 非 nil 时覆盖栏级外观，取消覆盖后回退到栏级设置。Item 的 `setTitleTextAttributes(_:for:)` 支持 font、foregroundColor、shadow，并优先于相应外观状态；未配置的状态使用 normal 属性。
+
+```swift
+let appearance = SPTabBarAppearance()
+appearance.configureWithOpaqueBackground() // 也可使用默认材质或透明背景配置
+appearance.backgroundColor = .secondarySystemBackground
+tabs.standardAppearance = appearance // 复制配置，不共享可变外观
+
+tabs.standardAppearance.itemAppearance.layout = .automatic
+tabs.standardAppearance.itemAppearance.selected.titleColor = .systemBlue
+tabs.standardAppearance.selectionStyle = .capsule
+// 需要旧版下划线时：
+tabs.standardAppearance.selectionStyle = .underline
+tabs.standardAppearance.selectionColor = .label
+```
+
+默认使用系统材质背景和胶囊选中背景。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中标识支持 `.capsule`、`.underline`、`.none`。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。原图保留 renderingMode，模板图片使用状态颜色。
+
+标签宽度按正常、选中、禁用状态的最大内容尺寸预留，避免选择时字体变化导致跳动。最长项能容纳时均分宽度，否则按固有宽度分配剩余空间；超出一屏则横向滚动。点击区域最小 44 pt；选中项尽量居中，首尾受内容边界限制。布局和字体变化重新对齐，普通刷新保留用户手动滚动位置。RTL 仅反转视觉顺序，逻辑索引不变。
+
+背景铺满容器，内部 Collection View、点击区域和选中背景共用左右安全视口。超出视口的内容在仍有隐藏项的一侧使用 16 pt 渐隐；材质背景不参与渐隐。`tabBarHeight` 是最小高度（0 隐藏），实际高度由图文和 Dynamic Type 字体测量；变化后容器更新页面边界并保留滚动位置。独立宿主应在布局时使用 `sizeThatFits(_:)`。降低透明度时改用不透明系统背景，减少动态效果时关闭程序化选中动画。角标、选中和禁用状态同步无障碍信息。
+
+分页和非相邻选择继续共享选中标识与居中偏移的连续进度；连续点击从当前位置接续。按住标签按钮后横向拖动时允许 Collection View 接管手势。自定义栏可重写 `setItems(_:)`、`setSelectedItem(_:animated:)` 和 `setTransitionProgress(from:to:progress:)`，调用 super 保持模型同步，使用 `requestSelection(of:)` 发送用户请求。通过 `pager.tabBar = CustomTabBar()` 替换。
+
+迁移旧代码：将 `onSelect` 替换为 `SPTabBarDelegate`；自定义点击调用 `requestSelection(of:)`；持有并修改 Item 对象，避免复制结构体的假设；读取 title 时处理 nil。Demo 启动页的“标签外观”提供独立标签栏，分页 Demo 的“页面”菜单可切换图文、角标、禁用和选中样式。首版未提供 scrollEdgeAppearance、More 导航或系统编辑排序。NSCoding 保存 Item 的基类属性、自定义图片、角标与 Appearance；Appearance 的复制和安全归档保留背景、选中标识、布局和状态样式。
+
+例如，旧 `onSelect` 中的业务通知迁移到代理。嵌入分页容器时，代理无需再调用容器切页；内部协调负责完成该操作。
+
+```swift
+final class ScreenController: UIViewController, SPTabBarDelegate {
+    let pager = SPPageViewController()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        pager.tabBar.delegate = self
+    }
+
+    func tabBar(_ tabBar: SPTabBar, shouldSelect item: SPTabBarItem) -> Bool {
+        true // 业务方可在此否决点击
+    }
+
+    func tabBar(_ tabBar: SPTabBar, didSelect item: SPTabBarItem) {
+        // 此时已提交选择；item 是原始对象，selectedIndex 是当前索引映射。
+        print(item.title ?? "", tabBar.selectedIndex as Any)
+    }
+}
+```
 
 ### 滚动坐标与布局
 

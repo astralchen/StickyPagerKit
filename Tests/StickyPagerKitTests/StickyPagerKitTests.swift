@@ -33,6 +33,64 @@ final class StickyPagerKitTests: XCTestCase {
         return pager
     }
 
+    func testTabUserSelectionCommitsOnceAndCancelsOnReplacementOrReload() {
+        let pager = mount()
+        let spy = SelectionSpy()
+        pager.tabBar.delegate = spy
+        let tabs = pager.tabBar
+        tabs.requestSelection(of: tabs.items[1])
+        XCTAssertEqual(pager.selectedIndex, 0)
+        XCTAssertTrue(spy.selected.isEmpty)
+        pager.setSelectedIndex(2, animated: false)
+        XCTAssertTrue(spy.selected.isEmpty)
+        tabs.requestSelection(of: tabs.items[0])
+        XCTAssertEqual(pager.selectedIndex, 0)
+        XCTAssertEqual(spy.selected.count, 1)
+        tabs.requestSelection(of: tabs.items[1])
+        pager.reloadData()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
+        XCTAssertEqual(spy.selected.count, 1)
+        tabs.requestSelection(of: tabs.items[1])
+        pager.tabBar = SPTabBar()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
+        XCTAssertEqual(spy.selected.count, 1)
+        tabs.requestSelection(of: tabs.items[0])
+        XCTAssertEqual(spy.selected.count, 2, "旧标签栏恢复独立选择")
+    }
+
+    func testDisabledTabAllowsProgrammaticAndGesturePaging() {
+        let pager = mount()
+        let spy = SelectionSpy()
+        pager.tabBar.delegate = spy
+        let item = pager.tabBar.items[1]
+        item.isEnabled = false
+        pager.tabBar.requestSelection(of: item)
+        XCTAssertEqual(pager.selectedIndex, 0)
+        pager.setSelectedIndex(1, animated: false)
+        XCTAssertTrue(pager.tabBar.selectedItem === item)
+        pager.setSelectedIndex(0, animated: false)
+        pager.scrollViewWillBeginDragging(pager.pagingView)
+        pager.pagingView.contentOffset.x = pager.pagingView.bounds.width
+        pager.scrollViewDidEndDecelerating(pager.pagingView)
+        XCTAssertEqual(pager.selectedIndex, 1)
+        XCTAssertTrue(spy.selected.isEmpty)
+    }
+
+    func testLiveTabHeightPreservesPageGeometryAndScrollPosition() {
+        let pager = mount()
+        let scroll = pager.currentScrollView!
+        scroll.contentOffset.y = 310 - scroll.adjustedContentInset.top
+        let position = pager.records[0]!.binding!.position
+        let oldHeight = pager.tabBar.bounds.height
+        pager.tabBar.standardAppearance.itemAppearance.layout = .stacked
+        pager.tabBar.items[0].image = UIImage(systemName: "star")
+        pager.view.layoutIfNeeded()
+        XCTAssertGreaterThan(pager.tabBar.bounds.height, oldHeight)
+        XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+        let root = pager.records[0]!.controller.view!
+        XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+    }
+
     func testSiblingLabelAndScrollStayBelowTabBar() throws {
         for belowLabel in [true, false] {
             let pager = mount(inNavigation: true, mixedLayout: belowLabel)

@@ -21,6 +21,9 @@ final class DemoLauncher: UIViewController {
         super.viewDidLoad()
         title = "StickyPagerKit"
         view.backgroundColor = .systemBackground
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "标签外观", primaryAction: UIAction { [weak self] _ in
+            self?.navigationController?.pushViewController(TabBarGallery(), animated: true)
+        })
         let button = UIButton(type: .system)
         button.setTitle("打开演示", for: .normal)
         button.titleLabel?.font = .preferredFont(forTextStyle: .title2)
@@ -71,6 +74,26 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         })
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
+            UIAction(title: "切换图文标签") { [weak self] _ in
+                guard let self else { return }
+                for (index, item) in self.tabBar.items.enumerated() {
+                    item.image = item.image == nil ? UIImage(systemName: index.isMultiple(of: 2) ? "star" : "folder") : nil
+                    item.selectedImage = item.image == nil ? nil : UIImage(systemName: index.isMultiple(of: 2) ? "star.fill" : "folder.fill")
+                }
+            },
+            UIAction(title: "更新角标和标题") { [weak self] _ in
+                guard let item = self?.tabBar.items.first else { return }
+                item.badgeValue = item.badgeValue == nil ? "99+" : nil
+                item.title = item.badgeValue == nil ? "网格" : "新作品"
+            },
+            UIAction(title: "切换第二项禁用") { [weak self] _ in
+                guard let self, self.tabBar.items.count > 1 else { return }
+                self.tabBar.items[1].isEnabled.toggle()
+            },
+            UIAction(title: "切换选中样式") { [weak self] _ in
+                guard let self else { return }
+                self.tabBar.standardAppearance.selectionStyle = self.tabBar.standardAppearance.selectionStyle == .capsule ? .underline : .capsule
+            },
             UIAction(title: "重排页面") { [weak self] _ in guard let self else { return }; self.pageIDs.reverse(); self.reloadData(); self.updateStatus() },
             UIAction(title: "删除当前页") { [weak self] _ in guard let self, let i = self.selectedIndex else { return }; self.pageIDs.remove(at: i); self.reloadData(); self.updateStatus() },
             UIAction(title: "添加页面") { [weak self] _ in guard let self else { return }; self.generation += 1; self.pageIDs.append("new\(self.generation)"); self.reloadData() },

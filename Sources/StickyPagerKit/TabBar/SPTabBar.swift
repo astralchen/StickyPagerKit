@@ -1,15 +1,102 @@
 import UIKit
 
-public struct SPTabBarItem: Equatable, Sendable {
-    public var title: String
-    public init(title: String) { self.title = title }
-}
-
-/// 可替换的标签栏。子类可重写三个更新方法，并调用 onSelect 通知用户选择。
+/// 支持可滚动图文标签、动态内容和分页进度的标签栏。
 @MainActor
 open class SPTabBar: UIView {
-    public var onSelect: (@MainActor (Int) -> Void)?
-    public private(set) var items: [SPTabBarItem] = []
+    public weak var delegate: SPTabBarDelegate?
+    private var storedItems: [SPTabBarItem] = []
+    public var items: [SPTabBarItem] {
+        get { storedItems }
+        set { setItems(newValue) }
+    }
+    public var selectedItem: SPTabBarItem? {
+        get { selectedIndex.flatMap { items.indices.contains($0) ? items[$0] : nil } }
+        set { setSelectedItem(newValue, animated: false) }
+    }
+    private var storedAppearance = SPTabBarAppearance()
+    /// 赋值时复制；通过 getter 修改当前外观会实时刷新。
+    public var standardAppearance: SPTabBarAppearance {
+        get { storedAppearance }
+        set {
+            storedAppearance.detach(self)
+            storedAppearance = SPTabBarAppearance(barAppearance: newValue)
+            storedAppearance.attach(self)
+            itemDidChange()
+        }
+    }
+    internal var selectionRequest: ((SPTabBarItem) -> Void)?
+    private var pendingSelection: SPTabBarItem?
+    private var requestGeneration: UInt = 0
+    private let materialView = UIVisualEffectView()
+    private let backgroundImageView = UIImageView()
+    private let shadowView = UIImageView()
+    private var appearance: SPTabBarAppearance { selectedItem?.standardAppearance ?? standardAppearance }
+
+    /// 自定义标签栏应从此入口发送点击或无障碍激活请求。
+    public func requestSelection(of item: SPTabBarItem) {
+        guard items.contains(where: { $0 === item }), item.isEnabled else { return }
+        requestGeneration &+= 1
+        let generation = requestGeneration
+        guard delegate?.tabBar(self, shouldSelect: item) ?? true,
+              generation == requestGeneration, items.contains(where: { $0 === item }), item.isEnabled else { return }
+        pendingSelection = nil
+        if let selectionRequest {
+            selectionRequest(item)
+        } else {
+            setSelectedItem(item, animated: true)
+            delegate?.tabBar(self, didSelect: item)
+        }
+    }
+
+    internal func beginUserSelection(_ item: SPTabBarItem) { pendingSelection = item }
+    internal func cancelUserSelection() { pendingSelection = nil; requestGeneration &+= 1 }
+    internal func completeUserSelection() {
+        let item = pendingSelection
+        pendingSelection = nil
+        if let item, item === selectedItem { delegate?.tabBar(self, didSelect: item) }
+    }
+
+    open func setSelectedItem(_ item: SPTabBarItem?, animated: Bool) {
+        if let item, !items.contains(where: { $0 === item }) { return }
+        cancelUserSelection()
+        setSelectedIndex(item.flatMap { target in items.firstIndex { $0 === target } }, animated: animated)
+    }
+
+    internal func synchronizeSelection(_ item: SPTabBarItem?, animated: Bool) {
+        let pending = pendingSelection
+        setSelectedItem(item, animated: animated)
+        pendingSelection = pending
+    }
+
+    internal func itemDidChange() {
+        stopSelectionAnimation()
+        transition = nil
+        transitionOrigin = nil
+        updateMetrics()
+        updateVisibleCells()
+        updateAppearance()
+        needsSelectionAlignment = true
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        superview?.setNeedsLayout()
+    }
+
+    private func updateAppearance() {
+        let value = appearance
+        materialView.effect = UIAccessibility.isReduceTransparencyEnabled ? nil : value.backgroundEffect
+        materialView.backgroundColor = UIAccessibility.isReduceTransparencyEnabled ? .secondarySystemBackground : .clear
+        materialView.contentView.backgroundColor = value.backgroundColor
+        backgroundImageView.image = value.backgroundImage
+        backgroundImageView.contentMode = value.backgroundImageContentMode == .redraw ? .scaleToFill : value.backgroundImageContentMode
+        shadowView.image = value.shadowImage
+        shadowView.tintColor = value.shadowColor
+        shadowView.backgroundColor = value.shadowImage == nil ? value.shadowColor : .clear
+        shadowView.isHidden = (value.shadowImage == nil || value.shadowImage?.renderingMode == .alwaysTemplate) && (value.shadowColor == nil || value.shadowColor == .clear)
+        indicator.backgroundColor = value.selectionColor
+        indicator.isHidden = value.selectionStyle == .none
+    }
+
+    @objc private func accessibilitySettingsChanged() { itemDidChange() }
     public private(set) var selectedIndex: Int?
     private let tabLayout = SPTabBarLayout()
     private let indicator = UIView()
@@ -40,7 +127,7 @@ open class SPTabBar: UIView {
             guard let self, let animation = self.selectionAnimation else { return }
             self.advanceSelectionAnimation(to: CGFloat((link.timestamp - animation.startTime) / 0.25))
         }
-        backgroundColor = .secondarySystemBackground
+        backgroundColor = .clear
         collectionView.backgroundColor = .clear
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.showsVerticalScrollIndicator = false
@@ -53,15 +140,27 @@ open class SPTabBar: UIView {
         collectionAdapter.owner = self
         collectionView.dataSource = collectionAdapter
         collectionView.delegate = collectionAdapter
+        materialView.isUserInteractionEnabled = false
+        addSubview(materialView)
+        backgroundImageView.clipsToBounds = true
+        backgroundImageView.isUserInteractionEnabled = false
+        shadowView.isUserInteractionEnabled = false
+        addSubview(backgroundImageView)
         addSubview(collectionView)
+        addSubview(shadowView)
+        storedAppearance.attach(self)
+        NotificationCenter.default.addObserver(self, selector: #selector(accessibilitySettingsChanged), name: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(accessibilitySettingsChanged), name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
         indicator.backgroundColor = .label
         indicator.isUserInteractionEnabled = false
-        indicator.layer.zPosition = 1
+        indicator.layer.zPosition = -1
+        indicator.accessibilityIdentifier = "sp.tabBar.selection"
         collectionView.addSubview(indicator)
+        updateAppearance()
     }
     public required init?(coder: NSCoder) { fatalError("请使用 init(frame:)") }
 
-    isolated deinit { displayLink?.invalidate() }
+    isolated deinit { displayLink?.invalidate(); NotificationCenter.default.removeObserver(self) }
 
     /// 背景可延伸至屏幕边缘，文字、指示器和触摸使用同一安全视口。
     private var contentViewport: CGRect {
@@ -82,7 +181,7 @@ open class SPTabBar: UIView {
 
     /// 标题保持垂直居中；上下各留 11 pt，底部扣除 3 pt 指示器后仍有 8 pt。
     open override func sizeThatFits(_ size: CGSize) -> CGSize {
-        CGSize(width: size.width, height: max(44, ceil(titleFont.lineHeight) + 22))
+        CGSize(width: size.width, height: max(44, items.map { measuredSize($0).height + 22 }.max() ?? ceil(titleFont.lineHeight) + 22))
     }
 
     open override func didMoveToWindow() {
@@ -96,19 +195,28 @@ open class SPTabBar: UIView {
     }
 
     open func setItems(_ items: [SPTabBarItem]) {
+        guard Set(items.map(ObjectIdentifier.init)).count == items.count else { return }
+        let oldSelection = selectedItem
+        cancelUserSelection()
         stopSelectionAnimation()
         collectionView.setContentOffset(collectionView.contentOffset, animated: false)
-        self.items = items
-        if let selectedIndex, !items.indices.contains(selectedIndex) { self.selectedIndex = nil }
+        storedItems.forEach { $0.detach(self) }
+        storedItems = items
+        items.forEach { $0.attach(self) }
+        selectedIndex = oldSelection.flatMap { old in items.firstIndex { $0 === old } }
+        updateAppearance()
         transition = nil
         transitionOrigin = nil
         updateMetrics()
         collectionView.reloadData()
+        invalidateIntrinsicContentSize()
+        superview?.setNeedsLayout()
         needsSelectionAlignment = true
         setNeedsLayout()
     }
 
     open func setSelectedIndex(_ index: Int?, animated: Bool) {
+        cancelUserSelection()
         layoutIfNeeded()
         collectionView.layoutIfNeeded()
         // 中断时从当前实际呈现的位置继续，不回跳到上次动画的起点或终点。
@@ -119,10 +227,14 @@ open class SPTabBar: UIView {
         transition = nil
         transitionOrigin = nil
         needsSelectionAlignment = false
+        updateMetrics()
+        updateAppearance()
+        collectionView.layoutIfNeeded()
+        superview?.setNeedsLayout()
         updateVisibleCells()
         let targetIndicator = selectedIndex.map(indicatorFrame) ?? .zero
         let targetOffset = centeredOffset(for: selectedIndex)
-        if animated, window != nil, bounds.width > 0, bounds.height > 0,
+        if animated, !UIAccessibility.isReduceMotionEnabled, window != nil, bounds.width > 0, bounds.height > 0,
            !fromIndicator.isEmpty, !targetIndicator.isEmpty,
            fromIndicator != targetIndicator || abs(fromOffset - targetOffset) > 0.5 {
             collectionView.setContentOffset(collectionView.contentOffset, animated: false)
@@ -165,6 +277,10 @@ open class SPTabBar: UIView {
         previousViewport = viewport
         previousDirection = direction
         tabLayout.isRightToLeft = direction == .rightToLeft
+        materialView.frame = bounds
+        backgroundImageView.frame = bounds
+        let shadowHeight = appearance.shadowImage?.size.height ?? (1 / max(1, traitCollection.displayScale))
+        shadowView.frame = CGRect(x: bounds.minX, y: bounds.maxY - shadowHeight, width: bounds.width, height: shadowHeight)
         collectionView.frame = viewport
         collectionView.layoutIfNeeded()
         if geometryChanged || needsSelectionAlignment {
@@ -179,29 +295,101 @@ open class SPTabBar: UIView {
 
     open override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
-            updateMetrics()
-            updateVisibleCells()
-            needsSelectionAlignment = true
-            setNeedsLayout()
-            superview?.setNeedsLayout()
+        if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory
+            || previousTraitCollection?.verticalSizeClass != traitCollection.verticalSizeClass
+            || previousTraitCollection?.displayScale != traitCollection.displayScale
+            || previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) != false {
+            itemDidChange()
         }
+    }
+
+    private var stacked: Bool {
+        switch appearance.itemAppearance.layout {
+        case .automatic: return traitCollection.verticalSizeClass != .compact
+        case .stacked: return true
+        case .inline: return false
+        }
+    }
+
+    private func font(_ state: SPTabBarItemStateAppearance) -> UIFont {
+        state.font.map { UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: $0, compatibleWith: traitCollection) } ?? titleFont
+    }
+
+    private func itemFont(_ item: SPTabBarItem, style: SPTabBarItemStateAppearance, state: UIControl.State) -> UIFont {
+        let attributes = item.titleTextAttributes(for: state) ?? item.titleTextAttributes(for: .normal)
+        guard let base = attributes?[.font] as? UIFont else { return font(style) }
+        return UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: base, compatibleWith: traitCollection)
+    }
+
+    private func measuredSize(_ item: SPTabBarItem) -> CGSize {
+        let styles = appearance.itemAppearance
+        let titleText = item.title ?? ""
+        let titleSizes = [(styles.normal, UIControl.State.normal), (styles.selected, .selected), (styles.disabled, .disabled)].map { style, state in
+            (titleText as NSString).size(withAttributes: [.font: itemFont(item, style: style, state: state)])
+        }
+        let title = CGSize(width: ceil(titleSizes.map(\.width).max() ?? 0), height: (item.title ?? "").isEmpty ? 0 : ceil(titleSizes.map(\.height).max() ?? 0))
+        let icon: CGFloat = item.image != nil || item.selectedImage != nil || item.landscapeImagePhone != nil ? 24 : 0
+        let gap: CGFloat = icon > 0 && !(item.title ?? "").isEmpty ? 4 : 0
+        let width = stacked ? max(title.width, icon) : title.width + icon + gap
+        let height = stacked ? title.height + icon + gap : max(title.height, icon)
+        let badgeWidth: CGFloat = item.badgeValue.map { $0.isEmpty ? 8 : max(18, ceil(($0 as NSString).size(withAttributes: [.font: UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)]).width) + 10) } ?? 0
+        return CGSize(width: width + (badgeWidth > 0 ? badgeWidth + 4 : 0), height: max(height, badgeWidth > 0 ? ceil(UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection).lineHeight) + 2 : 0))
     }
 
     private func updateMetrics() {
-        let font = titleFont
-        tabLayout.itemWidths = items.map {
-            max(44, ceil(($0.title as NSString).size(withAttributes: [.font: font]).width) + 32)
-        }
+        tabLayout.itemWidths = items.map { max(44, measuredSize($0).width + 32) }
     }
 
     private func configure(_ cell: TabCell, at index: Int) {
-        cell.button.setTitle(items[index].title, for: .normal)
-        cell.button.titleLabel?.font = titleFont
-        cell.button.tintColor = index == selectedIndex ? .label : .secondaryLabel
+        let item = items[index]
+        let styles = appearance.itemAppearance
+        let state = !item.isEnabled ? styles.disabled : (index == selectedIndex ? styles.selected : styles.normal)
+        var configuration = UIButton.Configuration.plain()
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+        configuration.title = item.title
+        let baseImage = traitCollection.verticalSizeClass == .compact ? (item.landscapeImagePhone ?? item.image) : item.image
+        configuration.image = index == selectedIndex ? (item.selectedImage ?? baseImage) : baseImage
+        let imageInsets = traitCollection.verticalSizeClass == .compact && item.landscapeImagePhone != nil && (index != selectedIndex || item.selectedImage == nil) ? item.landscapeImagePhoneInsets : item.imageInsets
+        configuration.image = configuration.image.map { image in
+            let ratio = min(24 / max(1, image.size.width), 24 / max(1, image.size.height))
+            let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+            return UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size).inset(by: imageInsets)) }.withRenderingMode(image.renderingMode)
+        }
+        configuration.imagePlacement = stacked ? .top : .leading
+        configuration.imagePadding = 4
+        configuration.baseForegroundColor = state.iconColor
+        let controlState: UIControl.State = !item.isEnabled ? .disabled : (index == selectedIndex ? .selected : .normal)
+        let titleAttributes = item.titleTextAttributes(for: controlState) ?? item.titleTextAttributes(for: .normal) ?? [:]
+        let resolvedFont = itemFont(item, style: state, state: controlState)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var result = attributes
+            result.font = resolvedFont
+            result.foregroundColor = titleAttributes[.foregroundColor] as? UIColor ?? state.titleColor
+            if let shadow = titleAttributes[.shadow] as? NSShadow { result.merge(AttributeContainer([.shadow: shadow])) }
+            return result
+        }
+        cell.button.tintColor = state.iconColor
+        cell.button.configuration = configuration
+        cell.button.isEnabled = item.isEnabled
         cell.button.accessibilityIdentifier = "sp.tab.\(index)"
+        cell.button.accessibilityLabel = item.accessibilityLabel ?? item.title
+        cell.button.accessibilityHint = item.accessibilityHint
+        cell.button.largeContentTitle = item.accessibilityLabel ?? item.title
+        cell.button.largeContentImage = item.largeContentSizeImage ?? configuration.image
+        cell.button.largeContentImageInsets = item.largeContentSizeImageInsets
+        cell.button.accessibilityValue = item.badgeValue.map { $0.isEmpty ? "有新内容" : $0 }
         cell.button.accessibilityTraits = index == selectedIndex ? [.button, .selected] : .button
-        cell.onTap = { [weak self] in self?.onSelect?(index) }
+        if !item.isEnabled { cell.button.accessibilityTraits.insert(.notEnabled) }
+        cell.badge.text = item.badgeValue
+        cell.badge.isHidden = item.badgeValue == nil
+        cell.badge.font = .preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
+        cell.badge.textColor = state.badgeTextColor
+        cell.badge.backgroundColor = item.badgeColor ?? state.badgeBackgroundColor
+        cell.onTap = { [weak self, weak item] in
+            guard let item else { return }
+            self?.requestSelection(of: item)
+        }
+        cell.setNeedsLayout()
     }
 
     private func updateVisibleCells() {
@@ -268,6 +456,7 @@ open class SPTabBar: UIView {
                                  width: a.width + (b.width - a.width) * eased,
                                  height: a.height + (b.height - a.height) * eased)
         collectionView.setContentOffset(CGPoint(x: animation.fromOffset + (animation.toOffset - animation.fromOffset) * eased, y: 0), animated: false)
+        indicator.layer.cornerRadius = appearance.selectionStyle == .capsule ? indicator.bounds.height / 2 : 0
         if p == 1 { stopSelectionAnimation() }
     }
 
@@ -283,10 +472,12 @@ open class SPTabBar: UIView {
         } else {
             indicator.frame = .zero
         }
+        indicator.layer.cornerRadius = appearance.selectionStyle == .capsule ? indicator.bounds.height / 2 : 0
     }
 
     private func indicatorFrame(_ index: Int) -> CGRect {
         guard let frame = tabLayout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame else { return .zero }
+        if appearance.selectionStyle == .capsule { return frame.insetBy(dx: 4, dy: 4) }
         return CGRect(x: frame.minX + 12, y: max(0, bounds.height - 3), width: max(0, frame.width - 24), height: 3)
     }
 
@@ -324,17 +515,34 @@ open class SPTabBar: UIView {
 
     private final class TabCell: UICollectionViewCell {
         let button = UIButton(type: .system)
+        let badge = UILabel()
         var onTap: (() -> Void)?
         override init(frame: CGRect) {
             super.init(frame: frame)
             button.titleLabel?.adjustsFontForContentSizeCategory = true
             button.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
             contentView.addSubview(button)
+            badge.textAlignment = .center
+            badge.clipsToBounds = true
+            badge.isUserInteractionEnabled = false
+            badge.isAccessibilityElement = false
+            contentView.addSubview(badge)
         }
         required init?(coder: NSCoder) { fatalError("请使用 init(frame:)") }
         override func layoutSubviews() {
             super.layoutSubviews()
+            let badgeWidth: CGFloat = badge.isHidden ? 0 : (badge.text?.isEmpty == true ? 8 : max(18, ceil(badge.intrinsicContentSize.width) + 10))
+            let badgeHeight: CGFloat = badge.text?.isEmpty == true ? 8 : max(18, ceil(badge.font.lineHeight) + 2)
+            let reserve = badgeWidth > 0 ? badgeWidth + 4 : 0
+            let rtl = effectiveUserInterfaceLayoutDirection == .rightToLeft
             button.frame = contentView.bounds
+            // 为角标预留内容空间，同时让按钮覆盖整个点击区域。
+            if var config = button.configuration, config.contentInsets.trailing != 16 + reserve {
+                config.contentInsets.trailing = 16 + reserve
+                button.configuration = config
+            }
+            badge.frame = CGRect(x: rtl ? 12 : max(12, bounds.width - 12 - badgeWidth), y: max(4, (bounds.height - badgeHeight) / 2), width: badgeWidth, height: badgeHeight)
+            badge.layer.cornerRadius = badgeHeight / 2
         }
     }
 }
