@@ -134,7 +134,24 @@ tabs.standardAppearance.selectionStyle = .underline
 tabs.standardAppearance.selectionColor = .label
 ```
 
-默认使用系统材质背景和胶囊选中背景。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中标识支持 `.capsule`、`.underline`、`.none`。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。原图保留 renderingMode，模板图片使用状态颜色。
+`SPTabBarAppearance.SelectionStyle` 是公开枚举，外部可在运行时切换原来的线条或胶囊，不需要替换标签栏：
+
+```swift
+// 线条指示器
+tabs.standardAppearance.selectionStyle = .underline
+tabs.standardAppearance.selectionColor = .label
+
+// 胶囊指示器
+tabs.standardAppearance.selectionStyle = .capsule
+tabs.standardAppearance.selectionColor = .tertiarySystemFill
+
+// 隐藏指示器
+tabs.standardAppearance.selectionStyle = .none
+```
+
+`selectionColor` 控制指示器，`tintColor` 控制默认选中文字和模板图标。两者独立；切换样式时可以同时设置适合该样式的指示器颜色。分页进度继续驱动当前样式的位置与宽度。
+
+默认使用系统材质背景和胶囊选中背景。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中标识支持 `.capsule`、`.underline`、`.none`。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
 
 默认文字和模板图标采用 UITabBar 风格：未选中为 `.secondaryLabel`，选中跟随标签栏的 `tintColor`（包括从父视图继承的颜色），禁用为 `.tertiaryLabel`。显式状态颜色优先；`titleColor`、`iconColor` 设为 nil 时恢复该状态的默认颜色。运行时改变 tint 会立即刷新可见标签，不改变滚动位置和选中动画。深浅色使用动态颜色解析。
 

@@ -77,6 +77,18 @@ final class SPTabBarModelTests: XCTestCase {
         assertColor(1, .systemBlue)
     }
 
+    func testSymbolImagesKeepTemplateTintAfterResizing() throws {
+        let symbol = try XCTUnwrap(UIImage(systemName: "star"))
+        let selectedSymbol = try XCTUnwrap(UIImage(systemName: "star.fill"))
+        let item = SPTabBarItem(title: "图标", image: symbol, selectedImage: selectedSymbol)
+        let bar = mount([item])
+        XCTAssertEqual(button(bar).configuration?.image?.renderingMode, .alwaysTemplate)
+        bar.selectedItem = item
+        XCTAssertEqual(button(bar).configuration?.image?.renderingMode, .alwaysTemplate)
+        item.selectedImage = selectedSymbol.withRenderingMode(.alwaysOriginal)
+        XCTAssertEqual(button(bar).configuration?.image?.renderingMode, .alwaysOriginal, "业务指定原图时保留原色")
+    }
+
     func testAutomaticColorsSurviveAppearanceCopyAndSecureArchive() throws {
         let appearance = SPTabBarAppearance()
         appearance.itemAppearance.normal.titleColor = nil

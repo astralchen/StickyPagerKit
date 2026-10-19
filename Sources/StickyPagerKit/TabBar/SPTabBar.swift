@@ -362,7 +362,9 @@ open class SPTabBar: UIView {
         configuration.image = configuration.image.map { image in
             let ratio = min(24 / max(1, image.size.width), 24 / max(1, image.size.height))
             let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
-            return UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size).inset(by: imageInsets)) }.withRenderingMode(image.renderingMode)
+            // 符号光栅化后不再携带 isSymbolImage；显式保留其默认模板语义。
+            let mode: UIImage.RenderingMode = image.isSymbolImage && image.renderingMode == .automatic ? .alwaysTemplate : image.renderingMode
+            return UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size).inset(by: imageInsets)) }.withRenderingMode(mode)
         }
         configuration.imagePlacement = stacked ? .top : .leading
         configuration.imagePadding = 4

@@ -2,6 +2,17 @@
 
 验证日期：2026-10-15 至 2026-10-19。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-19：颜色调整后的 Demo 完整回归与指示器复查
+
+- **开始状态：** 从已提交的 `0949c9e` 开始，工作区干净。Xcode 26.6 / Swift 6.3.3 / Debug；Demo 使用 iPad Pro 11-inch (M5) (16GB) / iOS 26.5，以执行完整分屏和窗口缩放覆盖。原外观为 light，深色补测后已恢复并再次读取确认；结束后关闭 Demo 与陪测“设置”。本轮未提交、未推送。
+- **修复前通过但视觉验收发现问题：** 原颜色调整版本的浅色完整 Demo 为 **32 通过、0 失败、0 跳过**，深色四项定向为 **4 通过、0 失败、0 跳过**，分别保留于 `Results/tabbar-tint-demo-light-full-20261019` 和 `Results/tabbar-tint-demo-dark-focused-20261019`。导出截图后发现 SF Symbol 光栅化丢失自动模板语义：文字已着色，图标仍为黑色，深色下尤其不清楚；现有 UI 断言没有覆盖像素颜色。另发现分页 Demo 切换下划线时沿用胶囊填充色，线条对比不足，独立 Demo 切回胶囊时也没有恢复填充色。这些通过记录不代表上述视觉问题已通过验收。
+- **失败复现与修复：** 新增 `testSymbolImagesKeepTemplateTintAfterResizing`，在修复前 **1 项失败**，普通与选中符号均未保留模板模式；见 [复现日志](Results/tabbar-symbol-regression-before-20261019/xcodebuild.log)。缩放 `.automatic` 的 SF Symbol 时显式保留 `.alwaysTemplate`，业务指定 `.alwaysOriginal` 仍保留原色。两个 Demo 样式入口同步设置下划线 `.label` 和胶囊 `.tertiarySystemFill`。现有公开 `SPTabBarAppearance.SelectionStyle` 保留 `.underline` / `.capsule` / `.none`，README 补充外部切换示例。
+- **通过：最终 library 完整 clean test，107 通过、0 失败、0 跳过。** iPhone 17 Pro / iOS 26.5，新增符号模板回归以及原颜色、外观、布局、分页测试全部通过。见 [库摘要](Results/tabbar-symbol-library-final-20261019/summary.json) 和 [结果包](Results/tabbar-symbol-library-final-20261019/Result.xcresult)。
+- **通过：最终深色 Demo 定向 clean test，4 通过、0 失败、0 跳过。** 覆盖动态图文／角标／禁用项滑动进入、独立标签栏、快速连续选择、按住标签后的横向拖动接管。见 [深色摘要](Results/tabbar-symbol-demo-dark-final-20261019/summary.json) 和 [结果包](Results/tabbar-symbol-demo-dark-final-20261019/Result.xcresult)。已查看 [深色胶囊与图标](Results/tabbar-symbol-demo-dark-final-20261019/gallery-screenshots/3B5D6C28-43F0-488A-B5B5-F5852D01F835.png) 和 [深色下划线](Results/tabbar-symbol-demo-dark-final-20261019/dynamic-screenshots/A25DD420-3227-4D86-9D07-133D5AD2881A.png)：选中文字与星形图标同为蓝色，未选中及禁用图标正确变暗，下划线清晰可见。
+- **通过：最终浅色 Demo 完整 clean test，32 通过、0 失败、0 跳过。** 无筛选执行，四项真实分屏、两项系统窗口缩放、LTR／RTL、普通／最大辅助字号、图文与纯文字、独立标签栏、Header、连续切页、手势接管和边缘渐隐均在同一次运行中通过；没有单项重试或中途重启。见 [完整摘要](Results/tabbar-symbol-demo-light-final-20261019/summary.json) 和 [结果包](Results/tabbar-symbol-demo-light-final-20261019/Result.xcresult)。已查看 [浅色胶囊与图标](Results/tabbar-symbol-demo-light-final-20261019/gallery-screenshots/8A6247D0-3184-4BA3-B230-6265C36CC4E6.png) 和 [浅色下划线](Results/tabbar-symbol-demo-light-final-20261019/dynamic-screenshots/848B8C70-A9D5-4D57-BCF9-4AE477D97EDE.png)，图标颜色与线条可见度均已修复。
+- **最终证据：** 上述三组最终运行均有 `TEST SUCCEEDED` 完成日志，终态 `.xcresult` 的实际数量分别为 107 / 4 / 32，33 个输入文件哈希均与最终源码一致。完整库与完整 Demo 合计 **139 项通过**，深色另有 4 次定向执行，不重复计入不同用例数量。中间视觉问题、失败复现及修复前结果全部保留。
+- **未执行／工具限制：** 深色执行四项定向而非完整 32 项；本轮未跑 Release、iOS 15、真机和 SDK 27。额外现场菜单切换检查因 MCP UI 快照未返回可点击目标、桌面输入报告 `windowNotFoundAtPosition` 而未完成，不记为通过；胶囊／下划线由上述截图和 UI 场景验证，`.none` 隐藏行为由库测试覆盖。
+
 ## 2026-10-19：标签默认文字与选中颜色
 
 - **改动：** 未选中文字与模板图标保持 `.secondaryLabel`，选中颜色从固定 `.label` 改为跟随 `SPTabBar.tintColor`，包括继承父视图 tint 和运行时变更；禁用保持 `.tertiaryLabel`。显式状态颜色与 Item 文字属性继续优先。状态的 `titleColor` / `iconColor` 支持 nil，表示按状态自动解析；复制与安全归档保留 nil。

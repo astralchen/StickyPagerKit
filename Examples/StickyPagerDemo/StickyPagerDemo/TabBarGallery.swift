@@ -34,7 +34,10 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
             UIAction(title: "自动布局") { [weak self] _ in self?.bar.standardAppearance.itemAppearance.layout = .automatic },
             UIAction(title: "上下图文") { [weak self] _ in self?.bar.standardAppearance.itemAppearance.layout = .stacked },
             UIAction(title: "横向图文") { [weak self] _ in self?.bar.standardAppearance.itemAppearance.layout = .inline },
-            UIAction(title: "胶囊") { [weak self] _ in self?.bar.standardAppearance.selectionStyle = .capsule },
+            UIAction(title: "胶囊") { [weak self] _ in
+                self?.bar.standardAppearance.selectionStyle = .capsule
+                self?.bar.standardAppearance.selectionColor = .tertiarySystemFill
+            },
             UIAction(title: "下划线") { [weak self] _ in
                 self?.bar.standardAppearance.selectionStyle = .underline
                 self?.bar.standardAppearance.selectionColor = .label
