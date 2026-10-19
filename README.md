@@ -52,6 +52,10 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 
 打开 [StickyPagerDemo.xcodeproj](Examples/StickyPagerDemo/StickyPagerDemo.xcodeproj)，选择共享 scheme `StickyPagerDemo`，选择 iOS 模拟器并运行。真机运行需自行在 Xcode 中配置 Team。
 
+首页提供两个纵向排列的入口：「打开演示」继续使用原有导航栈；「系统容器演示」全屏打开 `UITabBarController → UINavigationController → DemoPager`，其中 `DemoPager` 是 `SPPageViewController` 的子类。系统标签分为「联动演示」和「布局说明」，两个标签各自持有导航控制器，均可通过「关闭」回到首页。实现见 [DemoSystemContainer.swift](Examples/StickyPagerDemo/StickyPagerDemo/DemoSystemContainer.swift)。
+
+系统容器场景把状态移到导航栏并隐藏原有底部工具栏，便于观察系统 Tab Bar 的安全区域贡献。Header 背景及子页面根视图仍延伸到容器边界，组件标签栏在顶部安全区域下缘吸顶；列表保留 UIKit 自动 `adjustedContentInset` 和滚动指示器安全区域处理，不手动叠加系统栏高度。iPad 的系统 Tab Bar 可按系统规则位于顶部，布局以实际安全区域为准。「页面」菜单仍可切换 Header 类型、高度和页面配置。
+
 - 网格、长列表、短列表、空列表、普通页面和可动态创建滚动视图的异步页面。
 - “收藏”与“更多专题与活动”之间的“组合布局”标签使用 `UICollectionViewCompositionalLayout`：包含 `.continuous`、`.groupPaging` 横向 Section 和 30 项纵向内容；也可从“页面 → 组合布局 · 嵌套滚动”直接进入。
 - 导航栏 `Header` 切换 UIView / UIViewController，`高度` 切换 220 / 300。

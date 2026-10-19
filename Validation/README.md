@@ -2,6 +2,38 @@
 
 验证日期：2026-10-15 至 2026-10-19。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-19：系统容器演示入口与安全区域验证
+
+- **实现：** 首页新增「系统容器演示」，全屏呈现 `UITabBarController → UINavigationController → DemoPager`。系统标签包含「联动演示」与「布局说明」，均可关闭回首页。复用现有 Header、列表和分页；系统容器场景隐藏原底部工具栏，把状态放到导航栏。未修改库源码、未硬编码系统栏高度、未提交或推送。
+- **通过：iPhone 最终新增 UI 用例 3 通过、0 失败、0 跳过。** Xcode 26.6 / Debug，iPhone 17 Pro / iOS 26.5。覆盖真实入口、Header 展开／部分折叠／吸顶、短列表首末项、长列表第 80 项可见、自动 inset 与指示器配置、点击与横向分页、系统标签往返的滚动位置恢复、LTR／RTL 双向横屏与竖屏、旋转后正文位置保持与新触摸恢复，以及关闭后重新进入原演示。终态 `TEST SUCCEEDED`，全部输入哈希一致。见 [最终摘要](Results/system-container-iphone-verified-20261019/summary.json)、[结果包](Results/system-container-iphone-verified-20261019/Result.xcresult)、[首页截图](Results/system-container-iphone-verified-20261019/launcher.png) 和 [末项截图](Results/system-container-iphone-verified-20261019/screenshots/F10B7570-415B-4852-A26B-09CA5F630BE3.png)。
+- **通过：原入口两项回归。** `testCollapsedTabBarStaysAtNavigationBarBottom` 与 `testRotationAndBackGesture` 在此前同一最终应用源码的 clean test 中通过。该次整体为 **3 通过、2 失败**，两项失败来自新增测试对 Toolbar 无障碍节点类型的假设；其后仅调整新增测试，未修改应用或库源码。见 [阶段摘要](Results/system-container-iphone-final-20261019/summary.json)。不将该阶段整组结果记为全通过。
+- **历史阶段结果：iPad 新增用例 1 通过、2 失败。** iPad Pro 11-inch (M5) (16GB) / iOS 26.5。通过用例覆盖顶部系统标签布局、展开／部分折叠／吸顶、列表首末项与指示器配置。LTR／RTL 用例均已完成横向分页和系统标签往返的滚动位置断言，但在旋转方向检查处失败：设备请求为横屏，实际场景仍报告竖屏，窗口保持 `834 × 1210pt`。没有跳过方向断言或把竖屏执行算作横屏通过。终态 `.xcresult` 已读取，全部输入哈希一致。见 [iPad 摘要](Results/system-container-ipad-final-20261019/summary.json)、[结果包](Results/system-container-ipad-final-20261019/Result.xcresult) 和 [吸顶截图](Results/system-container-ipad-final-20261019/screenshots/56C52C62-61F5-4789-94A0-71C7503FBF0D.png)。
+- **对照失败：** 同一 iPad 上运行未修改的原入口 `testRotationAndBackGesture`，**1 失败**，同样未通过方向检查；状态查询返回无值，截图仍为竖屏窗口。该结果说明当前旋转验证问题也出现在原入口，但尚不能据此确定系统环境根因或排除所有新容器问题。见 [对照摘要](Results/system-container-ipad-rotation-baseline-20261019/summary.json)。该阶段 iPad 横屏和后续恢复路径未通过验收；后续恢复验证见下。
+- **后续恢复验证：3 通过、0 失败、0 跳过。** 继续排查时该 iPad 已处于关机状态；从此状态启动同一设备，保持应用、库、测试源码和方向断言不变，原入口 `testRotationAndBackGesture` 与系统容器 LTR／RTL 两项旋转用例均通过。系统容器实际窗口从 `834 × 1210pt` 转为 `1210 × 834pt`，双向横屏、返回竖屏、正文位置保持及新触摸滚动全部通过。见 [恢复摘要](Results/system-container-ipad-resume-baseline-20261019/summary.json)。全部输入哈希一致。该证据支持此前存在可通过重新启动恢复的模拟器运行状态异常，未确定更底层原因；没有修改方向锁定设置、抹除设备或放宽断言。
+
+- **最终 iPad 干净重建验收：5 通过、0 失败、0 跳过。** Xcode 26.6 / Debug，iPad Pro 11-inch (M5) (16GB) / iOS 26.5。同一次 `clean test` 覆盖全部 3 项 `SystemContainerTests` 和原入口 `testCollapsedTabBarStaysAtNavigationBarBottom`、`testRotationAndBackGesture`。终态 `TEST SUCCEEDED`，结果包为 `Passed`，38 个源码输入哈希全部一致。见 [最终摘要](Results/system-container-ipad-recovered-final-20261019/summary.json)、[结果包](Results/system-container-ipad-recovered-final-20261019/Result.xcresult)、[横屏整屏截图](Results/system-container-ipad-recovered-final-20261019/landscape-screen.jpg)。本次继续处理只更新验证记录，没有改动应用、库或测试源码。
+
+实际几何观测（pt）：
+
+| 场景 | 组件标签栏展开顶部 | 吸顶顶部＝导航栏底部 | 底部安全区域 | 结果 |
+| --- | ---: | ---: | ---: | --- |
+| iPhone 竖屏，系统 Tab Bar 在底部 | 220 | 116 | 83 | 通过 |
+| iPhone 横屏，系统 Tab Bar 在底部 | — | 78 | 64 | 通过；左右安全区域各 62 |
+| iPad 竖屏，系统标签在顶部 | 220 | 140 | 20 | 通过 |
+| iPad 双向横屏，系统标签在顶部 | — | 140 | 20 | 通过；正文位置保持，新触摸恢复 |
+
+页面根视图始终紧接组件标签栏底部并延伸至窗口底边；自动底部贡献等于 `adjustedContentInset.bottom - contentInset.bottom`，没有重复叠加系统安全区域。短列表为提供 Header 折叠范围而存在的补齐 inset 与系统安全区域分开记录；短列表隐藏指示器，长列表显示，手动 `verticalScrollIndicatorInsets.bottom` 保持 0，自动调整保持开启。
+
+中间失败与工具边界保留：
+
+- `system-container-first-20261019`：3 失败。末项检测错误地接受屏外元素的零尺寸 frame；另外两项把横屏枚举值写反。修正为真实可见区域检查和 UIKit 枚举后重跑。
+- `system-container-iphone-final-20261019`：3 通过、2 失败。截图证实原演示工具栏仍可见，但系统未暴露独立 Toolbar 节点；改用状态控件的真实位置与可交互性断言。`system-container-iphone-accepted-20261019` 随后 3 项通过；再统一 iPad 标签查找后形成上方最终 iPhone 结果。
+- `system-container-ipad-accepted-20261019`：3 失败，起因是把顶部系统标签当作独立 TabBar。`system-container-ipad-verified-20261019` 的进一步探查仍错误限定 Button，且清理阶段继续查询缺失节点而卡住；只停止该次测试进程，退出码 73，不计为完整有效测试运行。实时 UI 快照确认 iPad 为 Tab、iPhone 为 Button，最终使用相同 accessibilityIdentifier、不限定控件类型查找。
+- 恢复后的 XCTest `app.screenshot()` 横屏附件出现旋转裁切和黑色缺失区域，不能据此评价完整横屏画面。最终测试运行期间，在 LTR 横屏方向断言通过后，用 XcodeBuildMCP 直接截取模拟器整屏并人工复核，画面完整、导航栏与组件标签栏相接，见上方横屏截图及 [截图来源](Results/system-container-ipad-recovered-final-20261019/screen-capture.json)。布局、位置保持和新触摸恢复仍由原始 UI 断言验收。
+- MCP 的早期 iPhone UI 快照未返回交互目标，因此自动交互验证以 XCTest 为准。报告读取最初因 xcresult 缓存写权限失败，获准访问后已成功读取上述终态结果。失败日志和对应源文件快照均保留。
+
+**未执行：** 本次未重跑完整库／完整 Demo 套件、Release、真机、iOS 15、SDK 27 运行矩阵、深色与最大辅助字号、iPad 分屏／自由窗口尺寸变化及 VoiceOver 全流程。此前 iPad 旋转失败记录保留；本轮恢复通过不等同于已证明模拟器异常不会再次发生。
+
 ## 2026-10-19：横向 Section 边界交接
 
 - **需求纠正：** 此前把“Section 到边界仍不切页”作为预期，与实际需求不符。现在在手势开始时按物理方向与 `adjustedContentInset` 判断：内部仍有空间则内部滚动；到边界后，新一次向外拖动交给容器相邻页。RTL 按物理内容边界处理；容器本身也在首尾时不抢走内部弹性拖动。从内部开始的同一次触摸保持原归属，不做触摸中途切页。

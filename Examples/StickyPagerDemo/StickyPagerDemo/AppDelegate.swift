@@ -29,14 +29,38 @@ final class DemoLauncher: UIViewController {
         button.titleLabel?.font = .preferredFont(forTextStyle: .title2)
         button.accessibilityIdentifier = "demo.open"
         button.addAction(UIAction { [weak self] _ in self?.navigationController?.pushViewController(DemoPager(), animated: true) }, for: .touchUpInside)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(button)
-        NSLayoutConstraint.activate([button.centerXAnchor.constraint(equalTo: view.centerXAnchor), button.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
+        let systemButton = UIButton(type: .system)
+        systemButton.setTitle("系统容器演示", for: .normal)
+        systemButton.titleLabel?.font = .preferredFont(forTextStyle: .title2)
+        systemButton.accessibilityIdentifier = "demo.openSystemContainer"
+        systemButton.addAction(UIAction { [weak self] _ in
+            self?.present(DemoSystemContainer(), animated: true)
+        }, for: .touchUpInside)
+        let stack = UIStackView(arrangedSubviews: [button, systemButton])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 24
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        for entry in [button, systemButton] {
+            entry.titleLabel?.adjustsFontForContentSizeCategory = true
+            entry.titleLabel?.numberOfLines = 0
+            entry.titleLabel?.textAlignment = .center
+            entry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        }
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20)
+        ])
     }
 }
 
 @MainActor
 final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPPageViewControllerDelegate {
+    /// 由入口在加载视图前设置；系统容器场景只保留 UITabBar 的底部遮挡。
+    var usesSystemContainer = false
     private var pageIDs = ["grid", "list", "short", "empty", "plain", "async",
                            "hot", "recommended", "following", "weekly", "saved", "compositional", "topics"]
     private let names = ["grid": "网格", "list": "列表", "short": "短列表", "empty": "空列表",
@@ -49,7 +73,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "StickyPagerKit"
+        title = usesSystemContainer ? "联动演示" : "StickyPagerKit"
         if ProcessInfo.processInfo.arguments.contains("--rtl") { view.semanticContentAttribute = .forceRightToLeft }
         edgesForExtendedLayout = .all
         extendedLayoutIncludesOpaqueBars = true
@@ -66,15 +90,18 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         delegate = self
         headerView = DemoHeaderView()
         layout = SPPageLayout(headerHeight: 220)
-        let header = UIBarButtonItem(title: "Header", primaryAction: UIAction { [weak self] _ in self?.toggleHeader() })
+        let headerAction = UIAction(title: "切换 Header 类型") { [weak self] _ in self?.toggleHeader() }
+        let header = UIBarButtonItem(title: "Header", primaryAction: headerAction)
         header.accessibilityIdentifier = "demo.header"
-        let height = UIBarButtonItem(title: "高度", primaryAction: UIAction { [weak self] _ in
+        let heightAction = UIAction(title: "切换 Header 高度") { [weak self] _ in
             guard let self else { return }
             self.layout.headerHeight = self.layout.headerHeight == 220 ? 300 : 220
             self.updateStatus()
-        })
+        }
+        let height = UIBarButtonItem(title: "高度", primaryAction: heightAction)
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
+            headerAction, heightAction,
             UIAction(title: "组合布局 · 嵌套滚动") { [weak self] _ in
                 guard let self, let index = self.pageIDs.firstIndex(of: "compositional") else { return }
                 self.setSelectedIndex(index, animated: false)
@@ -106,11 +133,19 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
             UIAction(title: "清空页面") { [weak self] _ in self?.pageIDs = []; self?.reloadData(); self?.updateStatus() }
         ]))
         pages.accessibilityIdentifier = "demo.pages"
-        navigationItem.rightBarButtonItems = [pages, height, header]
+        navigationItem.rightBarButtonItems = usesSystemContainer ? [pages] : [pages, height, header]
         status.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         status.accessibilityIdentifier = "demo.status"
         status.textAlignment = .center
-        toolbarItems = [UIBarButtonItem(customView: status)]
+        if usesSystemContainer {
+            status.numberOfLines = 2
+            status.font = .preferredFont(forTextStyle: .caption1)
+            status.adjustsFontForContentSizeCategory = true
+            navigationItem.titleView = status
+            navigationItem.leftBarButtonItem = DemoSystemContainer.closeItem(for: self)
+        } else {
+            toolbarItems = [UIBarButtonItem(customView: status)]
+        }
         reloadData()
         if ProcessInfo.processInfo.arguments.contains("--compositional"),
            let index = pageIDs.firstIndex(of: "compositional") {
@@ -120,7 +155,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        navigationController?.setToolbarHidden(false, animated: animated)
+        navigationController?.setToolbarHidden(usesSystemContainer, animated: animated)
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -147,6 +182,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         let page = selectedIndex.map { pageIDs[$0] } ?? "none"
         let oldProgress = status.accessibilityValue?.components(separatedBy: "progress=").last ?? "0.00"
         status.text = "\(names[page] ?? page) · \(controllerHeader ? "Controller" : "View") · H\(Int(layout.headerHeight))"
+        if usesSystemContainer { status.text = "系统容器演示\n\(names[page] ?? page) · H\(Int(layout.headerHeight))" }
         status.accessibilityValue = "direction=\(view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? "rtl" : "ltr");page=\(page);header=\(controllerHeader ? "controller" : "view");height=\(Int(layout.headerHeight));progress=\(progress.map { String(format: "%.2f", Double($0)) } ?? oldProgress)"
         status.sizeToFit()
     }
@@ -251,7 +287,18 @@ private final class RegressionTableView: UITableView {
             var geometry: [String: Double] = [
                 "position": Double(contentOffset.y + adjustedContentInset.top),
                 "safeLeft": Double(safeAreaInsets.left),
-                "safeRight": Double(safeAreaInsets.right)
+                "safeRight": Double(safeAreaInsets.right),
+                "safeTop": Double(safeAreaInsets.top),
+                "safeBottom": Double(safeAreaInsets.bottom),
+                "insetTop": Double(contentInset.top),
+                "insetBottom": Double(contentInset.bottom),
+                "adjustedTop": Double(adjustedContentInset.top),
+                "adjustedBottom": Double(adjustedContentInset.bottom),
+                "indicatorTop": Double(verticalScrollIndicatorInsets.top),
+                "indicatorBottom": Double(verticalScrollIndicatorInsets.bottom),
+                "automaticIndicators": automaticallyAdjustsScrollIndicatorInsets ? 1 : 0,
+                "showsIndicator": showsVerticalScrollIndicator ? 1 : 0,
+                "offsetY": Double(contentOffset.y)
             ]
             if let first = indexPathsForVisibleRows?.sorted().first, let cell = cellForRow(at: first) {
                 geometry["firstRow"] = Double(first.row)
