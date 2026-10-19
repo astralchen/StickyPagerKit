@@ -183,7 +183,6 @@ open class SPTabBar: UIView {
         collectionView.accessibilityIdentifier = "sp.tabBar.collection"
         edgeMask.startPoint = CGPoint(x: 0, y: 0.5)
         edgeMask.endPoint = CGPoint(x: 1, y: 0.5)
-        collectionView.register(TabCell.self, forCellWithReuseIdentifier: "tab")
         collectionAdapter.owner = self
         collectionView.dataSource = collectionAdapter
         collectionView.delegate = collectionAdapter
@@ -446,8 +445,7 @@ open class SPTabBar: UIView {
         tabLayout.itemWidths = items.map { max(44, measuredSize($0).width + 32) }
     }
 
-    private func configure(_ cell: TabCell, at index: Int) {
-        let item = items[index]
+    private func configure(_ cell: UICollectionViewCell, item: SPTabBarItem, at index: Int) {
         let styles = appearance.itemAppearance
         let state = !item.isEnabled ? styles.disabled : (index == selectedIndex ? styles.selected : styles.normal)
         let defaultColor: UIColor = !item
@@ -489,39 +487,38 @@ open class SPTabBar: UIView {
             }
             return result
         }
-        cell.button.tintColor = iconColor
-        cell.button.configuration = configuration
-        cell.button.isEnabled = item.isEnabled
-        cell.button.accessibilityIdentifier = "sp.tab.\(index)"
-        cell.button.accessibilityLabel = item.accessibilityLabel ?? item.title
-        cell.button.accessibilityHint = item.accessibilityHint
-        cell.button.largeContentTitle = item.accessibilityLabel ?? item.title
-        cell.button.largeContentImage = item.largeContentSizeImage ?? configuration.image
-        cell.button.largeContentImageInsets = item.largeContentSizeImageInsets
-        cell.button.accessibilityValue = item.badgeValue.map { $0.isEmpty ? "有新内容" : $0 }
-        cell.button.accessibilityTraits = index == selectedIndex ? [.button, .selected] : .button
+        var traits: UIAccessibilityTraits = index == selectedIndex ? [.button, .selected] : .button
         if !item.isEnabled {
-            cell.button.accessibilityTraits.insert(.notEnabled)
+            traits.insert(.notEnabled)
         }
-        cell.badge.text = item.badgeValue
-        cell.badge.isHidden = item.badgeValue == nil
-        cell.badge.font = .preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
-        cell.badge.textColor = state.badgeTextColor
-        cell.badge.backgroundColor = item.badgeColor ?? state.badgeBackgroundColor
-        cell.onTap = { [weak self, weak item] in
-            guard let item else {
-                return
+        cell.contentConfiguration = SPTabContentConfiguration(
+            buttonConfiguration: configuration,
+            iconColor: iconColor,
+            isEnabled: item.isEnabled,
+            accessibilityIdentifier: "sp.tab.\(index)",
+            accessibilityLabel: item.accessibilityLabel ?? item.title,
+            accessibilityHint: item.accessibilityHint,
+            accessibilityTraits: traits,
+            largeContentImage: item.largeContentSizeImage ?? configuration.image,
+            largeContentImageInsets: item.largeContentSizeImageInsets,
+            badgeValue: item.badgeValue,
+            badgeFont: .preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection),
+            badgeTextColor: state.badgeTextColor,
+            badgeBackgroundColor: item.badgeColor ?? state.badgeBackgroundColor,
+            onTap: { [weak self, weak item] in
+                guard let item else {
+                    return
+                }
+                self?.requestSelection(of: item)
             }
-            self?.requestSelection(of: item)
-        }
-        cell.setNeedsLayout()
+        )
     }
 
     private func updateVisibleCells() {
         for indexPath in collectionView.indexPathsForVisibleItems {
             if items.indices.contains(indexPath.item),
-               let cell = collectionView.cellForItem(at: indexPath) as? TabCell {
-                configure(cell, at: indexPath.item)
+               let cell = collectionView.cellForItem(at: indexPath) {
+                configure(cell, item: items[indexPath.item], at: indexPath.item)
             }
         }
     }
@@ -647,6 +644,21 @@ open class SPTabBar: UIView {
 
     private final class TabAdapter: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {
         weak var owner: SPTabBar?
+        private lazy var cellRegistration = UICollectionView.CellRegistration<UICollectionViewCell, SPTabBarItem?> {
+            [weak self] cell, indexPath, item in
+            guard let owner = self?.owner, let item else {
+                cell.contentConfiguration = nil
+                return
+            }
+            owner.configure(cell, item: item, at: indexPath.item)
+        }
+
+        override init() {
+            super.init()
+            // 提前创建注册对象；首次创建若发生在 cellForItemAt 内，UIKit 会触发断言。
+            _ = cellRegistration
+        }
+
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             owner?.updateEdgeMask()
         }
@@ -664,9 +676,11 @@ open class SPTabBar: UIView {
             _ collectionView: UICollectionView,
             cellForItemAt indexPath: IndexPath
         ) -> UICollectionViewCell {
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "tab", for: indexPath) as! TabCell
-            owner?.configure(cell, at: indexPath.item)
-            return cell
+            collectionView.dequeueConfiguredReusableCell(
+                using: cellRegistration,
+                for: indexPath,
+                item: owner?.items[indexPath.item]
+            )
         }
 
         func collectionView(
@@ -674,56 +688,11 @@ open class SPTabBar: UIView {
             willDisplay cell: UICollectionViewCell,
             forItemAt indexPath: IndexPath
         ) {
-            guard let owner, owner.items.indices.contains(indexPath.item), let cell = cell as? TabCell else {
+            guard let owner, owner.items.indices.contains(indexPath.item) else {
                 return
             }
             // 预取的 Cell 可能早于最近一次选择或字体变化创建，显示前重新同步状态。
-            owner.configure(cell, at: indexPath.item)
-        }
-    }
-
-    private final class TabCell: UICollectionViewCell {
-        let button = UIButton(type: .system)
-        let badge = UILabel()
-        var onTap: (() -> Void)?
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            button.titleLabel?.adjustsFontForContentSizeCategory = true
-            button.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
-            contentView.addSubview(button)
-            badge.textAlignment = .center
-            badge.clipsToBounds = true
-            badge.isUserInteractionEnabled = false
-            badge.isAccessibilityElement = false
-            contentView.addSubview(badge)
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("请使用 init(frame:)")
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            let badgeWidth: CGFloat = badge.isHidden ? 0 : (badge.text?.isEmpty == true ? 8 : max(
-                18,
-                ceil(badge.intrinsicContentSize.width) + 10
-            ))
-            let badgeHeight: CGFloat = badge.text?.isEmpty == true ? 8 : max(18, ceil(badge.font.lineHeight) + 2)
-            let reserve = badgeWidth > 0 ? badgeWidth + 4 : 0
-            let rtl = effectiveUserInterfaceLayoutDirection == .rightToLeft
-            button.frame = contentView.bounds
-            // 为角标预留内容空间，同时让按钮覆盖整个点击区域。
-            if var config = button.configuration, config.contentInsets.trailing != 16 + reserve {
-                config.contentInsets.trailing = 16 + reserve
-                button.configuration = config
-            }
-            badge.frame = CGRect(
-                x: rtl ? 12 : max(12, bounds.width - 12 - badgeWidth),
-                y: max(4, (bounds.height - badgeHeight) / 2),
-                width: badgeWidth,
-                height: badgeHeight
-            )
-            badge.layer.cornerRadius = badgeHeight / 2
+            owner.configure(cell, item: owner.items[indexPath.item], at: indexPath.item)
         }
     }
 }

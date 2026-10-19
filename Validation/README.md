@@ -2,6 +2,19 @@
 
 验证日期：2026-10-15 至 2026-10-19。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-19：标签 Cell 内容配置与 CellRegistration
+
+- **实现：** 移除自定义 `TabCell`，使用标准 `UICollectionViewCell`、持久的 `UICollectionView.CellRegistration` 与 `dequeueConfiguredReusableCell(using:for:item:)`，不再手动注册或使用字符串复用标识。新增内部 `SPTabContentConfiguration` 和私有 `SPTabContentView`，通过 `contentConfiguration` 应用标题、图标、角标及无障碍信息；按钮和角标只创建一次，action 读取最新配置，回调弱引用宿主和 Item。注册对象在适配器初始化时提前创建，显示前继续同步预取 Cell。公开 API、iOS 15 部署目标、测量、指示器和分页联动代码保持不变；没有公开行为变更，因此未改写接入 README。
+- **状态归属：** 选中／禁用外观仍由 `SPTabBar` 解析，真实按压高亮仍由 `UIButton` 管理。`updated(for:)` 保持内容快照，不将 Cell 的选中或高亮状态引入标签栏；不为此增加 Cell 子类或重复的状态更新链路。
+- **新增回归：** 在真实 `UIWindow` 中验证反复配置时复用相同内容视图和按钮、保留按压高亮、只发送一次点击回调；同一标准 Cell 复用后清除旧标题／图标／角标／无障碍及大内容信息、恢复角标预留空间并将点击路由到新 Item；验证配置快照独立于后续模型更新，Cell 状态不能覆盖宿主选择。新增 3 项 `SPTabBarModelTests`，既有外观、布局和容器测试保持原断言。
+- **阶段通过，不作为最终源码验收：** 内容视图改造后的 [39 项标签聚焦测试](Results/tab-content-focused-20261019/summary.json) 和 [114 项库测试](Results/tab-content-library-20261019/summary.json) 通过；加入 Registration 后的 [114 项库测试](Results/tab-content-registration-library-20261019/summary.json) 也通过。这些运行之后仍修改了 `SPTabBar.swift`，重新生成的摘要如实记录该文件的 `sourceChangedSinceRun`，不将阶段通过替代最终回归。
+- **首次 UI 失败：0 通过、12 失败。** Registration 最初作为 lazy 属性在第一次 `cellForItemAt` 中创建，触发 UIKit 的 `NSInternalInconsistencyException`，Demo 进入分页演示时退出，全部选定用例在入口标签存在性检查失败。库测试未暴露该断言，因此仍需真实 Demo 验证。修复仅将首次创建提前到适配器初始化阶段，没有修改或放宽 UI 断言。保留 [失败摘要](Results/tab-content-registration-ui-20261019/summary.json)、[系统断言日志](Results/tab-content-registration-ui-20261019/registration-assertion.log) 和 [崩溃报告](Results/tab-content-registration-ui-20261019/registration-crash.ips)；失败摘要中的源码差异对应后续初始化修复。
+- **通过：聚焦恢复 2 项。** iPhone 17 Pro / iOS 26.5 Simulator，动态标题／角标、禁用项分页和按住按钮后的横向拖动均通过；0 失败、0 跳过，`sourceChangedSinceRun` 为空。见 [恢复摘要](Results/tab-content-registration-ui-recovery-20261019/summary.json)。
+- **通过：最终全部库测试 114 项。** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro Max / iOS 26.5 Simulator；114 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。该设备与 UI 回归设备分开执行。见 [最终库摘要](Results/tab-content-library-final-20261019/summary.json) 和 [结果包](Results/tab-content-library-final-20261019/Result.xcresult)。
+- **通过：最终相关 Demo UI 测试 12 项。** Xcode 26.6 / Debug，iPhone 17 Pro / iOS 26.5 Simulator；12 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。覆盖动态标签、禁用项分页、独立标签外观示例、快速切页、选中居中与横向滚动、按住按钮后的拖动、纵向拖动不误选、RTL 分页、普通／辅助字号 × LTR／RTL 的四方向安全区域和吸顶恢复，以及首尾边缘渐隐。见 [最终 UI 摘要](Results/tab-content-ui-final-20261019/summary.json) 和 [结果包](Results/tab-content-ui-final-20261019/Result.xcresult)。
+- **通过：格式与差异检查。** SwiftFormat 0.64.0 对 3 个修改的 Swift 文件检查为 `0/3 files require formatting`；Demo 构建阶段报告 `0/27 files formatted`。`SPTabBar` 的 public/open 声明与改造前一致，`git diff --check` 通过。构建日志中仍有 AppIntents 元数据提取跳过提示；早期测试编译还包含既有的同类型转换及归档 API 弃用警告。
+- **未执行／环境边界：** 未运行全套 Demo UI、iPad、Release、真机、iOS 15 实际运行或 Xcode 27 兼容性矩阵。最初沙盒内的 CoreSimulator 查询及 xcresulttool TestReport 缓存写入受限，通过工具权限机制重试后恢复，不计为测试失败。历史失败与结果包均保留。
+
 ## 2026-10-19：SwiftPM Command Plugin 与构建时自动格式化
 
 - **接入：** `Package.swift` 精确依赖 SwiftFormat 0.64.0，根 `Package.resolved` 锁定 revision `ce60affbe4143ad93ed16b8018117ed4f1db8ce3`。没有将 SwiftFormat 加入库或测试 target 的编译／链接依赖。`Scripts/format.sh` 使用 macOS SDK 和 Release 配置执行官方 Command Plugin，复用现有 `.swiftformat`，显式覆盖框架、Package 清单、测试及独立 Demo；无需全局安装工具。

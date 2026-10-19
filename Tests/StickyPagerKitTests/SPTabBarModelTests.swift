@@ -38,6 +38,125 @@ final class SPTabBarModelTests: XCTestCase {
             .compactMap { $0 as? UIButton }.first!
     }
 
+    func testLiveConfigurationUpdatesReuseContentViewAndKeepButtonHighlight() throws {
+        let item = SPTabBarItem(title: "原始标题", image: UIImage(systemName: "star"))
+        let bar = mount([item])
+        let spy = SelectionSpy()
+        bar.delegate = spy
+        bar.selectedItem = item
+        let cell = try XCTUnwrap(collection(bar).cellForItem(at: IndexPath(item: 0, section: 0)))
+        XCTAssertTrue(type(of: cell) == UICollectionViewCell.self)
+        let content = cell.contentView
+        XCTAssertTrue(content is UIContentView)
+        let tab = button(bar)
+        tab.isHighlighted = true
+        for index in 0 ..< 3 {
+            item.title = "更新标题 \(index)"
+            item.badgeValue = "\(index)"
+            bar.tintColor = .systemPurple
+            bar.layoutIfNeeded()
+            XCTAssertTrue(cell.contentView === content)
+            XCTAssertTrue(button(bar) === tab)
+            XCTAssertTrue(tab.isHighlighted, "内容更新不应中断按钮当前的按压跟踪")
+            XCTAssertEqual(tab.configuration?.title, item.title)
+            XCTAssertEqual(tab.accessibilityValue, item.badgeValue)
+            XCTAssertEqual(tab.configuration?.baseForegroundColor, .systemPurple)
+        }
+        tab.isHighlighted = false
+        tab.sendActions(for: .touchUpInside)
+        XCTAssertEqual(spy.selected.count, 1, "反复应用配置不应累积 action")
+        XCTAssertTrue(spy.selected.first === item)
+    }
+
+    func testContentConfigurationReplacementClearsOldContentAndTapAction() throws {
+        let old = SPTabBarItem(title: "旧标签", image: UIImage(systemName: "star"))
+        old.badgeValue = "99+"
+        old.accessibilityLabel = "旧无障碍标题"
+        old.accessibilityHint = "旧提示"
+        old.largeContentSizeImage = UIImage(systemName: "heart")
+        old.largeContentSizeImageInsets = UIEdgeInsets(top: 1, left: 2, bottom: 3, right: 4)
+        let next = SPTabBarItem(title: nil)
+        let bar = mount([old, next])
+        let spy = SelectionSpy()
+        bar.delegate = spy
+        bar.selectedItem = old
+        old.isEnabled = false
+        let source = collection(bar)
+        let oldConfiguration = try XCTUnwrap(source.cellForItem(at: IndexPath(item: 0, section: 0))?
+            .contentConfiguration)
+        let nextConfiguration = try XCTUnwrap(source.cellForItem(at: IndexPath(item: 1, section: 0))?
+            .contentConfiguration)
+        // 在同一个标准 Cell 上走复用后的配置替换，检查完整的渲染和回调清理。
+        let cell = UICollectionViewCell(frame: CGRect(x: 0, y: 200, width: 200, height: 80))
+        window.rootViewController!.view.addSubview(cell)
+        cell.contentConfiguration = oldConfiguration
+        cell.layoutIfNeeded()
+        let content = cell.contentView
+        let tab = try XCTUnwrap(content.subviews.compactMap { $0 as? UIButton }.first)
+        let badge = try XCTUnwrap(content.subviews.compactMap { $0 as? UILabel }.first)
+        XCTAssertFalse(tab.isEnabled)
+        XCTAssertTrue(tab.accessibilityTraits.contains(.selected))
+        XCTAssertFalse(badge.isHidden)
+        XCTAssertGreaterThan(tab.configuration!.contentInsets.trailing, 16)
+        cell.prepareForReuse()
+        cell.contentConfiguration = nextConfiguration
+        cell.layoutIfNeeded()
+        XCTAssertTrue(cell.contentView === content)
+        XCTAssertTrue(tab.isEnabled)
+        XCTAssertNil(tab.configuration?.title)
+        XCTAssertNil(tab.configuration?.image)
+        XCTAssertNil(tab.accessibilityLabel)
+        XCTAssertNil(tab.accessibilityHint)
+        XCTAssertNil(tab.accessibilityValue)
+        XCTAssertEqual(tab.accessibilityIdentifier, "sp.tab.1")
+        XCTAssertEqual(tab.accessibilityTraits, .button)
+        XCTAssertNil(tab.largeContentTitle)
+        XCTAssertNil(tab.largeContentImage)
+        XCTAssertEqual(tab.largeContentImageInsets, .zero)
+        XCTAssertNil(badge.text)
+        XCTAssertTrue(badge.isHidden)
+        XCTAssertEqual(tab.configuration?.contentInsets.trailing, 16)
+        XCTAssertEqual(tab.frame, content.bounds)
+        for _ in 0 ..< 3 {
+            cell.contentConfiguration = nextConfiguration
+        }
+        tab.sendActions(for: .touchUpInside)
+        XCTAssertEqual(spy.selected.count, 1)
+        XCTAssertTrue(spy.selected.first === next, "复用后的点击必须发送给当前 Item")
+    }
+
+    func testContentConfigurationSnapshotAndCellStateDoNotOverrideHostSelection() throws {
+        let item = SPTabBarItem(title: "快照标题")
+        item.badgeValue = "8"
+        let bar = mount([item])
+        bar.selectedItem = item
+        let cell = try XCTUnwrap(collection(bar).cellForItem(at: IndexPath(item: 0, section: 0)))
+        let snapshot = try XCTUnwrap(cell.contentConfiguration)
+        item.title = "新标题"
+        item.badgeValue = nil
+        item.isEnabled = false
+        bar.selectedItem = nil
+        var state = UICellConfigurationState(traitCollection: bar.traitCollection)
+        state.isSelected = false
+        state.isHighlighted = true
+        let preview = snapshot.updated(for: state).makeContentView()
+        let oldButton = try XCTUnwrap(preview.subviews.compactMap { $0 as? UIButton }.first)
+        XCTAssertEqual(oldButton.configuration?.title, "快照标题")
+        XCTAssertEqual(oldButton.accessibilityValue, "8")
+        XCTAssertTrue(oldButton.isEnabled)
+        XCTAssertTrue(oldButton.accessibilityTraits.contains(.selected))
+        cell.isSelected = true
+        cell.isHighlighted = true
+        cell.setNeedsUpdateConfiguration()
+        cell.layoutIfNeeded()
+        let current = button(bar)
+        XCTAssertEqual(current.configuration?.title, "新标题")
+        XCTAssertFalse(current.isEnabled)
+        XCTAssertFalse(current.accessibilityTraits.contains(.selected))
+        XCTAssertFalse(current.isHighlighted, "Cell 高亮不应代替按钮的真实跟踪状态")
+        XCTAssertNil(bar.selectedItem)
+    }
+
     func testDefaultColorsFollowTintAndRespectExplicitOverrides() {
         let selected = SPTabBarItem(title: "选中", image: UIImage(systemName: "star"))
         let normal = SPTabBarItem(title: "普通", image: UIImage(systemName: "star"))
