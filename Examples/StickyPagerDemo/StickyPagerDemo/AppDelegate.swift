@@ -93,7 +93,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
             UIAction(title: "切换选中样式") { [weak self] _ in
                 guard let self else { return }
                 self.tabBar.standardAppearance.selectionStyle = self.tabBar.standardAppearance.selectionStyle == .capsule ? .underline : .capsule
-                self.tabBar.standardAppearance.selectionColor = self.tabBar.standardAppearance.selectionStyle == .underline ? .label : .tertiarySystemFill
+                self.tabBar.standardAppearance.selectionColor = nil
             },
             UIAction(title: "重排页面") { [weak self] _ in guard let self else { return }; self.pageIDs.reverse(); self.reloadData(); self.updateStatus() },
             UIAction(title: "删除当前页") { [weak self] _ in guard let self, let i = self.selectedIndex else { return }; self.pageIDs.remove(at: i); self.reloadData(); self.updateStatus() },

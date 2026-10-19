@@ -2,6 +2,14 @@
 
 验证日期：2026-10-15 至 2026-10-19。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-19：线条自动颜色与胶囊圆角
+
+- **改动：** `selectionColor` 改为可选值，nil 表示按样式解析；线条跟随选中态文字颜色（Item 文字属性、selected.titleColor、tintColor），胶囊背景保持 `.tertiarySystemFill`。显式颜色独立覆盖，设回 nil 恢复自动解析；复制和安全归档保留 nil。Demo 切换样式恢复自动颜色。线条保持 3 pt 高度、1.5 pt 圆角，选中动画与分页进度期间保持圆角；更新 tint 不重置动画。
+- **通过：library 完整 clean test，109 通过、0 失败、0 跳过。** Xcode 26.6 / Debug，iPhone 17 Pro / iOS 26.5。新增真实 UIWindow 测试覆盖颜色优先级、运行时 tint、显式覆盖与恢复、深浅色动态解析、两种样式切换、动画与分页圆角、Item 外观、复制和安全归档。见 [库摘要](Results/tabbar-underline-auto-library-20261019/summary.json)。
+- **通过：Demo 定向 clean test，2 通过、0 失败、0 跳过。** iPad Pro 11-inch (M5) (16GB) / iOS 26.5，执行动态图文／禁用项滑动进入和独立标签栏交互。见 [Demo 摘要](Results/tabbar-underline-auto-demo-20261019/summary.json)。已导出并查看 [线条截图](Results/tabbar-underline-auto-demo-20261019/screenshots/8D769D22-478E-4FEE-8A7A-E12548130A94.png)：蓝色短线两端圆角，禁用项文字仍按禁用外观显示，指示器采用选中态颜色。
+- **最终证据：** 两组日志均有 `TEST SUCCEEDED`，终态 xcresult 数量为 109 / 2；两组各 33 个输入文件哈希均与最终源码一致。日志中仍有此前版本已存在的 UIKit Observation tracking 提示；本轮无测试失败。
+- **未执行：** 本轮未重跑 Demo 完整 32 项或深色 Demo 场景，未执行 Release、iOS 15、真机和 SDK 27。前一轮完整结果仅代表当时源码。本次改动未提交、未推送。
+
 ## 2026-10-19：颜色调整后的 Demo 完整回归与指示器复查
 
 - **开始状态：** 从已提交的 `0949c9e` 开始，工作区干净。Xcode 26.6 / Swift 6.3.3 / Debug；Demo 使用 iPad Pro 11-inch (M5) (16GB) / iOS 26.5，以执行完整分屏和窗口缩放覆盖。原外观为 light，深色补测后已恢复并再次读取确认；结束后关闭 Demo 与陪测“设置”。本轮未提交、未推送。

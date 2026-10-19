@@ -131,25 +131,32 @@ tabs.standardAppearance.itemAppearance.selected.titleColor = .systemPurple
 tabs.standardAppearance.selectionStyle = .capsule
 // 需要旧版下划线时：
 tabs.standardAppearance.selectionStyle = .underline
-tabs.standardAppearance.selectionColor = .label
+tabs.standardAppearance.selectionColor = nil
 ```
 
 `SPTabBarAppearance.SelectionStyle` 是公开枚举，外部可在运行时切换原来的线条或胶囊，不需要替换标签栏：
 
 ```swift
-// 线条指示器
+// 两端圆角的线条指示器，默认跟随选中文字颜色
 tabs.standardAppearance.selectionStyle = .underline
-tabs.standardAppearance.selectionColor = .label
+tabs.standardAppearance.selectionColor = nil
 
-// 胶囊指示器
+// 胶囊选中背景，默认使用系统填充色
 tabs.standardAppearance.selectionStyle = .capsule
-tabs.standardAppearance.selectionColor = .tertiarySystemFill
+tabs.standardAppearance.selectionColor = nil
 
 // 隐藏指示器
 tabs.standardAppearance.selectionStyle = .none
 ```
 
-`selectionColor` 控制指示器，`tintColor` 控制默认选中文字和模板图标。两者独立；切换样式时可以同时设置适合该样式的指示器颜色。分页进度继续驱动当前样式的位置与宽度。
+`selectionColor` 控制指示器背景色，默认为 nil，按样式自动解析：`.underline` 跟随选中文字颜色（Item 文字属性、selected.titleColor、tintColor 依次优先），`.capsule` 使用 `.tertiarySystemFill`。显式设置颜色可独立覆盖，设回 nil 恢复自动颜色；切换样式无需手动换色。线条高度为 3 pt、圆角为 1.5 pt，两端呈胶囊形；分页和选中动画期间仍保留圆角。
+
+```swift
+// 单独修改指示器颜色，不影响选中文字和图标
+tabs.standardAppearance.selectionColor = .systemOrange
+// 恢复样式默认颜色
+tabs.standardAppearance.selectionColor = nil
+```
 
 默认使用系统材质背景和胶囊选中背景。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中标识支持 `.capsule`、`.underline`、`.none`。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
 

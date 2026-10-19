@@ -31,7 +31,8 @@ public final class SPTabBarAppearance: UIBarAppearance {
     public override class var supportsSecureCoding: Bool { true }
     public enum SelectionStyle: Int, Sendable { case capsule, underline, none }
     public var selectionStyle: SelectionStyle = .capsule { didSet { changed() } }
-    public var selectionColor: UIColor = .tertiarySystemFill { didSet { changed() } }
+    /// nil 使用样式默认颜色：下划线跟随选中文字，胶囊使用 tertiarySystemFill。
+    public var selectionColor: UIColor? { didSet { changed() } }
     public var itemAppearance = SPTabBarItemAppearance() { didSet { changed() } }
     private let bars = NSHashTable<SPTabBar>.weakObjects()
     private let items = NSHashTable<SPTabBarItem>.weakObjects()
@@ -60,7 +61,7 @@ public final class SPTabBarAppearance: UIBarAppearance {
     public required init(coder: NSCoder) {
         super.init(coder: coder)
         selectionStyle = SelectionStyle(rawValue: coder.decodeInteger(forKey: "SP.selectionStyle")) ?? .capsule
-        selectionColor = coder.decodeObject(of: UIColor.self, forKey: "SP.selectionColor") ?? .tertiarySystemFill
+        selectionColor = coder.decodeObject(of: UIColor.self, forKey: "SP.selectionColor")
         itemAppearance.layout = SPTabBarItemAppearance.Layout(rawValue: coder.decodeInteger(forKey: "SP.layout")) ?? .automatic
         itemAppearance.normal = Self.decodeState(coder, key: "normal", fallback: itemAppearance.normal)
         itemAppearance.selected = Self.decodeState(coder, key: "selected", fallback: itemAppearance.selected)

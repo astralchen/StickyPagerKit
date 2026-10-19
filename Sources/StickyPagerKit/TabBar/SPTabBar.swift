@@ -92,8 +92,15 @@ open class SPTabBar: UIView {
         shadowView.tintColor = value.shadowColor
         shadowView.backgroundColor = value.shadowImage == nil ? value.shadowColor : .clear
         shadowView.isHidden = (value.shadowImage == nil || value.shadowImage?.renderingMode == .alwaysTemplate) && (value.shadowColor == nil || value.shadowColor == .clear)
-        indicator.backgroundColor = value.selectionColor
+        updateIndicatorColor()
         indicator.isHidden = value.selectionStyle == .none
+    }
+
+    private func updateIndicatorColor() {
+        let value = appearance
+        let attributes = selectedItem?.titleTextAttributes(for: .selected) ?? selectedItem?.titleTextAttributes(for: .normal)
+        let selectedColor = attributes?[.foregroundColor] as? UIColor ?? value.itemAppearance.selected.titleColor ?? tintColor
+        indicator.backgroundColor = value.selectionColor ?? (value.selectionStyle == .underline ? selectedColor : .tertiarySystemFill)
     }
 
     @objc private func accessibilitySettingsChanged() { itemDidChange() }
@@ -102,6 +109,7 @@ open class SPTabBar: UIView {
         super.tintColorDidChange()
         // 包括继承自父视图的 tint 变化；仅刷新颜色，不中断选中动画与手动滚动。
         updateVisibleCells()
+        updateIndicatorColor()
     }
     public private(set) var selectedIndex: Int?
     private let tabLayout = SPTabBarLayout()
@@ -467,7 +475,7 @@ open class SPTabBar: UIView {
                                  width: a.width + (b.width - a.width) * eased,
                                  height: a.height + (b.height - a.height) * eased)
         collectionView.setContentOffset(CGPoint(x: animation.fromOffset + (animation.toOffset - animation.fromOffset) * eased, y: 0), animated: false)
-        indicator.layer.cornerRadius = appearance.selectionStyle == .capsule ? indicator.bounds.height / 2 : 0
+        indicator.layer.cornerRadius = indicator.bounds.height / 2
         if p == 1 { stopSelectionAnimation() }
     }
 
@@ -483,7 +491,7 @@ open class SPTabBar: UIView {
         } else {
             indicator.frame = .zero
         }
-        indicator.layer.cornerRadius = appearance.selectionStyle == .capsule ? indicator.bounds.height / 2 : 0
+        indicator.layer.cornerRadius = indicator.bounds.height / 2
     }
 
     private func indicatorFrame(_ index: Int) -> CGRect {
