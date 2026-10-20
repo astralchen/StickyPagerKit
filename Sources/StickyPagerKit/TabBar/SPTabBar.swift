@@ -4,6 +4,91 @@ import UIKit
 @MainActor
 open class SPTabBar: UIView {
     public weak var delegate: SPTabBarDelegate?
+    /// 内容展示方式，与 Appearance.selectionStyle 的指示器样式独立。
+    public enum ContentStyle: Int, Sendable {
+        /// 内置图文内容；不调用内容代理。
+        case `default`
+        /// 由内容代理配置只负责显示的 UI，点击和无障碍仍由标签栏管理。
+        case custom
+    }
+
+    /// 默认使用内置内容；切换模式保留 Item 身份和当前选择。
+    /// 自定义内容缺失或尺寸无效时，逐项回退到内置内容。
+    public var contentStyle: ContentStyle = .default {
+        didSet {
+            if oldValue != contentStyle {
+                itemDidChange()
+            }
+        }
+    }
+
+    /// 每项 Cell 的最小布局宽度，默认 44 pt；适用于默认内容、自定义内容和回退项。
+    /// 内容需要更多空间时使用内容所需宽度，其余空间尽量等宽分配；超出视口时横向滚动。
+    /// 0 表示不额外设置宽度下限；负数归零，非有限值恢复为 44，大于 1,000,000 pt 时截到该上限。
+    /// 不改变内容的理想尺寸，不扩大 Cell 之外的点击区域；实际几何不变时保留滚动和转场。
+    public var minimumItemWidth: CGFloat {
+        get { storedMinimumItemWidth }
+        set {
+            let value = newValue.isFinite ? min(1_000_000, max(0, newValue)) : 44
+            guard value != storedMinimumItemWidth else {
+                return
+            }
+            storedMinimumItemWidth = value
+            refreshContentLayout()
+        }
+    }
+
+    private var storedMinimumItemWidth: CGFloat = 44
+
+    /// 仅在 `.custom` 模式下使用，业务方需自行持有代理。
+    /// 赋值会刷新自定义内容；`.default` 下不影响当前显示或交互。
+    /// 弱引用释放不会主动安排布局，在下一次标签栏布局时回退到默认内容。
+    public weak var contentDelegate: (any SPTabBarContentDelegate)? {
+        didSet { reloadContent() }
+    }
+
+    /// 业务自有数据变化后重新获取自定义配置与尺寸；默认模式下不改变显示或交互。
+    /// 尺寸不变时保留滚动偏移、选择动画及分页进度，不发送选择回调。
+    /// 尺寸变化时将手动滚动偏移限制到新范围，选择动画落到已选项，分页按原进度重新定位。
+    /// Item、选择、外观和环境变化会自动刷新，无需为这些变化额外调用此方法。
+    public func reloadContent() {
+        guard contentStyle == .custom else {
+            invalidateContentMeasurements()
+            return
+        }
+        refreshContentLayout()
+    }
+
+    private func refreshContentLayout() {
+        let previous = appliedContentMeasurement
+        invalidateContentMeasurements()
+        resolveCustomContents(width: contentViewport.width)
+        contentGeometryChanged = contentGeometryChanged || metricsDiffer(from: previous)
+        updateVisibleCells()
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        superview?.setNeedsLayout()
+    }
+
+    private let contentMeasurementHost = UIView()
+    private var customContents: [SPTabBarContent?] = []
+    private var customViewsNeedUpdate = false
+    private var contentGeometryChanged = false
+    // 显示快照与候选宽度快照分开；测量不提交配置或使 Collection View 布局失效。
+    private struct ContentMeasurement {
+        let revision: UInt
+        let width: CGFloat
+        let direction: UIUserInterfaceLayoutDirection
+        let delegateIdentity: ObjectIdentifier?
+        let contents: [SPTabBarContent?]
+        let itemWidths: [CGFloat]
+        let height: CGFloat
+    }
+
+    private var appliedContentMeasurement: ContentMeasurement?
+    private var candidateContentMeasurement: ContentMeasurement?
+    private var contentRevision: UInt = 0
+    private var resolvingCustomContents = false
     private var storedItems: [SPTabBarItem] = []
     public var items: [SPTabBarItem] {
         get { storedItems }
@@ -88,6 +173,7 @@ open class SPTabBar: UIView {
     }
 
     internal func itemDidChange() {
+        contentGeometryChanged = false
         stopSelectionAnimation()
         transition = nil
         transitionOrigin = nil
@@ -134,8 +220,12 @@ open class SPTabBar: UIView {
 
     open override func tintColorDidChange() {
         super.tintColorDidChange()
-        // 包括继承自父视图的 tint 变化；仅刷新颜色，不中断选中动画与手动滚动。
-        updateVisibleCells()
+        // 包括继承自父视图的 tint 变化；自定义内容可依赖 tint 重新生成配置与尺寸。
+        if contentStyle == .custom {
+            reloadContent()
+        } else {
+            updateVisibleCells()
+        }
         updateIndicatorColor()
     }
 
@@ -194,6 +284,10 @@ open class SPTabBar: UIView {
         addSubview(backgroundImageView)
         addSubview(collectionView)
         addSubview(shadowView)
+        contentMeasurementHost.isHidden = true
+        contentMeasurementHost.isUserInteractionEnabled = false
+        contentMeasurementHost.accessibilityElementsHidden = true
+        addSubview(contentMeasurementHost)
         storedAppearance.attach(self)
         NotificationCenter.default.addObserver(
             self,
@@ -242,11 +336,17 @@ open class SPTabBar: UIView {
         super.point(inside: point, with: event) && contentViewport.contains(point)
     }
 
-    /// 标题保持垂直居中；上下各留 11 pt，底部扣除 3 pt 指示器后仍有 8 pt。
+    /// 测量建议宽度对应的高度，不改变当前配置、Cell 布局、滚动偏移或指示器。
+    /// 正宽度扣除左右安全区域后用于测量；非正宽度使用当前视口。
+    /// 默认图文上下各留 11 pt、至少 44 pt 高；自定义内容使用其理想高度，不额外设高度下限。
+    /// 容器通过 SPPageLayout.tabBarHeight 设置最小栏高；独立使用时由宿主设置最终高度。
     open override func sizeThatFits(_ size: CGSize) -> CGSize {
-        CGSize(
+        let width = size.width > 0 ? max(0, size.width - safeAreaInsets.left - safeAreaInsets.right) : contentViewport
+            .width
+        let measurement = measureContents(width: width)
+        return CGSize(
             width: size.width,
-            height: max(44, items.map { measuredSize($0).height + 22 }.max() ?? ceil(titleFont.lineHeight) + 22)
+            height: measurement?.height ?? appliedContentMeasurement?.height ?? max(44, ceil(titleFont.lineHeight) + 22)
         )
     }
 
@@ -360,9 +460,38 @@ open class SPTabBar: UIView {
             width: bounds.width,
             height: shadowHeight
         )
+        let previousOffset = collectionView.contentOffset.x
         collectionView.frame = viewport
+        let previousMeasurement = appliedContentMeasurement
+        if resolveCustomContents(width: viewport.width), !geometryChanged {
+            contentGeometryChanged = contentGeometryChanged || metricsDiffer(from: previousMeasurement)
+        }
+        if customViewsNeedUpdate {
+            updateVisibleCells()
+            invalidateIntrinsicContentSize()
+            superview?.setNeedsLayout()
+        }
         collectionView.layoutIfNeeded()
-        if geometryChanged || needsSelectionAlignment {
+        if contentGeometryChanged {
+            contentGeometryChanged = false
+            let wasAnimating = selectionAnimation != nil
+            stopSelectionAnimation()
+            transitionOrigin = nil
+            needsSelectionAlignment = false
+            if let transition {
+                let from = centeredOffset(for: transition.from)
+                let to = centeredOffset(for: transition.to)
+                collectionView.setContentOffset(
+                    CGPoint(x: from + (to - from) * transition.progress, y: 0),
+                    animated: false
+                )
+            } else if wasAnimating {
+                alignSelection()
+            } else {
+                let maximum = max(0, tabLayout.collectionViewContentSize.width - viewport.width)
+                collectionView.setContentOffset(CGPoint(x: min(maximum, max(0, previousOffset)), y: 0), animated: false)
+            }
+        } else if geometryChanged || needsSelectionAlignment {
             transitionOrigin = nil
             stopSelectionAnimation()
             needsSelectionAlignment = false
@@ -374,7 +503,11 @@ open class SPTabBar: UIView {
 
     open override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory
+        if contentStyle == .custom {
+            // 菜单等临时系统 UI 也会改变环境；同尺寸刷新不应重新定位标签或清空转场。
+            reloadContent()
+            updateAppearance()
+        } else if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory
             || previousTraitCollection?.verticalSizeClass != traitCollection.verticalSizeClass
             || previousTraitCollection?.displayScale != traitCollection.displayScale
             || previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) != false {
@@ -441,11 +574,224 @@ open class SPTabBar: UIView {
         )
     }
 
+    private var contentDirection: UIUserInterfaceLayoutDirection {
+        UIView.userInterfaceLayoutDirection(
+            for: semanticContentAttribute,
+            relativeTo: superview?.effectiveUserInterfaceLayoutDirection ?? effectiveUserInterfaceLayoutDirection
+        )
+    }
+
+    private func measureContents(width: CGFloat) -> ContentMeasurement? {
+        guard !resolvingCustomContents else {
+            return nil
+        }
+        let width = width.isFinite ? max(0, width) : 0
+        let identity = contentDelegate.map(ObjectIdentifier.init)
+        let direction = contentDirection
+        for snapshot in [appliedContentMeasurement, candidateContentMeasurement] {
+            if let snapshot, snapshot.revision == contentRevision, snapshot.width == width,
+               snapshot.direction == direction, snapshot.delegateIdentity == identity {
+                return snapshot
+            }
+        }
+        resolvingCustomContents = true
+        defer { resolvingCustomContents = false }
+        let revision = contentRevision
+        let provider = contentStyle == .custom ? contentDelegate : nil
+        contentMeasurementHost
+            .semanticContentAttribute = direction == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
+        if #available(iOS 17, *) {
+            contentMeasurementHost.updateTraitsIfNeeded()
+        }
+        var measuringViews: [Int: UIView] = [:]
+        var measuringContainers: [UIView] = []
+        defer { measuringContainers.forEach { $0.removeFromSuperview() } }
+        var result = items.enumerated().map { index, item -> SPTabBarContent? in
+            guard let provider else {
+                return nil
+            }
+            var state = UICellConfigurationState(traitCollection: traitCollection)
+            state.isSelected = index == selectedIndex
+            state.isDisabled = !item.isEnabled
+            let context = SPTabBarContentContext(
+                state: state,
+                tintColor: tintColor,
+                layoutDirection: direction,
+                availableWidth: width,
+                appearance: SPTabBarAppearance(barAppearance: appearance)
+            )
+            guard var content = provider.tabBar(self, contentFor: item, at: index, context: context) else {
+                return nil
+            }
+            if let size = content.size {
+                guard validContentSize(size) else {
+                    return nil
+                }
+            } else {
+                let view = content.configuration.updated(for: state).makeContentView()
+                view.translatesAutoresizingMaskIntoConstraints = false
+                view.semanticContentAttribute = contentMeasurementHost.semanticContentAttribute
+                let container = UIView()
+                container.translatesAutoresizingMaskIntoConstraints = false
+                contentMeasurementHost.addSubview(container)
+                container.addSubview(view)
+                measuringContainers.append(container)
+                NSLayoutConstraint.activate([
+                    view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                    view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                    view.topAnchor.constraint(equalTo: container.topAnchor),
+                    view.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+                ])
+                // 新系统延迟传播 traits；测量必须在配置与视图环境一致后进行。
+                if #available(iOS 17, *) {
+                    view.updateTraitsIfNeeded()
+                }
+                let natural = view.systemLayoutSizeFitting(
+                    UIView.layoutFittingCompressedSize,
+                    withHorizontalFittingPriority: .fittingSizeLevel,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                guard natural.width.isFinite, natural.width > 0, natural.width <= 1_000_000 else {
+                    view.removeFromSuperview()
+                    return nil
+                }
+                // 部分系统内容视图重写 fitting，不采用外加的软宽度约束。
+                // 通过普通 Auto Layout 宿主求可行首选宽度，999 优先级让业务 required 最小宽度优先。
+                let preferredWidth = width > 0 ? min(natural.width, width) : natural.width
+                let constrained = container.systemLayoutSizeFitting(
+                    CGSize(width: preferredWidth, height: 0),
+                    withHorizontalFittingPriority: UILayoutPriority(999),
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                guard constrained.width.isFinite, constrained.width > 0, constrained.width <= 1_000_000 else {
+                    view.removeFromSuperview()
+                    return nil
+                }
+                measuringViews[index] = view
+                content.size = CGSize(width: ceil(constrained.width), height: 0)
+            }
+            return content
+        }
+        let defaultSizes = items.map { measuredSize($0) }
+        var widths: [CGFloat] = []
+        // 某项测量失败回退后，宽度分配可能改变，需要重新测量其余自动内容的高度。
+        while true {
+            widths = result.indices.map {
+                max(minimumItemWidth, result[$0]?.size?.width ?? (defaultSizes[$0].width + 32))
+            }
+            let allocated = SPTabBarLayout.resolvedWidths(widths, viewportWidth: width)
+            var failed = false
+            for index in measuringViews.keys.sorted() {
+                guard let view = measuringViews[index] else {
+                    continue
+                }
+                let fitted = view.systemLayoutSizeFitting(
+                    CGSize(width: allocated[index], height: 0),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                guard validContentSize(fitted) else {
+                    view.removeFromSuperview()
+                    measuringViews[index] = nil
+                    result[index] = nil
+                    failed = true
+                    continue
+                }
+                result[index]?.size?.height = ceil(fitted.height)
+            }
+            if !failed {
+                break
+            }
+        }
+        guard revision == contentRevision else {
+            return nil
+        }
+        let measurement = ContentMeasurement(
+            revision: revision,
+            width: width,
+            direction: direction,
+            delegateIdentity: identity,
+            contents: result,
+            itemWidths: widths,
+            // 只对默认图文保留原有高度规则；自定义内容不承担容器的最小栏高策略。
+            height: result.indices.map { result[$0]?.size?.height ?? max(44, defaultSizes[$0].height + 22) }
+                .max() ?? max(44, ceil(titleFont.lineHeight) + 22)
+        )
+        candidateContentMeasurement = measurement
+        return measurement
+    }
+
+    private func validContentSize(_ size: CGSize) -> Bool {
+        size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0
+            && size.width <= 1_000_000 && size.height <= 1_000_000
+    }
+
+    @discardableResult
+    private func resolveCustomContents(width: CGFloat) -> Bool {
+        guard let measurement = measureContents(width: width) else {
+            return false
+        }
+        if let previous = appliedContentMeasurement, previous.revision == measurement.revision,
+           previous.width == measurement.width, previous.direction == measurement.direction,
+           previous.delegateIdentity == measurement.delegateIdentity {
+            return false
+        }
+        appliedContentMeasurement = measurement
+        customContents = measurement.contents
+        tabLayout.itemWidths = measurement.itemWidths
+        customViewsNeedUpdate = true
+        return true
+    }
+
+    private func metricsDiffer(from previous: ContentMeasurement?) -> Bool {
+        guard let previous, let current = appliedContentMeasurement else {
+            return false
+        }
+        return SPTabBarLayout.resolvedWidths(previous.itemWidths, viewportWidth: previous.width) !=
+            SPTabBarLayout.resolvedWidths(current.itemWidths, viewportWidth: current.width) ||
+            previous.height != current.height
+    }
+
+    private func invalidateContentMeasurements() {
+        contentRevision &+= 1
+        candidateContentMeasurement = nil
+    }
+
+    private func customContent(at index: Int) -> SPTabBarContent? {
+        guard contentStyle == .custom, customContents.indices.contains(index) else {
+            return nil
+        }
+        return customContents[index]
+    }
+
     private func updateMetrics() {
-        tabLayout.itemWidths = items.map { max(44, measuredSize($0).width + 32) }
+        invalidateContentMeasurements()
+        resolveCustomContents(width: contentViewport.width)
     }
 
     private func configure(_ cell: UICollectionViewCell, item: SPTabBarItem, at index: Int) {
+        if let content = customContent(at: index) {
+            var state = UICellConfigurationState(traitCollection: traitCollection)
+            state.isSelected = index == selectedIndex
+            state.isDisabled = !item.isEnabled
+            cell.contentConfiguration = SPCustomTabContentConfiguration(
+                content: content.configuration,
+                measuredSize: content.size ?? CGSize(width: 44, height: 44),
+                state: state,
+                itemIdentifier: ObjectIdentifier(item),
+                accessibilityIdentifier: "sp.tab.\(index)",
+                accessibilityLabel: content.accessibilityLabel ?? item.accessibilityLabel ?? item.title,
+                accessibilityHint: content.accessibilityHint ?? item.accessibilityHint,
+                accessibilityValue: content.accessibilityValue ?? item.badgeValue.map { $0.isEmpty ? "有新内容" : $0 },
+                onTap: { [weak self, weak item] in
+                    guard let item else {
+                        return
+                    }
+                    self?.requestSelection(of: item)
+                }
+            )
+            return
+        }
         let styles = appearance.itemAppearance
         let state = !item.isEnabled ? styles.disabled : (index == selectedIndex ? styles.selected : styles.normal)
         let defaultColor: UIColor = !item
@@ -515,6 +861,7 @@ open class SPTabBar: UIView {
     }
 
     private func updateVisibleCells() {
+        customViewsNeedUpdate = false
         for indexPath in collectionView.indexPathsForVisibleItems {
             if items.indices.contains(indexPath.item),
                let cell = collectionView.cellForItem(at: indexPath) {
@@ -627,9 +974,21 @@ open class SPTabBar: UIView {
             return .zero
         }
         if appearance.selectionStyle == .capsule {
-            return frame.insetBy(dx: 4, dy: 4)
+            // 极小自定义高度仍是有效输入；避免内缩超过尺寸后产生 CGRect.null。
+            return CGRect(
+                x: frame.minX + min(4, frame.width / 2),
+                y: frame.minY + min(4, frame.height / 2),
+                width: max(0, frame.width - 8),
+                height: max(0, frame.height - 8)
+            )
         }
-        return CGRect(x: frame.minX + 12, y: max(0, bounds.height - 3), width: max(0, frame.width - 24), height: 3)
+        let height = min(3, frame.height)
+        return CGRect(
+            x: frame.minX + min(12, frame.width / 2),
+            y: max(0, bounds.height - height),
+            width: max(0, frame.width - 24),
+            height: height
+        )
     }
 
     private final class TabCollectionView: UICollectionView {

@@ -98,6 +98,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         "compositional": "组合布局"
     ]
     private let status = RegressionStatusLabel()
+    private let customTabProvider = DemoTabContentProvider()
     private var controllerHeader = false
     private var generation = 0
 
@@ -120,6 +121,10 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         }
         dataSource = self
         delegate = self
+        tabBar.contentDelegate = customTabProvider
+        if ProcessInfo.processInfo.arguments.contains("--custom-tabs") {
+            tabBar.contentStyle = .custom
+        }
         headerView = DemoHeaderView()
         layout = SPPageLayout(headerHeight: 220)
         let headerAction = UIAction(title: "切换 Header 类型") { [weak self] _ in self?.toggleHeader() }
@@ -137,6 +142,67 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
             headerAction,
             heightAction,
+            UIAction(title: "切换自定义标签") { [weak self] _ in
+                guard let self else {
+                    return
+                }
+                self.tabBar.contentStyle = self.tabBar.contentStyle == .custom ? .default : .custom
+            },
+            UIAction(title: "切换紧凑标签") { [weak self] _ in
+                guard let self else {
+                    return
+                }
+                self.customTabProvider.usesCompactContent.toggle()
+                self.tabBar.contentStyle = .custom
+                self.tabBar.reloadContent()
+            },
+            UIMenu(title: "标签宽度", children: [
+                UIAction(title: "紧凑编号内容") { [weak self] _ in
+                    guard let self else {
+                        return
+                    }
+                    self.customTabProvider.usesCompactContent = true
+                    self.customTabProvider.usesNumberContent = true
+                    self.customTabProvider.usesWideContent = false
+                    self.tabBar.contentStyle = .custom
+                    self.tabBar.reloadContent()
+                    self.setSelectedIndex(0, animated: false)
+                },
+                UIAction(title: "不可压缩宽内容") { [weak self] _ in
+                    guard let self else {
+                        return
+                    }
+                    self.customTabProvider.usesCompactContent = true
+                    self.customTabProvider.usesNumberContent = false
+                    self.customTabProvider.usesWideContent = true
+                    self.tabBar.contentStyle = .custom
+                    self.tabBar.reloadContent()
+                    self.setSelectedIndex(0, animated: false)
+                }
+            ] + [24, 44, 120].map { width in
+                UIAction(title: "最小项宽 \(width)") { [weak self] _ in
+                    self?.tabBar.minimumItemWidth = CGFloat(width)
+                }
+            }),
+            UIMenu(title: "标签栏最小高度", children: [32, 60, 0, 44].map { height in
+                UIAction(title: height == 0 ? "隐藏标签栏" : "最小栏高 \(height)") { [weak self] _ in
+                    self?.layout.tabBarHeight = CGFloat(height)
+                }
+            }),
+            UIAction(title: "切换多行副标题") { [weak self] _ in
+                guard let self else {
+                    return
+                }
+                self.customTabProvider.subtitle = self.customTabProvider.subtitle.count > 4 ? "浏览专题" : "这段副标题通过内部约束自动换行，标签栏随内容更新高度，无需业务计算宽高。"
+                self.tabBar.reloadContent()
+            },
+            UIAction(title: "刷新自定义内容") { [weak self] _ in
+                guard let self else {
+                    return
+                }
+                self.customTabProvider.subtitle = self.customTabProvider.subtitle == "浏览专题" ? "最新内容" : "浏览专题"
+                self.tabBar.reloadContent()
+            },
             UIAction(title: "组合布局 · 嵌套滚动") { [weak self] _ in
                 guard let self, let index = self.pageIDs.firstIndex(of: "compositional") else {
                     return

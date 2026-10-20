@@ -5,6 +5,7 @@ import StickyPagerKit
 @MainActor
 final class TabBarGallery: UIViewController, SPTabBarDelegate {
     private let bar = SPTabBar()
+    private let contentProvider = DemoTabContentProvider()
     private let status = UILabel()
     private let tabs = [
         SPTabBarItem(title: "推荐"),
@@ -24,6 +25,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         bar.items = tabs
         bar.selectedItem = tabs[0]
         bar.delegate = self
+        bar.contentDelegate = contentProvider
         view.addSubview(bar)
         status.numberOfLines = 0
         status.font = .preferredFont(forTextStyle: .body)
@@ -31,6 +33,8 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         status.text = "独立使用：点击标签可选择；拖动可浏览更多标签。右上角可切换布局、样式和动态内容。"
         view.addSubview(status)
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "配置", menu: UIMenu(children: [
+            UIAction(title: "默认内容") { [weak self] _ in self?.bar.contentStyle = .default },
+            UIAction(title: "自定义卡片") { [weak self] _ in self?.bar.contentStyle = .custom },
             UIAction(title: "自动布局") { [weak self] _ in
                 self?.bar.standardAppearance.itemAppearance.layout = .automatic
             },

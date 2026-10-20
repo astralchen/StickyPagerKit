@@ -108,7 +108,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         var value = layout.normalized
         // 配置高度作为下限；辅助字号需要更高的标签栏，0 仍表示隐藏。
         if value.tabBarHeight > 0 {
-            value.tabBarHeight = max(value.tabBarHeight, storedTabBar.sizeThatFits(.zero).height)
+            value.tabBarHeight = max(value.tabBarHeight, storedTabBar.sizeThatFits(view.bounds.size).height)
         }
         if storedHeaderView == nil && storedHeaderController ==
             nil {

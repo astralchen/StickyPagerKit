@@ -75,7 +75,7 @@ final class StickyPagerDemoUITests: XCTestCase {
             let viewport = tabs.frame
             if target.exists {
                 let visibleFrame = target.frame.intersection(viewport)
-                if !visibleFrame.isNull, visibleFrame.width >= 44, visibleFrame.height >= 20 {
+                if !visibleFrame.isNull, visibleFrame.width >= min(44, target.frame.width), visibleFrame.height >= 20 {
                     // 点击真实露出的按钮区域；避免 XCTest 在裁切标签上查询无效激活点。
                     tabs.coordinate(withNormalizedOffset: .zero).withOffset(
                         CGVector(dx: visibleFrame.midX - viewport.minX, dy: visibleFrame.midY - viewport.minY)
@@ -93,7 +93,7 @@ final class StickyPagerDemoUITests: XCTestCase {
                 break
             }
             let towardStart = index < first
-            let rtl = (status.value as? String)?.contains("direction=rtl") == true
+            let rtl = status.exists && (status.value as? String)?.contains("direction=rtl") == true
             // 短标签容易被快速 swipe 的惯性整段越过；使用小幅拖动逐步查找。
             // 目标已露出一部分时按物理位置补足；它等于首个可见索引，不能按 index < first 判断方向。
             let movesRight = target.exists ? target.frame.midX < viewport.midX : towardStart != rtl
@@ -754,6 +754,161 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(favorites.isSelected)
     }
 
+    func testCustomTabGallerySwitchesModeAndUpdatesContent() {
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["标签外观"].tap()
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let defaultHeight = tabs.frame.height
+        app.buttons["配置"].tap()
+        app.buttons["自定义卡片"].tap()
+        XCTAssertGreaterThan(tabs.frame.height, defaultHeight)
+        select(1)
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        app.buttons["配置"].tap()
+        app.buttons["更新内容"].tap()
+        XCTAssertEqual(app.buttons["sp.tab.1"].value as? String, "99+")
+        select(3)
+        XCTAssertFalse(app.buttons["sp.tab.3"].isEnabled)
+        // 禁用项不能提交选择；切回默认内容后原来的选中对象仍保留。
+        app.buttons["配置"].tap()
+        app.buttons["默认内容"].tap()
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        XCTAssertEqual(tabs.frame.height, defaultHeight, accuracy: 1)
+    }
+
+    func testCustomTabPagingAndHeldDragPreserveInteraction() {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换自定义标签"].tap()
+        XCTAssertGreaterThan(tabs.frame.height, 44)
+        assertPageFrame(app.collectionViews["demo.grid"])
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换第二项禁用"].tap()
+        select(1)
+        expect("page=grid")
+        app.collectionViews["demo.grid"].swipeLeft()
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        select(3); expect("page=empty")
+        expectSelectedTabAlignment(3)
+        let tab = app.buttons["sp.tab.3"]
+        let before = tab.frame.midX
+        let distance = tabs.frame.width * 0.25
+        let start = tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.4,
+            thenDragTo: start.withOffset(CGVector(dx: -distance, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.2
+        )
+        XCTAssertGreaterThan(before - tab.frame.midX, distance * 0.5)
+        expect("page=empty")
+        let scrolledFrame = tab.frame
+        app.buttons["demo.pages"].tap()
+        XCTAssertEqual(tab.frame.minX, scrolledFrame.minX, accuracy: 1)
+        app.buttons["刷新自定义内容"].tap()
+        XCTAssertEqual(tab.frame.minX, scrolledFrame.minX, accuracy: 1)
+        XCTAssertEqual(tab.frame.width, scrolledFrame.width, accuracy: 1)
+        expect("page=empty")
+        XCTAssertTrue(tab.isSelected)
+        select(0); expect("page=grid")
+        let verticalStart = app.buttons["sp.tab.1"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        verticalStart.press(
+            forDuration: 0.05,
+            thenDragTo: verticalStart.withOffset(CGVector(dx: 0, dy: -tabs.frame.minY))
+        )
+        expect("page=grid")
+        expect("progress=1.00")
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换自定义标签"].tap()
+        XCTAssertEqual(tabs.frame.height, 44, accuracy: 1)
+        assertPageFrame(app.collectionViews["demo.grid"])
+        expect("page=grid")
+    }
+
+    func testCustomWidthPolicyAndRequiredOverflowInBothDirections() {
+        for rtl in [false, true] {
+            app.terminate()
+            app.launchArguments = ["--window-regression", "--open-demo"] + (rtl ? ["--rtl"] : [])
+            app.launch()
+            XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+            func choose(_ title: String) {
+                app.buttons["demo.pages"].tap()
+                app.buttons["标签宽度"].tap()
+                app.buttons[title].tap()
+            }
+            choose("紧凑编号内容")
+            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, 44, accuracy: 1)
+            choose("最小项宽 24")
+            XCTAssertGreaterThanOrEqual(app.buttons["sp.tab.0"].frame.width, 24)
+            XCTAssertLessThan(app.buttons["sp.tab.0"].frame.width, 44)
+            select(1)
+            expect("page=list")
+            select(0)
+            expect("page=grid")
+            choose("最小项宽 120")
+            // 宽度变化保留物理滚动偏移，RTL 的首项可能移出视口；用真实拖动重新找到目标。
+            select(0)
+            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, 120, accuracy: 1)
+            select(1)
+            expect("page=list")
+            assertPageFrame(app.tables["demo.list"])
+            choose("最小项宽 44")
+            choose("不可压缩宽内容")
+            expect("page=grid")
+            let tabs = app.collectionViews["sp.tabBar.collection"]
+            XCTAssertGreaterThan(app.buttons["sp.tab.0"].frame.width, tabs.frame.width)
+            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, 480, accuracy: 1)
+            assertPageFrame(app.collectionViews["demo.grid"])
+            select(1)
+            expect("page=list")
+        }
+    }
+
+    func testCompactCustomTabsRespectMinimumHeightAndRestoreAfterHiding() {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换紧凑标签"].tap()
+        XCTAssertEqual(tabs.frame.height, 44, accuracy: 1)
+        for height in [32, 60, 0, 32, 44] {
+            app.buttons["demo.pages"].tap()
+            app.buttons["标签栏最小高度"].tap()
+            app.buttons[height == 0 ? "隐藏标签栏" : "最小栏高 \(height)"].tap()
+            if height == 0 {
+                XCTAssertFalse(app.buttons["sp.tab.0"].isHittable)
+            } else {
+                XCTAssertEqual(tabs.frame.height, CGFloat(height), accuracy: 1)
+                assertPageFrame(app.collectionViews["demo.grid"])
+                XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+            }
+            expect("page=grid")
+        }
+        select(1)
+        expect("page=list")
+        XCTAssertEqual(tabs.frame.height, 44, accuracy: 1)
+    }
+
+    func testAutomaticCustomTabHeightUpdatesWithoutExplicitSize() {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换自定义标签"].tap()
+        let initialHeight = tabs.frame.height
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换多行副标题"].tap()
+        XCTAssertGreaterThan(tabs.frame.height, initialHeight)
+        assertPageFrame(app.collectionViews["demo.grid"])
+        expect("page=grid")
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换多行副标题"].tap()
+        XCTAssertEqual(tabs.frame.height, initialHeight, accuracy: 1)
+        assertPageFrame(app.collectionViews["demo.grid"])
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+    }
+
+    func testCustomTabSafeAreaLargeTextRTL() {
+        verifySafeAreaTabs(rtl: true, largeText: true, custom: true)
+    }
+
     func testPagingAndRapidSelection() {
         app.collectionViews["demo.grid"].swipeLeft()
         expect("page=list")
@@ -914,9 +1069,12 @@ final class StickyPagerDemoUITests: XCTestCase {
         }
     }
 
-    private func verifySafeAreaTabs(rtl: Bool, largeText: Bool) {
+    private func verifySafeAreaTabs(rtl: Bool, largeText: Bool, custom: Bool = false) {
         app.terminate()
         app.launchArguments = ["--open-demo", "--window-regression"] + (rtl ? ["--rtl"] : [])
+        if custom {
+            app.launchArguments.append("--custom-tabs")
+        }
         if largeText {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         }
@@ -946,7 +1104,7 @@ final class StickyPagerDemoUITests: XCTestCase {
                 )).tap()
                 expect("page=grid")
             }
-            if largeText {
+            if largeText || custom {
                 XCTAssertGreaterThan(viewport.height, 44)
             } else {
                 XCTAssertEqual(viewport.height, 44, accuracy: 1)

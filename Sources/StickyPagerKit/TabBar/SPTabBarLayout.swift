@@ -1,6 +1,6 @@
 import UIKit
 
-/// 优先保证标题固有宽度；每项均能容纳时才等宽，超出视口时横向滚动。
+/// 优先满足每项宽度需求，其余项尽量等宽；总需求超出视口时横向滚动。
 @MainActor
 final class SPTabBarLayout: UICollectionViewLayout {
     var itemWidths: [CGFloat] = [] {
@@ -35,18 +35,37 @@ final class SPTabBarLayout: UICollectionViewLayout {
             let width = itemWidths.indices.contains(index) ? itemWidths[index] : 32
             return width.isFinite ? max(0, width) : 32
         }
-        let totalWidth = widths.reduce(0, +)
-        let equalWidth = itemCount > 0 ? size.width / CGFloat(itemCount) : 0
-        let canDistributeEqually = (widths.max() ?? 0) <= equalWidth
-        let extraWidth = itemCount > 0 ? max(0, size.width - totalWidth) / CGFloat(itemCount) : 0
+        let resolved = Self.resolvedWidths(widths, viewportWidth: size.width)
         var x: CGFloat = 0
         frames = (0 ..< itemCount).map { visualIndex in
             let index = isRightToLeft ? itemCount - 1 - visualIndex : visualIndex
-            let width = canDistributeEqually ? equalWidth : widths[index] + extraWidth
+            let width = resolved[index]
             defer { x += width }
             return CGRect(x: x, y: 0, width: width, height: size.height)
         }
         contentSize = CGSize(width: max(size.width, x), height: size.height)
+    }
+
+    /// 测量和实际布局共用宽度分配规则，保证多行内容按最终宽度计算高度。
+    static func resolvedWidths(_ widths: [CGFloat], viewportWidth: CGFloat) -> [CGFloat] {
+        guard !widths.isEmpty else {
+            return []
+        }
+        guard widths.reduce(0, +) < viewportWidth else {
+            return widths
+        }
+        // 先为较宽项保留需求，再把剩余宽度均分给较窄项；临界点不会切换到另一套分配公式。
+        var remaining = viewportWidth
+        var level: CGFloat = 0
+        for (index, width) in widths.sorted(by: >).enumerated() {
+            let equal = remaining / CGFloat(widths.count - index)
+            if width <= equal {
+                level = equal
+                break
+            }
+            remaining -= width
+        }
+        return widths.map { max($0, level) }
     }
 
     override var collectionViewContentSize: CGSize {

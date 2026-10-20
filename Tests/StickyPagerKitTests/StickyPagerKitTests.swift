@@ -82,6 +82,121 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertTrue(spy.selected.isEmpty)
     }
 
+    func testCompactTabHeightUsesContainerMinimumAndRestoresCachedPages() {
+        let pager = mount()
+        let provider = StaticAutomaticSource(configuration: IntrinsicTabConfiguration(size: CGSize(
+            width: 12,
+            height: 28
+        )))
+        pager.tabBar.contentDelegate = provider
+        pager.tabBar.contentStyle = .custom
+        let scroll = pager.currentScrollView!
+        scroll.contentOffset.y = 310 - scroll.adjustedContentInset.top
+        let position = pager.records[0]!.binding!.position
+        XCTAssertEqual(SPPageLayout().tabBarHeight, 44)
+        for rtl in [false, true] {
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            for explicit in [false, true] {
+                for contentHeight: CGFloat in [28, 80] {
+                    let size = CGSize(width: 12, height: contentHeight)
+                    provider.configuration = IntrinsicTabConfiguration(size: size)
+                    provider.explicitSize = explicit ? size : nil
+                    pager.tabBar.reloadContent()
+                    for minimum: CGFloat in [44, 32, 60, 0, 32, 44] {
+                        pager.setSelectedIndex(1, animated: false)
+                        pager.layout.tabBarHeight = minimum
+                        pager.view.layoutIfNeeded()
+                        let expected = minimum == 0 ? 0 : max(minimum, contentHeight)
+                        XCTAssertEqual(pager.tabBar.bounds.height, expected, accuracy: 0.01)
+                        pager.setSelectedIndex(0, animated: false)
+                        pager.view.layoutIfNeeded()
+                        XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+                        for index in [0, 1] {
+                            let root = pager.records[index]!.controller.view!
+                            let frame = root.convert(root.bounds, to: pager.view)
+                            XCTAssertEqual(frame.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                            XCTAssertEqual(frame.maxY, pager.view.bounds.maxY, accuracy: 0.01)
+                        }
+                        if minimum > 0 {
+                            let list = pager.tabBar.subviews.compactMap { $0 as? UICollectionView }.first!
+                            let frame = list.collectionViewLayout.layoutAttributesForItem(at: IndexPath(
+                                item: 0,
+                                section: 0
+                            ))!.frame
+                            XCTAssertEqual(frame.height, expected, accuracy: 0.01)
+                            XCTAssertGreaterThanOrEqual(frame.width, 44)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testAutomaticTabHeightUpdatesContainerAndCachedPages() {
+        let pager = mount()
+        let provider = AutomaticTabSource()
+        pager.tabBar.contentDelegate = provider
+        pager.tabBar.contentStyle = .custom
+        pager.view.layoutIfNeeded()
+        let scroll = pager.currentScrollView!
+        scroll.contentOffset.y = 310 - scroll.adjustedContentInset.top
+        let position = pager.records[0]!.binding!.position
+        let oldHeight = pager.tabBar.bounds.height
+        pager.setSelectedIndex(1, animated: false)
+        provider.text = String(repeating: "自动布局的多行标签内容", count: 20)
+        pager.tabBar.reloadContent()
+        pager.view.layoutIfNeeded()
+        XCTAssertGreaterThan(pager.tabBar.bounds.height, oldHeight)
+        for rtl in [false, true] {
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.setSelectedIndex(0, animated: false)
+            pager.view.layoutIfNeeded()
+            XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+            let root = pager.records[0]!.controller.view!
+            XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+            XCTAssertEqual(root.convert(root.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
+        }
+        provider.text = "短标签"
+        pager.tabBar.reloadContent()
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(pager.tabBar.bounds.height, oldHeight, accuracy: 1)
+        XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+    }
+
+    func testCustomTabHeightAndModeSwitchPreserveCachedPageGeometry() {
+        let pager = mount()
+        let provider = CustomContentSource()
+        let scroll = pager.currentScrollView!
+        scroll.contentOffset.y = 310 - scroll.adjustedContentInset.top
+        let position = pager.records[0]!.binding!.position
+        pager.tabBar.contentDelegate = provider
+        for rtl in [false, true] {
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            for style: SPTabBar.ContentStyle in [.custom, .default, .custom] {
+                pager.tabBar.contentStyle = style
+                pager.view.layoutIfNeeded()
+                XCTAssertEqual(pager.tabBar.bounds.height, style == .custom ? 80 : 44, accuracy: 0.01)
+                XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+                let root = pager.records[0]!.controller.view!
+                XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                XCTAssertEqual(root.convert(root.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
+            }
+        }
+        pager.setSelectedIndex(1, animated: false)
+        provider.size.height = 110
+        pager.tabBar.reloadContent()
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(pager.tabBar.bounds.height, 110, accuracy: 0.01)
+        pager.setSelectedIndex(0, animated: false)
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+        XCTAssertEqual(
+            pager.records[0]!.controller.view.convert(.zero, to: pager.view).y,
+            pager.tabBar.frame.maxY,
+            accuracy: 0.01
+        )
+    }
+
     func testLiveTabHeightPreservesPageGeometryAndScrollPosition() {
         let pager = mount()
         let scroll = pager.currentScrollView!

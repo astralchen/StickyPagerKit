@@ -117,8 +117,9 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 | `SPPageLayout` | Header 总高度、保留高度、标签栏高度 |
 | `SPHeaderState` | `expanded`、`collapsing`、`collapsed` |
 | `SPTabBar` / `SPTabBarItem` | 可滚动标签栏与继承 UIBarItem 的动态标签对象 |
+| `SPTabBarContentDelegate` / `SPTabBarContent` / `SPTabBarContentContext` | 自定义标签 UI 的配置、尺寸及当前环境 |
 
-数据源和代理均为弱引用；需要由业务方持有。代理方法具有默认空实现。
+数据源和代理均为弱引用；需要由业务方持有。选择与分页事件代理提供默认实现；自定义内容代理需要实现内容提供方法。
 
 - `headerView` / `headerViewController`：互斥，设置新内容替换旧内容。设置当前入口为 nil 清空 Header；无 Header 时不保留可折叠区域，标签栏直接停在顶部安全区域边缘。
 - `layout`：默认高度为 0、0、44；负数和非有限数归一化，保留高度不超过总高度。
@@ -207,9 +208,9 @@ tabs.standardAppearance.selectionColor = nil
 
 默认使用系统材质背景和胶囊选中背景。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中标识支持 `.capsule`、`.underline`、`.none`。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
 
-默认文字和模板图标采用 UITabBar 风格：未选中为 `.secondaryLabel`，选中跟随标签栏的 `tintColor`（包括从父视图继承的颜色），禁用为 `.tertiaryLabel`。显式状态颜色优先；`titleColor`、`iconColor` 设为 nil 时恢复该状态的默认颜色。运行时改变 tint 会立即刷新可见标签，不改变滚动位置和选中动画。深浅色使用动态颜色解析。
+默认文字和模板图标采用 UITabBar 风格：未选中为 `.secondaryLabel`，选中跟随标签栏的 `tintColor`（包括从父视图继承的颜色），禁用为 `.tertiaryLabel`。显式状态颜色优先；`titleColor`、`iconColor` 设为 nil 时恢复该状态的默认颜色。默认模式下，运行时改变 tint 会立即刷新可见标签，不改变滚动位置和选中动画。深浅色使用动态颜色解析。
 
-标签宽度按正常、选中、禁用状态的最大内容尺寸预留，避免选择时字体变化导致跳动。最长项能容纳时均分宽度，否则按固有宽度分配剩余空间；超出一屏则横向滚动。点击区域最小 44 pt；选中项尽量居中，首尾受内容边界限制。布局和字体变化重新对齐，普通刷新保留用户手动滚动位置。RTL 仅反转视觉顺序，逻辑索引不变。
+默认标签宽度按正常、选中、禁用状态的最大内容尺寸预留，避免选择时字体变化导致跳动。先满足每项的内容宽度和 `minimumItemWidth` 下限，再让其余项尽量等宽；总需求超出视口则横向滚动。默认最小项宽为 44 pt，默认图文高度仍至少 44 pt；选中项尽量居中，首尾受内容边界限制。布局和字体变化重新对齐，普通刷新保留用户手动滚动位置。RTL 仅反转视觉顺序，逻辑索引不变。
 
 背景铺满容器，内部 Collection View、点击区域和选中背景共用左右安全视口。超出视口的内容在仍有隐藏项的一侧使用 16 pt 渐隐；材质背景不参与渐隐。`tabBarHeight` 是最小高度（0 隐藏），实际高度由图文和 Dynamic Type 字体测量；变化后容器更新页面边界并保留滚动位置。独立宿主应在布局时使用 `sizeThatFits(_:)`。降低透明度时改用不透明系统背景，减少动态效果时关闭程序化选中动画。角标、选中和禁用状态同步无障碍信息。
 
@@ -238,6 +239,79 @@ final class ScreenController: UIViewController, SPTabBarDelegate {
     }
 }
 ```
+
+### 自定义标签 UI
+
+`SPTabBar.ContentStyle` 将内容展示分为 `.default` 和 `.custom`，默认值为 `.default`。已有接入无需修改。设置 `.custom` 后，由弱引用 `contentDelegate` 为每项提供 `SPTabBarContent`；切回 `.default` 恢复内置图文样式，保留 Item 身份和当前选择。内容样式与 `standardAppearance.selectionStyle` 独立，背景、指示器和分页进度仍由标签栏维护。
+
+每项内容以 `UIContentConfiguration` 描述 UI，默认由内容视图的 Auto Layout 自动测量。可以返回系统的 `UIListContentConfiguration`，也可以自行实现配置及 `UIView & UIContentView`，在视图中任意组合编号、图片、标题、副标题或角标。框架继续使用标准 `UICollectionViewCell` 和 `CellRegistration`，业务方无需注册 Cell 或继承 Cell。
+
+```swift
+@MainActor
+final class TabContentProvider: SPTabBarContentDelegate {
+    func tabBar(
+        _ tabBar: SPTabBar,
+        contentFor item: SPTabBarItem,
+        at index: Int,
+        context: SPTabBarContentContext
+    ) -> SPTabBarContent? {
+        let font = UIFont.preferredFont(
+            forTextStyle: .headline,
+            compatibleWith: context.state.traitCollection
+        )
+        var configuration = UIListContentConfiguration.cell()
+        configuration.text = item.title
+        configuration.textProperties.font = font
+        configuration.textProperties.color = context.state.isDisabled ? .tertiaryLabel
+            : (context.state.isSelected ? context.tintColor : .label)
+        configuration.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: 12, leading: 16, bottom: 12, trailing: 16
+        )
+        // 不需要计算文字宽高；也可以返回自己实现的 UIView & UIContentView 配置。
+        return SPTabBarContent(configuration: configuration)
+    }
+}
+
+// 在控制器中强引用 provider；contentDelegate 本身为弱引用。
+let contentProvider = TabContentProvider()
+pager.tabBar.contentDelegate = contentProvider
+pager.tabBar.contentStyle = .custom
+// 业务自有数据发生变化时：
+pager.tabBar.reloadContent()
+```
+
+配置与测量遵循以下约定：
+
+- `context` 提供当前 `UICellConfigurationState`、tintColor、视觉方向、扣除左右安全区域后的视口宽度，以及当前生效 Appearance 的独立副本。尚未布局时宽度可能为 0。业务决定如何使用 Item 和 Appearance；框架不会把默认样式强加给自定义内容。
+- `SPTabBarContent(configuration:)` 默认自动测量，`size == nil`。框架用独立的内容视图调用 `systemLayoutSizeFitting`：先以压缩目标求首选宽度，再由普通 Auto Layout 测量宿主以水平优先级 999 尝试视口内的首选宽度（未知视口时使用内容首选宽度）；业务 required 最小宽度可以超出视口。然后由布局应用 `minimumItemWidth`，先满足较宽项、再让较窄项尽量等宽，以水平 `.required`、垂直 `.fittingSizeLevel` 定宽求高度。所有 Cell 高度取各项所需高度的最大值，并受容器最低栏高约束；`tabBarHeight == 0` 仍隐藏标签栏。
+- 自定义视图需要完整的内部 Auto Layout 约束或能参与求解的 `intrinsicContentSize`。例如多行 UILabel 应连接内容视图四边，框架不额外添加业务内边距。`targetSize` 本身不是最大尺寸；普通 UIView 只重写 `sizeThatFits` 也不代表它一定参与 Auto Layout 测量。手动布局视图可继续提供显式尺寸，或自行实现 `systemLayoutSizeFitting`。
+- 仍可使用 `SPTabBarContent(configuration: configuration, size: CGSize(width: 160, height: 76))` 跳过自动测量；它是理想尺寸覆盖，最终宽度可能由标签栏扩展。`size` 现在为 `CGSize?`，旧的显式尺寸初始化调用保持可用，读取属性的代码需要处理 nil；赋值 nil 可恢复自动测量。显式尺寸和自动测量结果必须为有限正数且不超过 1,000,000 pt，否则该项回退到默认内容；理想尺寸不再混入 Cell 最小宽度，高度不额外设下限（自动测量尺寸向上取整到 pt）。显式尺寸不限制到视口；自动测量可能压缩可换行内容。
+- `SPPageLayout.tabBarHeight` 是最小栏高，默认 44，设为 0 时隐藏。正值时实际栏高为 `max(tabBarHeight, 内容所需高度)`，不是固定高度。例如自定义内容需要 28 pt 时，配置 32 / 60 / 44，实际栏高分别为 32 / 60 / 44；内容需要 80 pt 时，这三个配置都得到 80。默认图文及回退项保留自身至少 44 pt 的规则，因此混用时仍可能把整栏撑高。宽度由标签栏自身的 `minimumItemWidth` 和分配规则控制，不由 `SPPageLayout` 控制。
+- `SPTabBar.minimumItemWidth` 默认 44 pt，同时作用于默认、自定义及回退项。0 表示不额外设下限，负数归零，非有限值恢复为 44，超过 1,000,000 pt 截到该上限。它是 Cell 最小布局宽度，不改变业务返回的理想尺寸，也不扩大 Cell 外的命中区域。较小的宽度或栏高属于业务主动选择的紧凑交互，不能据此认为仍有 44 × 44 pt 点击区域。
+- 宽度分配连续：320 pt 视口中，理想宽度 `[160, 44]` 得到 `[160, 160]`，变成 `[161, 44]` 后得到 `[161, 159]`，不会再跳到 `[218.5, 101.5]`。这是对原“固有宽度加平均剩余空间”策略的行为调整。减少最小宽度不会关闭剩余空间分配，两个短标签仍可能等宽填满整栏。
+- 内容根视图须允许随实际分配宽度扩展。内部可设置 required 的最小宽度，超出视口时横向滚动；根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
+- 未设置代理、代理释放后下一次标签栏布局、返回 nil 或尺寸无效时，对应项回退到默认内容。允许同一栏混用默认项和自定义项。
+- 内容和尺寸会缓存。Item、选择、Appearance、tint、traits、可用宽度、RTL 或模式变化会重新获取配置；业务自有数据变化需调用 `reloadContent()`。提供方法应同步、无副作用，不得在其中修改标签栏或 Item、触发布局或重载。自动测量由框架构造独立视图；不要在代理回调中自行构造或缓存正在显示的视图。状态样式宜保持约束尺寸稳定，或为显式尺寸取各状态最大值。
+- `reloadContent()` 不发送选择回调。尺寸不变时保留手动滚动偏移、正在进行的选择动画和分页进度；尺寸变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.default` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
+- `sizeThatFits(_:)` 只测量建议宽度对应的高度，不提交配置、不改变当前 Cell 布局、偏移或指示器。实际布局时才采用实际视口的配置与尺寸。显示快照与最近一次候选测量分开缓存，重复询问相同宽度不会反复调用代理或构造测量视图；候选宽度变化仍可能触发代理，所以回调不能假定标签栏已经改变 frame。
+- 测量视图处于隐藏、无交互和无障碍入口的独立宿主中，继承标签栏 traits、tint 和视觉方向，完成测量后移除；不会借用正在显示的 Cell。`makeContentView()` 和配置更新可能用于测量，不能依赖可见性或触发业务副作用。配置需独立描述完整内容。业务异步数据变化后调用 `reloadContent()`；仅在某个显示视图上调用 `invalidateIntrinsicContentSize()` 不会自动清除标签栏缓存。
+- 自定义配置的 `updated(for:)` 接收 `UICellConfigurationState`，其中包含选中、禁用和真实按压高亮。高亮变化仅更新内容配置，不重新询问尺寸。提供方法的 `context.state` 高亮为 false；框架只保证 traits、选中、禁用和运行时按压高亮，不承诺同步 Cell 的焦点、编辑或多选状态。`UIContentView.configuration` 应覆盖旧状态并复用子视图；更换不兼容配置类型时框架会替换内容视图。iOS 16+ 使用 `supports(_:)` 判断兼容性，iOS 15 按配置类型判断。
+- 每个标签保留一个由框架管理的整项点击和无障碍入口。自定义视图内部控件不参与命中测试或独立无障碍导航；如需标签内的独立按钮，当前接口不提供该交互模型。点击否决、禁用、程序化选择和分页手势的回调语义均沿用原规则。
+- `SPTabBarContent.accessibilityLabel`、`accessibilityHint`、`accessibilityValue` 可覆盖描述；nil 沿用 Item 标题／描述与角标值。选中和禁用 traits 由框架维护，避免重复暴露内部标签。
+
+完整自定义视图示例见 [CustomTabContent.swift](Examples/StickyPagerDemo/StickyPagerDemo/CustomTabContent.swift)：编号、标题、副标题组成卡片，演示按压、选中、禁用、Dynamic Type 与 RTL。Demo 首页“标签外观”→“配置”→“自定义卡片”，或分页 Demo“页面”→“切换自定义标签”即可查看；`--open-demo --custom-tabs` 可直接启动。Demo 的卡片内部使用 Auto Layout 和 UILabel 固有尺寸，不再手算文字宽高。“页面”→“切换多行副标题”演示内容自动换行、栏高增长与恢复；“刷新自定义内容”演示同尺寸更新后保持手动滚动位置。“切换紧凑标签”使用仅含 UILabel 的 `UIContentView`，通过字体固有尺寸和内边距约束自动测量；“标签栏最小高度”菜单可选择 32、60、隐藏或默认 44，演示紧凑内容低于 44 和隐藏后恢复。该菜单不限制大字号所需高度。“页面”→“标签宽度”提供紧凑编号内容、24／44／120 最小项宽，以及首项内部 required 最小宽度 480 pt 的示例；后者可以超出视口并横向滚动。
+
+容器中设置最小栏高，无需业务计算内容高度：
+
+```swift
+pager.tabBar.contentDelegate = provider
+pager.tabBar.contentStyle = .custom
+pager.layout.tabBarHeight = 32 // 内容较小时栏高为 32，需要更多空间时自动增高
+pager.tabBar.minimumItemWidth = 24 // 按需选择紧凑项宽；默认仍为 44
+// pager.layout.tabBarHeight = 0 // 隐藏；恢复为 44 即恢复默认下限
+```
+
+独立标签栏应在布局中使用 `sizeThatFits(view.bounds.size)` 取得当前宽度对应的内容高度，并由宿主设置最终高度。独立使用不读取 `SPPageLayout`；需要最小 44 pt 时，宿主使用 `max(44, measuredHeight)`。
 
 ### 滚动坐标与布局
 

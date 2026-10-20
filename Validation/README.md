@@ -1,6 +1,87 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-19。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-10-20。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+
+## 2026-10-20：标签宽度策略与内容测量分离
+
+- **公开 API：** 新增 `SPTabBar.minimumItemWidth`，默认 44 pt，作用于默认、自定义及回退项。0 不额外设下限，负数归零，非有限数恢复 44，超过 1,000,000 pt 截到该上限。更新使测量缓存失效；按实际分配宽度和高度判断几何变化，分配结果不变时保留动画和分页进度。原公开接口保持可用，`SPPageLayout` 的最小栏高及 0 隐藏语义不变。
+- **分配规则变更：** 内容理想宽度不再被改写为至少 44。布局先应用最小项宽，再满足较宽项、让其余项尽量等宽；总需求超出视口才滚动。320 pt 视口下 `[160, 44]` 分配为 `[160, 160]`，`[161, 44]` 分配为 `[161, 159]`，消除原算法临界跳变。测量与实际布局共用同一分配函数。
+- **超宽内容：** 内容视图先提供首选尺寸，独立 Auto Layout 测量宿主以水平优先级 999 尝试视口内的首选宽度，保留业务 required 最小宽度；再按实际 Cell 宽度以水平 required 测高。系统 UIListContentConfiguration 多行测量继续受支持。根视图 required 固定宽度或自身矛盾的约束不受支持；显式尺寸仍不限制到视口。测量容器完成后移除，候选查询保持独立。
+- **极窄项：** minimumItemWidth 可以为 0，胶囊和下划线的横向内缩随 Cell 宽度收敛，1 pt 项不会产生越出 Cell 的指示器。命中区域仍是 Cell bounds，不扩到相邻项或页面。
+- **Demo、文档和新增测试：** “页面”→“标签宽度”新增紧凑编号、24／44／120 最小项宽、首项 required 最小宽度 480 pt 的示例。更新公开注释和 README。新增 5 项库测试覆盖临界点及真实 LTR／RTL frame、默认／自定义／回退项、输入归一化、配置变化后的滚动范围、几何不变时保留选择动画／分页、required 超宽内容和极窄指示器；新增 1 项 UI 测试遍历两个方向的菜单设置、超宽滚动和点击切页。
+- **首轮失败保留：** [首轮聚焦](Results/width-policy-focused-20261020/summary.json) 66 通过、1 失败。仅把视口约束从 required 降到 999 后，系统内容配置在宽／窄候选下均得到 55 pt 高，未满足换行后增高的既有断言。改用普通 Auto Layout 测量宿主求可行首选宽度，保留原断言；首轮摘要如实记录后续源码变化。
+- **恢复通过：** [测量恢复聚焦](Results/width-policy-fitting-recovery-20261020/summary.json) 13 通过、0 失败、0 跳过；之后仅修改 UI 测试夹具，阶段摘要记录相应源码差异。系统多行、required 最小宽度、候选缓存／隔离、临时视图释放及 traits 测试通过。
+- **阶段库回归通过：** [首轮全部库测试](Results/width-policy-library-20261020/summary.json) 143 通过、0 失败、0 跳过。后续 UI 夹具修正使该阶段摘要包含相应源码差异；最终源码另行完整回归。
+- **首轮 UI 失败保留：** [新增宽度 UI 首轮](Results/width-policy-ui-focused-20261020/summary.json) 0 通过、1 失败。LTR 已执行宽度及超宽内容断言，RTL 扩大最小项宽后，原夹具直接查询移出视口的首项而失败。框架按原约定保留并限制物理滚动偏移，没有修改该策略；夹具改用真实拖动找到首项后检查原有 120 pt 断言，并支持完整露出的窄于 44 pt 标签点击，新增 24 pt 下限下的点击往返验证。
+- **增量复测失败保留：** [宽度 UI 增量复测](Results/width-policy-ui-recovery-20261020/summary.json) 0 通过、1 失败，终态 `TEST FAILED`，`sourceChangedSinceRun` 为空。虽然构建日志含测试文件编译步骤，执行日志仍缺少当前源码新增的窄标签往返点击和 RTL 首项滚动定位，并报告旧断言行号；不能将源码哈希一致单独作为测试产物一致的证明。保留结果包，随后对 Demo 执行 `clean test`，核对实际交互步骤；具体缓存或安装失配原因未确定。
+- **通过：最终全部库测试 143 项。** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro / iOS 26.5 Simulator；143 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。见 [最终库摘要](Results/width-policy-library-final-20261020/summary.json) 与 [结果包](Results/width-policy-library-final-20261020/Result.xcresult)。最终日志未出现 `Unable to simultaneously satisfy constraints` 或 `NSInternalInconsistencyException`。
+- **通过：清理重建后的新增宽度 UI。** iPhone 17 Pro Max / iOS 26.5 Simulator，执行 `clean test` 后 1 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。实际日志包含窄标签点击往返、RTL 扩宽后的真实滚动定位、120 pt 宽度以及 480 pt 超宽内容与后续切页；未放宽宽度或页面几何断言。见 [清理后 UI 摘要](Results/width-policy-ui-clean-recovery-20261020/summary.json) 和 [结果包](Results/width-policy-ui-clean-recovery-20261020/Result.xcresult)。清理重建恢复通过，增量运行步骤失配的根因仍未确定。
+- **通过：最终相关 Demo UI 回归 3 项。** 同一台 iPhone 17 Pro Max / iOS 26.5 Simulator，3 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。覆盖多行自动栏高增长与恢复、按住拖动与刷新位置保留／分页选择，以及 RTL 最大辅助字号下竖屏、Landscape Left、Landscape Right、返回竖屏的长标题定位、安全区域、页面 frame 和触摸恢复。见 [相关 UI 回归摘要](Results/width-policy-ui-regressions-20261020/summary.json) 和 [结果包](Results/width-policy-ui-regressions-20261020/Result.xcresult)。这 3 项与新增宽度专项 1 项为两次运行，共覆盖 4 项不同用例；两次 UI 和最终 143 项库测试的源码哈希清单完全一致。
+- **通过：格式与差异检查。** SwiftFormat 0.64.0 对本轮 7 个 Swift 文件 lint 为 `0/7 files require formatting`；`git diff --check` 通过。
+- **未执行／限制：** 未运行全套 Demo UI、iPad／分屏、Release、真机、iOS 15 实际运行、完整 VoiceOver 流程或性能基准。较小项宽不附带扩展命中区域。保留此前工作区修改及本轮失败证据，未提交或推送。
+
+## 2026-10-20：自定义内容高度与容器最小栏高分离
+
+- **行为：** 移除自定义显式尺寸、自动 fitting 结果和整栏汇总中的统一 44 pt 高度下限。自动高度仍向上取整到 pt；有效性检查不变。默认图文、默认回退项及空栏保留原有高度规则。宽度最小 44 pt、等宽／剩余空间分配、横向滚动规则不变。
+- **极小高度：** 高度不足 8 pt 时，胶囊指示器收缩为有限的零高度矩形，避免 `CGRect.insetBy` 返回 `CGRect.null`；下划线高度不超过实际栏高。正常高度下几何保持不变。
+- **容器契约：** `SPPageLayout.tabBarHeight` 保留默认 44、正值作为最小栏高、0 隐藏。正值下实际高度为配置下限与内容需求的最大值。自定义内容需要 28 pt 时，配置 32 / 60 / 44 得到 32 / 60 / 44；内容需要 80 pt 时均增高到 80。独立标签栏由宿主设置最终高度，测量层不代替宿主设置最小栏高。
+- **Demo 与文档：** 新增“切换紧凑标签”和“标签栏最小高度”菜单，可选 32、60、隐藏、44。最终紧凑示例为仅含 UILabel 的 UIContentView，通过内部约束和固有尺寸测量，不手算宽高；配置响应选中、高亮和禁用状态。同步公开 API 中文注释、README 接入示例及默认回退边界。
+- **回归覆盖：** 新增 3 项库测试，验证自动／显式 28 pt 内容的实际 Cell 高度、宽度至少 44 pt、等宽分配及横向滚动、混入默认项；真实 UIWindow 容器遍历 LTR／RTL、28／80 pt 内容、44／32／60／0／32／44 下限，检查隐藏恢复、缓存页顶底边和滚动位置。调整原显式 1 pt 内容的测量断言为 1 pt，并验证自动／显式 1 pt 高度下胶囊和下划线指示器的 frame 有限且不超出栏高。新增 1 项 Demo UI 用例检查菜单切换、实际栏高、隐藏后不可点击、恢复、页面 frame 和选择。
+- **阶段通过：** [聚焦库测试](Results/compact-height-focused-20261020/summary.json) 62 通过、0 失败；[首轮全部库测试](Results/compact-height-library-20261020/summary.json) 137 通过、0 失败。随后只调整 Demo 紧凑内容配置，阶段结果不代替最终源码回归。
+- **首轮 UI 失败保留：** [首轮结果](Results/compact-height-ui-20261020/summary.json) 3 通过、1 失败。紧凑示例使用 UIListContentConfiguration.cell() 时实际测得 53 pt，未满足默认最小栏高下期望 44 pt 的断言；改为 UILabel 约束内容视图，未放宽测试断言。该轮 `sourceChangedSinceRun` 如实包含 `CustomTabContent.swift`，不是最终源码验收。
+- **阶段通过：Demo 修正后全部库测试 137 项。** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro / iOS 26.5 Simulator；137 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`；随后增加极小高度指示器保护，阶段摘要保留相关源码差异。见 [阶段库摘要](Results/compact-height-library-final-20261020/summary.json) 与 [结果包](Results/compact-height-library-final-20261020/Result.xcresult)。
+
+- **通过：最终全部库测试 138 项。** 最后加入极小高度指示器保护后，Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator，138 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。见 [最终库摘要](Results/compact-height-tiny-final-20261020/summary.json) 与 [结果包](Results/compact-height-tiny-final-20261020/Result.xcresult)。
+- **阶段 UI 恢复通过：** [Demo 修正后四项 UI](Results/compact-height-ui-final-20261020/summary.json) 为 4 通过、0 失败、0 跳过，覆盖紧凑栏高／隐藏恢复、多行增高、真实按压拖动与分页、RTL 最大辅助字号和双向横屏恢复。iPhone 17 Pro Max / iOS 26.5 Simulator；这一轮运行的是最后指示器保护之前的构建，摘要包含 `SPTabBar.swift` 和对应新增测试的源码差异，不计作最终源码的四项 UI 全量通过。
+- **通过：最终紧凑 Demo UI 聚焦复测。** 最后指示器保护之后，iPhone 17 Pro Max / iOS 26.5 Simulator 上 1 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。覆盖默认 44、32／60／隐藏／32／44 切换、隐藏时不可点击、恢复后的实际栏高／页面 frame／选中状态和真实点击切页。见 [最终 UI 摘要](Results/compact-height-ui-tiny-final-20261020/summary.json) 与 [结果包](Results/compact-height-ui-tiny-final-20261020/Result.xcresult)。最后的指示器保护后未再次执行其余 3 项扩展 UI，不合并宣称最终源码 4/4。
+- **通过：格式和静态检查。** 本轮修改的 9 个 Swift 文件经 SwiftFormat 0.64.0 检查，0 个待格式化；`git diff --check` 通过。Demo Build Phase 执行既定格式化流程，没有产生额外排版修改。
+- **未执行：** 全量 Demo UI、iPad／分屏、Release、真机、iOS 15 实际运行、VoiceOver 全流程和性能基准。保留上一次任务的失败记录，不从历史结果推定本轮覆盖。所有修改留在工作区，未提交、未推送。
+
+## 2026-10-20：自定义内容自动尺寸测量
+
+- **尺寸 API：** 新增 `SPTabBarContent(configuration:)`，默认 `size == nil`，由内容视图的 `systemLayoutSizeFitting` 自动测量。原 `init(configuration:size:)` 保留并跳过自动测量；`size` 属性改为 `CGSize?`，原来直接读取宽高的业务代码需要处理 nil。没有移除显式尺寸能力，默认图文路径保持不变。
+- **测量边界：** 独立隐藏宿主创建已应用选中／禁用配置的业务视图。先用临时最大宽度约束求自然宽度，再使用与 `SPTabBarLayout` 共用的实际宽度分配规则，以水平 `.required`、垂直 `.fittingSizeLevel` 定宽测高。至少 44 × 44 pt；未知视口宽度不加上限，已知视口保留至少 44 pt。无效测量按项回退，回退改变宽度分配时重新测量剩余自动内容的高度。候选测量保持独立缓存，不改变可见 Cell、偏移或转场；临时视图完成后从宿主移除。
+- **UIKit 适配：** 测量视图继承 traits、tint 和方向；iOS 17+ 在测量前调用 `updateTraitsIfNeeded()`，保留 iOS 15 可用性边界。外层内容宿主对 Cell 发起的额外 fitting 查询返回已分配尺寸，避免 UIKit 从宿主再次推导高度，保持整栏等高。业务仍需完整约束或有效固有尺寸，不假定普通 UIView 的 fitting 会自动转调 sizeThatFits。
+- **Demo 和文档：** 卡片改用 Auto Layout、UILabel 固有尺寸及多行文本，删除 NSString 字体宽高计算和手工子视图 frame。新增“切换多行副标题”，演示自动栏高增长与恢复；原同尺寸刷新入口保留。README 改为无尺寸接入示例，并说明 fitting priority、显式尺寸迁移、测量视图生命周期、异步数据刷新和缓存失效。
+- **新增覆盖：** 6 项自动测量库测试涵盖多行文本与实际分配宽度、系统 UIListContentConfiguration、固有尺寸、显式／自动混用、无效回退、候选宽度隔离与缓存、临时视图释放、真实 traits／RTL、刷新中的偏移／选择动画／分页进度；1 项容器测试验证自动高度变化、缓存页位置、页面顶底边及恢复。新增 1 项 Demo UI 用例验证多行更新后的实际栏高和页面 frame。
+- **首轮失败保留：** [首轮库聚焦](Results/auto-content-focused-20261020/summary.json) 为 51 通过、6 失败。内部 Auto Layout 使 Collection View 对外层宿主发起额外 fitting，宿主返回不明确尺寸，触发 UIKit `NSInternalInconsistencyException`。同阶段 [首轮 UI](Results/auto-content-ui-20261020/summary.json) 为 0 通过、4 失败，切换自定义内容后应用退出；未把这轮记作通过。修正宿主 fitting 后继续复测。
+- **第二轮失败保留：** [恢复聚焦](Results/auto-content-recovery-20261020/summary.json) 为 16 通过、3 失败。测量视图未及时收到 RTL／辅助字号环境，已通过同步 traits 修正。另两处夹具分别补上 RTL 切换后的显式布局，以及临时视图释放检查的 autorelease pool 边界，原几何与数量断言保留。
+- **阶段恢复通过：** [环境修正聚焦](Results/auto-content-traits-20261020/summary.json) 6 通过、0 失败；[Demo 恢复](Results/auto-content-ui-recovery-20261020/summary.json) 2 通过、0 失败，覆盖多行栏高与模式切换。随后增加系统配置和固有尺寸回归，阶段摘要如实保留源码差异，不作为最终完整源码验收。
+- **通过：最终全部库测试 135 项。** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro Max / iOS 26.5 Simulator；135 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。涵盖自动测量 6 项、自动栏高容器 1 项及既有 128 项回归。见 [最终库摘要](Results/auto-content-library-20261020/summary.json)。
+- **最终源码首轮 UI：3 通过、1 失败。** 多行高度增长／恢复、独立图库模式切换、真实拖动与同尺寸刷新均通过；RTL 最大辅助字号在首次横屏等待时超时，设备已请求 Landscape Left，但系统界面方向仍报告 portrait。未发现测量断言或约束冲突日志；具体原因尚未确认，不直接归因于环境。运行终态 `TEST FAILED`，`sourceChangedSinceRun` 为空，见 [UI 摘要](Results/auto-content-ui-final-20261020/summary.json)。保留既有方向及几何断言，以相同源码单独复测旋转。
+- **旋转同源码复测及默认模式对照仍失败：** iPhone 17 Pro 上的 [自定义模式单项复测](Results/auto-content-ui-rotation-recovery-20261020/summary.json) 与 [默认标签模式对照](Results/auto-content-default-rotation-control-20261020/summary.json) 均为 0 通过、1 失败，首次 Landscape Left 后场景仍报告 portrait，未放宽 5 秒等待和方向断言。默认模式没有调用业务自动测量，故问题并非仅出现在自定义视图；尚不能据此确定根因。另用 iPhone 17 Pro Max 对同一构建进行独立验证。
+- **通过：另一台设备的完整旋转回归。** 使用同一构建、同一源码，在 iPhone 17 Pro Max / iOS 26.5 Simulator 执行 `test-without-building`；RTL 最大辅助字号完成竖屏、Landscape Left、Landscape Right、返回竖屏，以及各方向首尾／长标题、横屏安全区域、页面 frame、Header 折叠与触摸恢复。1 通过、0 失败、0 跳过，终态 `TEST EXECUTE SUCCEEDED`，`sourceChangedSinceRun` 为空，见 [跨设备旋转摘要](Results/auto-content-alternate-rotation-20261020/summary.json)。与上述同源码主 UI 运行的 3 项通过共同覆盖 4 项不同用例，不合并表述为单次 4 项全通过；iPhone 17 Pro 的旋转超时仍保留，根因未确定。
+- **通过：格式与差异检查。** SwiftFormat 0.64.0 对本轮 9 个 Swift 文件 lint 为 `0/9 files require formatting`；最终 Demo Build Phase 为 `0/32 files formatted`，`git diff --check` 通过。运行日志仍有既有 UIKit Observation tracking 提示。
+- **未执行／限制：** 未运行全套 Demo UI、iPad／分屏、Release、真机、iOS 15 实际运行、完整 VoiceOver 流程或性能基准。iPhone 17 Pro 旋转验收未通过，已用默认模式对照和另一台设备缩小范围；不删除失败证据。保留此前工作区改动，未提交或推送。
+
+## 2026-10-19：自定义内容 API 行为审查修正
+
+- **修正刷新行为：** `reloadContent()` 不再走模型变更时清空转场并居中选中项的路径。自定义内容尺寸不变时保留手动滚动偏移、选择动画和分页进度；尺寸变化时将手动偏移限制在新范围，选择动画落到已选项，分页按原逻辑进度重新计算位置。默认模式下配置代理或刷新内容不改变当前显示，也不调用内容代理。保留现有公开接口名称、参数和返回类型。
+- **修正测量副作用：** 将当前显示快照与最近一次候选宽度测量分开缓存。`sizeThatFits(_:)` 不再写入显示配置或 `SPTabBarLayout.itemWidths`；实际布局才应用当前视口的测量结果。候选宽度反复询问不会创建内容视图，真实尺寸变化后仍更新配置和几何。
+- **注释与示例：** 补齐新增公开 API 的显示职责、整项点击和无障碍归属、状态保证、理想尺寸与最终 bounds、弱代理释放及测量回调约定。README 同步刷新和测量契约；分页 Demo 新增“刷新自定义内容”，通过业务副标题更新演示 `reloadContent()`。
+- **回归测试：** 新增 7 项真实 UIWindow 库测试，覆盖 LTR／RTL 手动偏移、选择动画中间帧、分页中间进度、默认模式代理赋值、候选宽度测量隔离和实际尺寸变更，以及尺寸缩小后的偏移钳制；真实 traits 与 tint 变化也验证相同尺寸下的偏移、动画和分页保留。Demo 既有自定义拖动用例增加真实拖动后刷新，核对标签物理 frame、选择和页面不变，并继续验证后续选择、纵向折叠及模式切换。
+- **修正前失败证据：** [修正前摘要](Results/custom-api-regressions-before-20261019/summary.json) 为 12 项中 6 通过、6 失败，共 22 个断言失败；6 项新增用例全部复现问题，既有 6 项通过。运行终态为 `TEST FAILED`，生成摘要时源码哈希一致；后续修正没有覆盖此结果包。
+- **阶段通过：标签聚焦 51 项及首轮全部库测试 127 项。** 分别见 [聚焦摘要](Results/custom-api-focused-20261019/summary.json) 和 [首轮库摘要](Results/custom-api-library-20261019/summary.json)。运行均以 `TEST SUCCEEDED` 结束；随后真实 UI 测试发现环境刷新路径仍会重新定位，补充修正与测试后，这两次不作为最终源码验收，摘要保留 `sourceChangedSinceRun`。
+- **真实 UI 首轮：2 通过、1 失败。** 自定义标签按住后拖动，再打开菜单并刷新，标签 minX 从 30.67 pt 回到 121 pt，未通过位置保留断言。保留 [首轮 UI 摘要](Results/custom-api-ui-20261019/summary.json) 和 [结果包](Results/custom-api-ui-20261019/Result.xcresult)；终态 `TEST FAILED`，后续修正的三个源码文件如实记录在 `sourceChangedSinceRun`。自定义模式原先对 traits 变化仍调用 `itemDidChange()`；调整为与手动刷新一致的 `reloadContent()`，tint 刷新也使用同一路径。UI 用例新增打开菜单后的中间位置断言，并保留刷新后的 frame 断言，没有放宽误差。
+- **通过：环境刷新聚焦 13 项。** iPhone 17 Pro Max / iOS 26.5 Simulator，13 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。见 [环境刷新聚焦摘要](Results/custom-api-environment-focused-20261019/summary.json)。
+- **通过：最终全部库测试 128 项。** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro Max / iOS 26.5 Simulator；128 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。包括新增 7 项回归、既有自定义内容、默认标签及容器几何和选择语义。见 [最终库摘要](Results/custom-api-library-final-20261019/summary.json)。
+- **通过：最终相关 Demo UI 3 项。** Xcode 26.6 / Debug，iPhone 17 Pro / iOS 26.5 Simulator；3 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。覆盖独立图库切换与内容更新，真实按住拖动后打开菜单／刷新时位置保留、禁用与分页、后续纵向折叠和模式切换，以及 RTL 最大辅助字号的竖屏／双向横屏／返回竖屏、首尾与长标题居中、安全区域、页面 frame 和触摸恢复。见 [最终 UI 摘要](Results/custom-api-ui-final-20261019/summary.json) 和 [结果包](Results/custom-api-ui-final-20261019/Result.xcresult)。
+- **通过：格式与差异检查。** SwiftFormat 0.64.0 对本轮 6 个 Swift 文件 lint 为 `0/6 files require formatting`，最终 Demo Build Phase 为 `0/31 files formatted`；`git diff --check` 通过。最终库与 UI 使用同一份源码。日志仍包含既有 UIKit Observation tracking 提示。
+- **未执行：** 全套 Demo UI、iPad／分屏、Release、真机、iOS 15 实际运行及完整 VoiceOver 流程。保留首轮失败和阶段验证记录，保留此前工作区改动；本轮未提交或推送。
+
+## 2026-10-19：默认与自定义标签内容架构
+
+- **实现：** 新增 `SPTabBar.ContentStyle.default/custom`、弱引用 `contentDelegate`、`reloadContent()`，以及 `SPTabBarContentDelegate`、`SPTabBarContent`、`SPTabBarContentContext`。业务返回 `UIContentConfiguration` 与包含自身内边距的理想尺寸；缺少配置、代理释放后再次布局或无效尺寸按项回退到默认图文。继续使用标准 `UICollectionViewCell` 与持久的 `CellRegistration`，没有新增 Cell 子类。默认 API、Item 身份、Appearance 复制和优先级、选择提交及代理语义保持原路径。
+- **状态与交互：** 私有内容宿主统一处理整项 UIButton 点击和无障碍，向业务配置的 `updated(for:)` 传递选中、禁用、真实按压和 traits；业务视图内部不单独命中或暴露无障碍入口。同类型视图复用，不兼容类型替换。配置和尺寸缓存随模型、选择、外观、tint、traits、可用宽度和 RTL 更新，高亮不触发重新测量。容器以当前视图尺寸询问标签高度，动态高度保持页面根视图与标签底边相接。
+- **Demo 与文档：** `CustomTabContent.swift` 提供编号、标题、副标题卡片，支持选中／按压／禁用、RTL 和 Dynamic Type；独立“标签外观”与分页“页面”菜单均可切换模式。README 补充接入示例、代理生命周期、尺寸、刷新、复用和整项交互边界。文件同步分组自动纳入新增 Demo，无需改变 target 或工程配置。最终构建的正常字号展示见 [自定义卡片预览](Results/custom-content-ui-verified-20261019/custom-tabs-preview.png)。
+- **新增测试：** 6 项真实 `UIWindow` 标签测试，覆盖缺省与无效回退、弱代理释放、尺寸与配置缓存、单次激活和否决、禁用与程序化选择、无障碍、类型替换、Item 身份替换，以及宽度、RTL、tint、字体和水平尺寸类变化；1 项容器测试覆盖两种模式、LTR／RTL、动态高度和缓存页位置恢复；3 项 UI 用例覆盖独立模式切换、自定义标签真实拖动与分页、辅助字号和四方向安全区域。
+- **首次编译失败，已修正：** 测试输入 `CGSize(width: .nan, ...)` 产生重载类型歧义，改为显式 `CGFloat.nan`／`CGFloat.infinity`。见 [编译失败摘要](Results/custom-content-focused-20261019/summary.json)。随后 [46 项聚焦测试](Results/custom-content-focused-fix-20261019/summary.json)、[首轮 121 项库测试](Results/custom-content-library-20261019/summary.json) 和 [补充 traits 后的 121 项库测试](Results/custom-content-library-final-20261019/summary.json) 均通过；这些阶段之后仍调整了源码或测试辅助方法，摘要保留 `sourceChangedSinceRun`，不作为最终完整源码验收。
+- **首轮 UI：4 通过、2 失败。** 独立图库用例的辅助方法错误查询仅分页 Demo 才有的 `demo.status`，已在读取前检查元素存在性。RTL 辅助字号用例在切换长标题页后读取状态超时；[失败截图](Results/custom-content-ui-20261019/rtl-attachments/A98BC5E4-4C00-47B7-907B-172FE0259467.png) 显示已选中“本周热门精选”并展示列表，没有发现对应的新崩溃报告，但未确定这次查询超时的具体原因。不放宽状态或几何断言，保留 [失败摘要](Results/custom-content-ui-20261019/summary.json) 与结果包。
+- **通过：最终全部库测试 121 项。** Xcode 26.6 / Swift 6.3.3 / Debug，iPhone 17 Pro Max / iOS 26.5 Simulator；121 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。见 [最终库摘要](Results/custom-content-library-verified-20261019/summary.json) 和 [结果包](Results/custom-content-library-verified-20261019/Result.xcresult)。
+- **通过：两项 UI 恢复测试。** iPhone 17 Pro / iOS 26.5 Simulator，独立图库默认／自定义切换、标题与角标更新和禁用行为通过；RTL 最大辅助字号完成竖屏、双向横屏、返回竖屏，验证首尾与长标题标签居中、安全视口、页面完整 frame、Header 折叠与新触摸恢复。2 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。见 [恢复摘要](Results/custom-content-ui-recovery-20261019/summary.json)。这次恢复包含后续 traits 刷新调整，不能把恢复直接归因于某一个环境因素。
+- **通过：最终其余 4 项 UI 回归。** 同一 iPhone 17 Pro，验证自定义标签禁用点击与分页、按住后横向拖动、纵向折叠不误选、模式切换后的页面 frame，以及默认模式的动态内容／禁用分页、按住后拖动和独立图库选择。4 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。与上述恢复运行使用相同源码，合计覆盖 6 项不同 UI 用例；不将两次运行混写为一次运行。见 [最终 UI 摘要](Results/custom-content-ui-verified-20261019/summary.json) 和 [结果包](Results/custom-content-ui-verified-20261019/Result.xcresult)。
+- **通过：格式与差异检查。** SwiftFormat 0.64.0 对 10 个修改的 Swift 文件 lint 为 `0/10 files require formatting`，Demo Build Phase 报告 `0/31 files formatted`，`git diff --check` 通过。运行时仍可见既有 UIKit Observation tracking 提示；前一提交的库运行也包含该提示。模式切换需要替换不同类型的内容视图，UIKit 会提示内容视图替换成本；同类型内容的复用由测试断言验证。未将这些日志表述为“零警告”。
+- **未执行：** 全套 Demo UI、iPad／分屏、Release、真机、iOS 15 实际运行、VoiceOver 全流程及性能基准；iOS 15 部署目标保持不变。结果目录是忽略的本地产物，历史失败证据保留；本次未提交或推送。
 
 ## 2026-10-19：标签 Cell 内容配置与 CellRegistration
 
