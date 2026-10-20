@@ -20,31 +20,41 @@ StickyPagerKit 是通过 Swift Package Manager 分发的 UIKit 粘性 Header 与
 
 公开行为和接入方式以 `README.md` 为入口；最小 containment 示例见 `Examples/StickyPagerDemo/StickyPagerDemo/MinimalIntegration.swift`，系统容器示例见同目录 `DemoSystemContainer.swift`。
 
-Demo 工程只包含 `StickyPagerDemo` 和 `StickyPagerDemoUITests` 两个 target，通过本地 Package 引用根目录库。不要把 `StickyPagerKitTests` 加入 Demo target 或测试 scheme。工程采用 `PBXFileSystemSynchronizedRootGroup`，对应源码目录中的新文件自动参与所属 target；通常无需逐文件修改 `project.pbxproj` 或重新生成工程。
+Demo 通过本地 Package 引用根目录库，只包含 `StickyPagerDemo` 和 `StickyPagerDemoUITests` 两个 target；不要把 `StickyPagerKitTests` 加入 Demo target 或 scheme。工程采用 `PBXFileSystemSynchronizedRootGroup`，源码目录中的新文件自动参与所属 target，通常无需逐文件修改 `project.pbxproj`。
 
 ## 修改方式与代码约定
 
 - 开始修改前检查 `git status --short`、相关 diff 和适用的目录规则，保留用户已有修改；不擅自提交或推送。
-- 遵循邻近源码的组织和排版。现有惯例为 `SP` 类型前缀、类型使用 UpperCamelCase、成员使用 lowerCamelCase、四空格缩进、公开说明使用中文 `///`。这些是源码惯例，不是自动格式化配置。
+- 遵循邻近源码：`SP` 类型前缀、类型使用 UpperCamelCase、成员使用 lowerCamelCase、四空格缩进，公开说明使用中文 `///`。
 - 保留公开扩展点的 `open` / `public` 语义；实现细节使用 `internal` / `private`，不要仅为测试扩大公开 API。库测试使用 `@testable import StickyPagerKit`。
 - 保持主 actor 隔离、弱数据源与弱代理关系。新增系统 API 应保留 iOS 15 的可用性边界和旧系统路径，不为消除编译错误直接提高部署目标。
-- 输入处理遵循现有接口契约：布局数值归一化、越界选择忽略、重复页面标识拒绝整次快照并保留旧状态。不要随意改成崩溃或部分更新；相关逻辑见 `SPPageLayout`、`SPScrollGeometry` 和容器实现。
-- 公开行为或接入方式变更时同步 `README.md`；验证事实写入 `Validation/README.md`，不把临时进度、测试数量或某次成功结果固化到本指南。
-- 仓库根目录 `.swiftformat` 为框架、Demo 和测试定义统一排版，Package 精确依赖 SwiftFormat 0.64.0；仅启用显式列出的排版规则。`Scripts/format.sh` 调用 SwiftPM Command Plugin，覆盖框架、测试及独立 Demo，支持 `--lint`。Demo target 的 `SwiftFormat` Build Phase 在其 Sources 阶段之前自动执行该脚本，失败会中止构建；单独构建 Package 不会触发该阶段。修改 Swift 文件后按该配置格式化相关文件，命令见 `README.md`。除已配置的 Demo 构建流程或用户要求外，不要顺手全仓格式化。仓库没有 CI 工作流、SwiftLint 配置或 Git Hook。
+- 输入处理保持现有契约：布局数值归一化、越界选择忽略、重复页面标识拒绝整次快照并保留旧状态，不改成崩溃或部分更新。
+- 公开行为或接入方式变更时同步 `README.md`；运行结果记录在 `Validation/README.md`，本指南只保留长期约定。
+- Swift 文件统一使用根目录 `.swiftformat` 和 Package 锁定的 SwiftFormat 0.64.0，按 `README.md` 的命令格式化相关文件。`Scripts/format.sh` 覆盖框架、测试与 Demo，支持 `--lint`；Demo 的 Build Phase 在编译前自动执行，失败会中止构建，单独构建 Package 不会触发。除该构建流程或用户要求外，不顺手全仓格式化。
 
 ## 需要保持的行为边界
 
-- **布局与安全区域：** Header 总高度包含顶部安全区域，折叠范围为 `max(0, headerHeight - safeTop - minimumHeaderHeight)`。页面根视图顶部跟随当前标签栏底部，宽度和底边延伸至容器边界。内部控件及滚动内容分别通过 Safe Area 和 `adjustedContentInset` 避让系统栏，不重复扣除系统栏高度。修改时联查页面 frame、内部内容、inset、offset 和短内容滚动范围；详见 `README.md` 的“滚动坐标与布局”。
+- **布局与安全区域：** Header 总高度包含顶部安全区域，折叠范围为 `max(0, headerHeight - safeTop - minimumHeaderHeight)`。页面根视图顶部跟随当前标签栏底部，宽度和底边延伸至容器边界。内部控件及滚动内容分别通过 Safe Area 和 `adjustedContentInset` 避让系统栏，不重复扣除系统栏高度；详见 `README.md` 的“滚动坐标与布局”。
 - **滚动所有权：** `SPScrollBinding` 保留业务 delegate，只管理框架贡献的 inset，并在解绑时恢复业务设置。每页只协调一个主要纵向滚动视图；复杂页面允许显式绑定，异步替换后重新发现。普通页面不额外包装滚动容器。
 - **分页与生命周期：** 页面以稳定标识复用和保存位置；转场取消、重载、缓存淘汰和尺寸变化不能让旧页回调覆盖当前状态。保持 containment、appearance 转发及选中提交时机。RTL 改变视觉排列，不改变逻辑索引。
-- **嵌套横向滚动：** 内部 Section 在可滚动方向优先处理手势，到边界后下一次向外拖动可交给外层分页；归属在手势开始时判定，不在拖动中途抢占。检查外层首尾、RTL、斜向拖动和系统返回手势，参见 `SPPagingScrollView.swift` 与 `CompositionalGestureTests.swift`。
+- **嵌套横向滚动：** 内部 Section 在可滚动方向优先处理手势，到边界后下一次向外拖动可交给外层分页；归属在手势开始时判定，不在拖动中途抢占，并兼顾 RTL 和系统返回手势。
 - **标签模型和外观：** `SPTabBarItem` 按对象身份区分；Appearance 赋值时复制，通过宿主 getter 修改时实时刷新。保持显式颜色与自动 `tintColor` 的优先级，以及点击、程序化选择、分页手势的不同回调语义。布局变化需兼顾 Dynamic Type、左右安全区域和 RTL。
+
+## 本机 Xcode 外部代理授权
+
+- 当前 Mac、当前 macOS 用户下的所有本机外部代理已获持续访问 Xcode 工具的授权，包含跨重启的自动允许；同一范围内使用或维护连接时不重复请求确认。
+- 维护连接时保留现有工作状态，避免中断构建、调试或未保存的编辑。兼容性问题按当前 Xcode 版本处理。
+- 此授权不延伸至其他机器、用户或具体任务之外的操作。
 
 ## 构建与测试命令
 
-以下命令在仓库根目录执行。需要完整 Xcode、支持 Package 声明及源码 API 的 Swift 编译器／iOS SDK、可用的 iOS Simulator 和 `python3`。库依赖 UIKit，不能直接以 macOS 为目标运行 `swift test`。
+- 优先使用 Apple 官方 Xcode MCP（通过 `xcrun mcpbridge` 桥接）执行构建与测试，以当前会话可用的接口为准。服务注册名称可自定义，`XcodeBuildMCP` 是独立的第三方工具。
+- 执行前确认目标工程或 Package、scheme 和运行环境；官方 MCP 不可用或无法完成所需操作时，可回退到下述脚本与 `xcodebuild` 流程，并简要说明原因。
+- 按用户要求的任务范围使用工具；仅要求只读检查时，不执行构建、运行或测试。
 
-`Scripts/validate.sh` 默认使用 `/Applications/Xcode-26.6.app/Contents/Developer` 和一个固定模拟器 UUID。执行前确认本机环境，通过以下变量覆盖；尖括号内容须替换为实际值。脚本在进程内设置 `DEVELOPER_DIR`，不需要修改全局 `xcode-select`。
+以下命令在仓库根目录执行，需要兼容的完整 Xcode、iOS Simulator 和 `python3`。库依赖 UIKit，不能直接以 macOS 为目标运行 `swift test`；真机运行另需签名 Team。
+
+`Scripts/validate.sh` 内置本机 Xcode 路径和模拟器 UUID，使用前通过以下变量指定实际环境，无需修改全局 `xcode-select`：
 
 ```sh
 export SP_DEVELOPER_DIR="<实际 Xcode.app 路径>/Contents/Developer"
@@ -54,7 +64,7 @@ export SP_SIMULATOR_ID="<实际模拟器 UUID>"
 # Demo 构建；脚本默认 SP_SCOPE=demo、SP_CONFIGURATION=Debug
 SP_SCOPE=demo Scripts/validate.sh build
 
-# 两套测试独立执行，不能互相替代
+# 库测试与 Demo UI 测试
 SP_SCOPE=library Scripts/validate.sh test
 SP_SCOPE=demo Scripts/validate.sh test
 
@@ -66,32 +76,31 @@ SP_SCOPE=library Scripts/validate.sh test -only-testing:StickyPagerKitTests/SPPa
 SP_SCOPE=demo Scripts/validate.sh test -only-testing:StickyPagerDemoUITests/CompositionalGestureTests
 ```
 
-`SP_RUN_NAME` 可指定运行目录名，默认按时间生成。每次使用新的名字，避免已有 `.xcresult` 冲突。脚本保存工具链、`source-hashes.json`、`xcodebuild.log` 和 `Result.xcresult` 到 `Validation/Results/<运行名>/`，构建产物写入 `Validation/Products/`。测试结束后，使用同一 Xcode 生成摘要：
+结果保存到 `Validation/Results/<运行名>/`，构建产物保存到 `Validation/Products/`。运行名默认按时间生成；设置 `SP_RUN_NAME` 时使用新名称。测试结束后用同一 Xcode 生成摘要并检查 diff：
 
 ```sh
 DEVELOPER_DIR="$SP_DEVELOPER_DIR" python3 Scripts/summarize_validation.py "Validation/Results/<运行名>"
 git diff --check
 ```
 
-这些命令来自当前脚本与项目配置；列出命令不表示已在当前环境执行通过。真机运行另需配置签名 Team。
+## 验证原则
 
-## 按改动选择验证
+先运行受影响的聚焦测试，再按改动扩大范围。MCP 与命令行遵循相同要求，库测试与 Demo UI 测试不能互相替代。
 
 | 改动 | 验证范围 |
 | --- | --- |
 | 容器、几何、绑定、发现、缓存或生命周期 | 相关 `StickyPagerKitTests`；影响交互时补 Demo UI 测试 |
-| 标签模型、外观或布局 | `SPTabBarModelTests`、`SPTabBarTests`；影响容器高度或选择时补容器测试；可见交互用 Demo 验证 |
+| 标签模型、外观或布局 | 对应 `SPTabBar*Tests`；影响容器或交互时补相关库测试或 Demo UI 测试 |
 | 分页或嵌套滚动仲裁 | `SPPagingScrollViewTests`、容器分页测试及 `CompositionalGestureTests` 的真实触摸 |
 | Demo 系统容器、安全区域或系统栏 | `SystemContainerTests`，按影响覆盖 iPhone／iPad、旋转和 RTL |
 | Package、工程或构建配置 | 受影响的库／Demo 构建和测试；按变更补 Release 与工具链兼容性验证 |
-| 仅文档 | 核对路径、命令及描述与源码一致，并检查 diff；无需仅为文档运行完整构建或测试 |
+| 仅文档 | 核对路径、命令和描述，检查 diff；无需构建或测试 |
 
-先运行受影响的聚焦测试，再按改动影响扩大验证。UIKit 几何测试沿用真实 `UIWindow` 夹具，断言物理 frame、inset、offset 和恢复行为；真实手势、减速、系统返回、分屏及窗口缩放由 Demo UI 测试验证。拖动距离依据实际视口计算，避免固定像素在窄窗口失效。涉及自适应布局时检查 RTL、旋转、缓存页面、短／空内容及内部 Safe Area；标签改动同时检查长标题和辅助字号。
-
-报告明确区分“通过 / 失败 / 未执行 / 被环境阻塞”。读取同次运行的终态日志和 `.xcresult`，检查摘要中的 `sourceChangedSinceRun`；摘要缺失、工具超时或进程仍在运行均不能据此宣称测试通过。保留首次失败、聚焦复测和最终回归的区别；构建成功不等于运行时验收，iOS 15 部署目标也不等于 iOS 15 实际运行通过。
+- UIKit 几何测试使用真实 `UIWindow`，检查 frame、inset、offset 和恢复行为；手势使用 Demo UI 测试，拖动距离按视口计算。
+- 布局改动兼顾 RTL、安全区域、尺寸变化、缓存页及短／空内容；标签同时考虑长标题和 Dynamic Type。
+- 依据当前源码对应的终态结果报告“通过 / 失败 / 未执行 / 被环境阻塞”，说明未覆盖范围；构建成功不代表运行时通过。脚本摘要中的 `sourceChangedSinceRun` 用于核对源码一致性。
 
 ## 文件与证据边界
 
 - `.build/`、`.swiftpm/`、`DerivedData/`、`Validation/Products/`、`Validation/Results/` 和 `xcuserdata/` 属于忽略的本地生成内容，不作为源码编辑或强制加入 Git。
 - `Validation/README.md`、`Validation/final-evidence.json` 及已跟踪截图是历史证据，不能从旧结果推定当前源码已验证，也不要为了得到干净结果删除失败证据。
-- 当前 Package 仅有用于 Command Plugin 的 SwiftFormat 开发工具依赖，没有第三方运行时依赖或需要维护的生成源码目录；`.gitignore` 中的 CocoaPods、Carthage 和 fastlane 模板条目不代表项目使用了这些工具。
