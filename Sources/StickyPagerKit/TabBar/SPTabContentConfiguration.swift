@@ -28,7 +28,12 @@ internal struct SPTabContentConfiguration: UIContentConfiguration {
 }
 
 @MainActor
-private final class SPTabContentView: UIView, UIContentView {
+internal protocol SPTabIndicatorContentGeometry: AnyObject {
+    var indicatorContentRect: CGRect { get }
+}
+
+@MainActor
+private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorContentGeometry {
     private var storedConfiguration: SPTabContentConfiguration
     var configuration: UIContentConfiguration {
         get { storedConfiguration }
@@ -82,6 +87,18 @@ private final class SPTabContentView: UIView, UIContentView {
         badge.textColor = value.badgeTextColor
         badge.backgroundColor = value.badgeBackgroundColor
         setNeedsLayout()
+    }
+
+    var indicatorContentRect: CGRect {
+        layoutIfNeeded()
+        button.layoutIfNeeded()
+        let frames = [button.titleLabel, button.imageView].compactMap { view -> CGRect? in
+            guard let view, !view.isHidden, !view.bounds.isEmpty else {
+                return nil
+            }
+            return view.convert(view.bounds, to: self)
+        }
+        return frames.reduce(CGRect.null) { $0.union($1) }
     }
 
     override func layoutSubviews() {

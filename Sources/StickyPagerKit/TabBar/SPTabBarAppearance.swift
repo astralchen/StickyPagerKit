@@ -32,14 +32,15 @@ public final class SPTabBarAppearance: UIBarAppearance {
         true
     }
 
-    public enum SelectionStyle: Int, Sendable { case capsule, underline, none }
-    public var selectionStyle: SelectionStyle = .capsule {
-        didSet { changed() }
+    /// nil 使用所选样式的默认颜色：胶囊使用 tertiarySystemFill，线条／自定义跟随选中文字颜色。
+    public var indicatorColor: UIColor? {
+        didSet { indicatorChanged() }
     }
 
-    /// nil 使用样式默认颜色：下划线跟随选中文字，胶囊使用 tertiarySystemFill。
-    public var selectionColor: UIColor? {
-        didSet { changed() }
+    /// nil 使用所选样式的默认布局；显式值完整覆盖预设，切换样式不会清除覆盖。
+    /// 仅影响指示器，不参与内容测量；赋值、复制及归档保留值语义。
+    public var indicatorLayout: SPTabBarIndicatorLayout? {
+        didSet { indicatorChanged() }
     }
 
     public var itemAppearance = SPTabBarItemAppearance() {
@@ -81,16 +82,27 @@ public final class SPTabBarAppearance: UIBarAppearance {
     public override init(barAppearance: UIBarAppearance) {
         super.init(barAppearance: barAppearance)
         if let source = barAppearance as? SPTabBarAppearance {
-            selectionStyle = source.selectionStyle
-            selectionColor = source.selectionColor
+            indicatorColor = source.indicatorColor
+            indicatorLayout = source.indicatorLayout
             itemAppearance = source.itemAppearance
         }
     }
 
     public required init(coder: NSCoder) {
         super.init(coder: coder)
-        selectionStyle = SelectionStyle(rawValue: coder.decodeInteger(forKey: "SP.selectionStyle")) ?? .capsule
-        selectionColor = coder.decodeObject(of: UIColor.self, forKey: "SP.selectionColor")
+        if coder.containsValue(forKey: "SP.indicatorColor") {
+            indicatorColor = coder.decodeObject(of: UIColor.self, forKey: "SP.indicatorColor")
+        }
+        if coder.containsValue(forKey: "SP.indicatorLayout"),
+           let data = coder.decodeObject(of: NSData.self, forKey: "SP.indicatorLayout") as Data? {
+            let decoder = JSONDecoder()
+            decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+                positiveInfinity: "Infinity",
+                negativeInfinity: "-Infinity",
+                nan: "NaN"
+            )
+            indicatorLayout = try? decoder.decode(SPTabBarIndicatorLayout.self, from: data)
+        }
         itemAppearance.layout = SPTabBarItemAppearance
             .Layout(rawValue: coder.decodeInteger(forKey: "SP.layout")) ?? .automatic
         itemAppearance.normal = Self.decodeState(coder, key: "normal", fallback: itemAppearance.normal)
@@ -100,8 +112,16 @@ public final class SPTabBarAppearance: UIBarAppearance {
 
     public override func encode(with coder: NSCoder) {
         super.encode(with: coder)
-        coder.encode(selectionStyle.rawValue, forKey: "SP.selectionStyle")
-        coder.encode(selectionColor, forKey: "SP.selectionColor")
+        coder.encode(indicatorColor, forKey: "SP.indicatorColor")
+        let encoder = JSONEncoder()
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: "Infinity",
+            negativeInfinity: "-Infinity",
+            nan: "NaN"
+        )
+        if let indicatorLayout, let data = try? encoder.encode(indicatorLayout) {
+            coder.encode(data as NSData, forKey: "SP.indicatorLayout")
+        }
         coder.encode(itemAppearance.layout.rawValue, forKey: "SP.layout")
         Self.encodeState(itemAppearance.normal, coder: coder, key: "normal")
         Self.encodeState(itemAppearance.selected, coder: coder, key: "selected")
@@ -142,6 +162,15 @@ public final class SPTabBarAppearance: UIBarAppearance {
 
     internal func detach(_ item: SPTabBarItem) {
         items.remove(item)
+    }
+
+    private func indicatorChanged() {
+        for bar in bars.allObjects {
+            bar.reloadIndicator()
+        }
+        for item in items.allObjects {
+            item.indicatorDidChange()
+        }
     }
 
     private func changed() {

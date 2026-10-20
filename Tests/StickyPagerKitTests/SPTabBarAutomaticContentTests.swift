@@ -128,7 +128,7 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         )))
         let bar = mount(source)
         let list = collection(bar)
-        let indicator = list.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+        let indicator = list.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
         bar.setSelectedIndex(1, animated: true)
         bar.advanceSelectionAnimation(to: 0.5)
         let frame = indicator.frame
@@ -171,11 +171,11 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         bar.minimumItemWidth = 0
         resize(bar, width: 32)
         let list = collection(bar)
-        for style: SPTabBarAppearance.SelectionStyle in [.capsule, .underline] {
-            bar.standardAppearance.selectionStyle = style
+        for style: SPTabBarIndicatorLayout in [.capsule, .underline] {
+            bar.standardAppearance.indicatorLayout = style
             bar.layoutIfNeeded()
             let item = list.collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame
-            let indicator = list.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+            let indicator = list.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
             XCTAssertEqual(item.width, 1, accuracy: 0.01)
             XCTAssertFalse(indicator.frame.isNull)
             XCTAssertGreaterThanOrEqual(indicator.frame.minX, item.minX)
@@ -189,10 +189,10 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         for explicit in [false, true] {
             source.explicitSize = explicit ? size : nil
             let bar = mount(source)
-            for style: SPTabBarAppearance.SelectionStyle in [.capsule, .underline] {
-                bar.standardAppearance.selectionStyle = style
+            for style: SPTabBarIndicatorLayout in [.capsule, .underline] {
+                bar.standardAppearance.indicatorLayout = style
                 bar.layoutIfNeeded()
-                let indicator = collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+                let indicator = collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
                 XCTAssertEqual(bar.bounds.height, 1, accuracy: 0.01)
                 XCTAssertFalse(indicator.frame.isNull)
                 XCTAssertTrue(indicator.frame.origin.x.isFinite && indicator.frame.origin.y.isFinite)
@@ -247,6 +247,54 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
             160,
             accuracy: 0.01
         )
+    }
+
+    func testItemSpacingParticipatesInAutomaticMeasurementWithoutCommittingCandidateWidths() {
+        let source = AutomaticTabSource()
+        let bar = mount(source)
+        source.samples.removeAll()
+        bar.itemSpacing = 40
+        resize(bar, width: 320)
+        let list = collection(bar)
+        let first = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame
+        let second = list.layoutAttributesForItem(at: IndexPath(item: 1, section: 0))!.frame
+        XCTAssertEqual(first.width, 140, accuracy: 0.01)
+        XCTAssertEqual(second.minX - first.maxX, 40, accuracy: 0.01)
+        XCTAssertTrue(source.samples.contains { $0.horizontal == .required && abs($0.target.width - 140) < 0.01 })
+        _ = bar.sizeThatFits(CGSize(width: 700, height: 0))
+        list.layoutIfNeeded()
+        XCTAssertEqual(list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame, first)
+        XCTAssertEqual(list.contentSize.width, 320, accuracy: 0.01)
+
+        source.text = String(repeating: "长标题自动换行", count: 12)
+        let host = window.rootViewController!
+        let child = UIViewController()
+        host.addChild(child)
+        host.view.addSubview(child.view)
+        child.didMove(toParent: host)
+        child.view.addSubview(bar)
+        host.setOverrideTraitCollection(
+            UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge),
+            forChild: child
+        )
+        child.view.layoutIfNeeded()
+        bar.reloadContent()
+        resize(bar, width: 320)
+        let a = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame
+        let b = list.layoutAttributesForItem(at: IndexPath(item: 1, section: 0))!.frame
+        XCTAssertEqual(b.minX - a.maxX, 40, accuracy: 0.01)
+        XCTAssertTrue(source.samples.contains { $0.horizontal == .required && abs($0.target.width - a.width) < 0.01 })
+        XCTAssertEqual(
+            source.samples.last { $0.index == 0 && $0.horizontal == .required }?.category,
+            .accessibilityExtraExtraExtraLarge
+        )
+        let content = view(bar)
+        content.layoutIfNeeded()
+        let expectedHeight = content.label.sizeThatFits(CGSize(
+            width: content.bounds.width - 32,
+            height: .greatestFiniteMagnitude
+        )).height + 24
+        XCTAssertEqual(bar.bounds.height, ceil(expectedHeight), accuracy: 1)
     }
 
     func testAutomaticContentMeasuresMultilineHeightAtAllocatedWidth() {
@@ -369,7 +417,7 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
             XCTAssertEqual(list.contentOffset.x, 130, accuracy: 0.01)
             bar.setSelectedIndex(6, animated: true)
             bar.advanceSelectionAnimation(to: 0.5)
-            let indicator = list.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+            let indicator = list.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
             let frame = indicator.frame
             let offset = list.contentOffset
             _ = bar.sizeThatFits(CGSize(width: 100, height: 0))

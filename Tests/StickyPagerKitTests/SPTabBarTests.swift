@@ -24,7 +24,9 @@ final class SPTabBarTests: XCTestCase {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 100, width: width, height: 44))
-        bar.standardAppearance.selectionStyle = .underline
+        bar.indicatorStyle = .underline
+        bar.standardAppearance.indicatorLayout = nil
+        bar.standardAppearance.indicatorColor = nil
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         controller.view.addSubview(bar)
         bar.setItems((titles ?? (0 ..< count).map { "标签 \($0)" }).map { SPTabBarItem(title: $0) })
@@ -191,7 +193,7 @@ final class SPTabBarTests: XCTestCase {
     func testVariableWidthIndicatorAndOffsetStaySynchronizedDuringAnimationAndGestureTakeover() {
         for rtl in [false, true] {
             let (bar, collection) = mount(rtl: rtl, titles: variedTitles)
-            let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+            let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
             let start = indicator.frame
             let startOffset = collection.contentOffset.x
             bar.setSelectedIndex(5, animated: true)
@@ -320,7 +322,7 @@ final class SPTabBarTests: XCTestCase {
 
     func testTransitionUsesOffscreenGeometryAndSurvivesRelayout() {
         let (bar, collection) = mount()
-        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
         XCTAssertNil(collection.cellForItem(at: IndexPath(item: 10, section: 0)))
         bar.setTransitionProgress(from: 0, to: 10, progress: 0.4)
         let expected = frame(0, in: collection)
@@ -336,7 +338,7 @@ final class SPTabBarTests: XCTestCase {
 
     func testReloadShrinkEmptyAndInvalidSelectionClearStaleState() {
         let (bar, collection) = mount()
-        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
         bar.setSelectedIndex(11, animated: true)
         bar.setItems([SPTabBarItem(title: "新标签")])
         bar.layoutIfNeeded()
@@ -374,7 +376,7 @@ final class SPTabBarTests: XCTestCase {
     func testIndicatorAndCenteringShareAnimationProgressAndRetargetFromCurrentPosition() {
         for rtl in [false, true] {
             let (bar, collection) = mount(rtl: rtl)
-            let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+            let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
             let startFrame = indicator.frame
             let startOffset = collection.contentOffset.x
             bar.setSelectedIndex(6, animated: true)
@@ -400,7 +402,7 @@ final class SPTabBarTests: XCTestCase {
 
     func testPagingProgressSynchronizesTabOffsetAndCancellation() {
         let (bar, collection) = mount()
-        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
         bar.setSelectedIndex(4, animated: false)
         let startOffset = collection.contentOffset.x
         let startX = indicator.frame.minX
@@ -418,7 +420,7 @@ final class SPTabBarTests: XCTestCase {
 
     func testPagingTakesOverAnUnfinishedTabAnimationWithoutJumping() {
         let (bar, collection) = mount()
-        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
         bar.setSelectedIndex(6, animated: true)
         bar.advanceSelectionAnimation(to: 0.5)
         let startFrame = indicator.frame
@@ -446,7 +448,7 @@ final class SPTabBarTests: XCTestCase {
 
     func testManualDragResizeAndReloadStopSelectionAnimation() {
         let (bar, collection) = mount()
-        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+        let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
         bar.setSelectedIndex(6, animated: true)
         bar.advanceSelectionAnimation(to: 0.5)
         collection.delegate?.scrollViewWillBeginDragging?(collection)

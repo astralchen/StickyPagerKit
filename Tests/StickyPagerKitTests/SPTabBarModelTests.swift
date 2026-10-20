@@ -211,11 +211,13 @@ final class SPTabBarModelTests: XCTestCase {
         let other = SPTabBarItem(title: "较长的第二项")
         window.rootViewController!.view.tintColor = .systemGreen
         let bar = mount([item, other])
-        bar.standardAppearance.selectionStyle = .underline
+        bar.indicatorStyle = .underline
+        bar.standardAppearance.indicatorLayout = nil
+        bar.standardAppearance.indicatorColor = nil
         bar.selectedItem = item
         bar.layoutIfNeeded()
         let indicator = try XCTUnwrap(collection(bar).subviews
-            .first { $0.accessibilityIdentifier == "sp.tabBar.selection" })
+            .first { $0.accessibilityIdentifier == "sp.tabBar.indicator" })
         XCTAssertEqual(indicator.backgroundColor, .systemGreen)
         XCTAssertEqual(indicator.bounds.height, 3)
         XCTAssertEqual(indicator.layer.cornerRadius, 1.5)
@@ -225,11 +227,11 @@ final class SPTabBarModelTests: XCTestCase {
         XCTAssertEqual(indicator.backgroundColor, .systemPurple)
         item.setTitleTextAttributes([.foregroundColor: UIColor.systemRed], for: .selected)
         XCTAssertEqual(indicator.backgroundColor, .systemRed)
-        bar.standardAppearance.selectionColor = .systemOrange
+        bar.standardAppearance.indicatorColor = .systemOrange
         XCTAssertEqual(indicator.backgroundColor, .systemOrange)
         bar.tintColor = .systemTeal
         XCTAssertEqual(indicator.backgroundColor, .systemOrange)
-        bar.standardAppearance.selectionColor = nil
+        bar.standardAppearance.indicatorColor = nil
         XCTAssertEqual(indicator.backgroundColor, .systemRed)
         item.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .selected)
         for style: UIUserInterfaceStyle in [.light, .dark] {
@@ -253,11 +255,15 @@ final class SPTabBarModelTests: XCTestCase {
         bar.setTransitionProgress(from: 1, to: 0, progress: 0.5)
         XCTAssertTrue(bar.selectedItem === other)
         XCTAssertEqual(indicator.layer.cornerRadius, 1.5)
-        bar.standardAppearance.selectionStyle = .capsule
+        bar.indicatorStyle = .capsule
+        bar.standardAppearance.indicatorLayout = nil
+        bar.standardAppearance.indicatorColor = .tertiarySystemFill
         bar.layoutIfNeeded()
         XCTAssertEqual(indicator.backgroundColor, .tertiarySystemFill)
         XCTAssertEqual(indicator.layer.cornerRadius, indicator.bounds.height / 2)
-        bar.standardAppearance.selectionStyle = .underline
+        bar.indicatorStyle = .underline
+        bar.standardAppearance.indicatorLayout = nil
+        bar.standardAppearance.indicatorColor = nil
         bar.layoutIfNeeded()
         XCTAssertEqual(indicator.backgroundColor, .systemPink)
         XCTAssertEqual(indicator.layer.cornerRadius, 1.5)
@@ -266,25 +272,26 @@ final class SPTabBarModelTests: XCTestCase {
     func testAutomaticAndExplicitIndicatorColorsSurviveCopyAndArchive() throws {
         for color: UIColor? in [nil, .systemOrange] {
             let appearance = SPTabBarAppearance()
-            appearance.selectionStyle = .underline
-            appearance.selectionColor = color
+            appearance.indicatorLayout = .underline
+            appearance.indicatorColor = color
             let copy = try XCTUnwrap(appearance.copy() as? SPTabBarAppearance)
-            XCTAssertEqual(copy.selectionColor, color)
+            XCTAssertEqual(copy.indicatorColor, color)
             let data = try NSKeyedArchiver.archivedData(withRootObject: copy, requiringSecureCoding: true)
             let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(
                 ofClass: SPTabBarAppearance.self,
                 from: data
             ))
-            XCTAssertEqual(decoded.selectionColor, color)
+            XCTAssertEqual(decoded.indicatorColor, color)
             let item = SPTabBarItem(title: "Item 外观")
             item.standardAppearance = decoded
             let bar = mount([item])
+            bar.indicatorStyle = .underline
             bar.tintColor = .systemBlue
             bar.selectedItem = item
             let indicator = try XCTUnwrap(collection(bar).subviews
-                .first { $0.accessibilityIdentifier == "sp.tabBar.selection" })
+                .first { $0.accessibilityIdentifier == "sp.tabBar.indicator" })
             XCTAssertEqual(indicator.backgroundColor, color ?? .systemBlue)
-            item.standardAppearance?.selectionColor = .systemRed
+            item.standardAppearance?.indicatorColor = .systemRed
             XCTAssertEqual(indicator.backgroundColor, .systemRed)
         }
     }
@@ -346,20 +353,21 @@ final class SPTabBarModelTests: XCTestCase {
         let appearance = SPTabBarAppearance()
         appearance.configureWithOpaqueBackground()
         appearance.backgroundColor = .systemPink
-        appearance.selectionStyle = .underline
+        appearance.indicatorLayout = .underline
+        appearance.indicatorColor = nil
         appearance.itemAppearance.layout = .inline
         appearance.itemAppearance.selected.font = .systemFont(ofSize: 25)
         appearance.itemAppearance.disabled.badgeTextColor = .systemGreen
         let bar = mount([SPTabBarItem(title: "A")])
         bar.standardAppearance = appearance
-        appearance.selectionStyle = .none
-        XCTAssertEqual(bar.standardAppearance.selectionStyle, .underline)
+        appearance.indicatorLayout = .capsule
+        XCTAssertEqual(bar.standardAppearance.indicatorLayout, .underline)
         let copy = try XCTUnwrap(bar.standardAppearance.copy() as? SPTabBarAppearance)
         copy.itemAppearance.selected.font = .systemFont(ofSize: 40)
         XCTAssertEqual(bar.standardAppearance.itemAppearance.selected.font?.pointSize, 25)
         let data = try NSKeyedArchiver.archivedData(withRootObject: bar.standardAppearance, requiringSecureCoding: true)
         let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(ofClass: SPTabBarAppearance.self, from: data))
-        XCTAssertEqual(decoded.selectionStyle, .underline)
+        XCTAssertEqual(decoded.indicatorLayout, .underline)
         XCTAssertEqual(decoded.itemAppearance.layout, .inline)
         XCTAssertEqual(decoded.itemAppearance.selected.font?.pointSize, 25)
         XCTAssertEqual(decoded.backgroundColor, .systemPink)
@@ -378,13 +386,17 @@ final class SPTabBarModelTests: XCTestCase {
         bar.selectedItem = item
         let source = SPTabBarAppearance()
         item.standardAppearance = source
-        source.selectionStyle = .none
-        XCTAssertEqual(item.standardAppearance?.selectionStyle, .capsule)
-        item.standardAppearance?.selectionStyle = .none
-        let indicator = collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
-        XCTAssertTrue(indicator.isHidden)
+        source.indicatorColor = .systemRed
+        XCTAssertNil(item.standardAppearance?.indicatorLayout)
+        XCTAssertNil(item.standardAppearance?.indicatorColor)
+        item.standardAppearance?.indicatorColor = .systemGreen
+        let indicator = collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
+        XCTAssertFalse(indicator.isHidden)
+        XCTAssertEqual(indicator.backgroundColor, .systemGreen)
         item.standardAppearance = nil
-        bar.standardAppearance.selectionStyle = .underline
+        bar.indicatorStyle = .underline
+        bar.standardAppearance.indicatorLayout = nil
+        bar.standardAppearance.indicatorColor = nil
         bar.layoutIfNeeded()
         XCTAssertFalse(indicator.isHidden)
         XCTAssertEqual(indicator.bounds.height, 3)
@@ -405,7 +417,8 @@ final class SPTabBarModelTests: XCTestCase {
         item.imageInsets = UIEdgeInsets(top: 1, left: 2, bottom: 3, right: 4)
         item.setTitleTextAttributes([.foregroundColor: UIColor.systemBlue], for: .selected)
         item.standardAppearance = SPTabBarAppearance()
-        item.standardAppearance?.selectionStyle = .underline
+        item.standardAppearance?.indicatorLayout = .underline
+        item.standardAppearance?.indicatorColor = nil
         let data = try NSKeyedArchiver.archivedData(withRootObject: item, requiringSecureCoding: false)
         let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(data) as? SPTabBarItem)
         XCTAssertEqual(decoded.title, "归档")
@@ -415,7 +428,7 @@ final class SPTabBarModelTests: XCTestCase {
         XCTAssertEqual(decoded.imageInsets, item.imageInsets)
         XCTAssertNotNil(decoded.image)
         XCTAssertNotNil(decoded.selectedImage)
-        XCTAssertEqual(decoded.standardAppearance?.selectionStyle, .underline)
+        XCTAssertEqual(decoded.standardAppearance?.indicatorLayout, .underline)
         XCTAssertEqual(decoded.titleTextAttributes(for: .selected)?[.foregroundColor] as? UIColor, .systemBlue)
     }
 
@@ -556,12 +569,15 @@ final class SPTabBarModelTests: XCTestCase {
             collection(bar).collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame
         )
         let appearance = SPTabBarAppearance()
-        appearance.selectionStyle = .none
+        appearance.indicatorLayout = .underline
         item.standardAppearance = appearance
+        bar.indicatorStyle = .none
         bar.layoutIfNeeded()
-        let indicator = collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+        let indicator = collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
         XCTAssertTrue(indicator.isHidden)
         item.standardAppearance = nil
+        XCTAssertTrue(indicator.isHidden)
+        bar.indicatorStyle = .capsule
         XCTAssertFalse(indicator.isHidden)
     }
 

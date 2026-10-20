@@ -5,6 +5,7 @@ import StickyPagerKit
 @MainActor
 final class TabBarGallery: UIViewController, SPTabBarDelegate {
     private let bar = SPTabBar()
+    private let indicatorProvider = DemoIndicatorProvider()
     private let contentProvider = DemoTabContentProvider()
     private let status = UILabel()
     private let tabs = [
@@ -33,6 +34,12 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         status.text = "独立使用：点击标签可选择；拖动可浏览更多标签。右上角可切换布局、样式和动态内容。"
         view.addSubview(status)
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "配置", menu: UIMenu(children: [
+            indicatorProvider.menu(for: bar),
+            UIMenu(title: "标签间距", children: [0, 8, 16, 24].map { spacing in
+                UIAction(title: "项间距 \(spacing)") { [weak self] _ in
+                    self?.bar.itemSpacing = CGFloat(spacing)
+                }
+            }),
             UIAction(title: "默认内容") { [weak self] _ in self?.bar.contentStyle = .default },
             UIAction(title: "自定义卡片") { [weak self] _ in self?.bar.contentStyle = .custom },
             UIAction(title: "自动布局") { [weak self] _ in
@@ -41,14 +48,16 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
             UIAction(title: "上下图文") { [weak self] _ in self?.bar.standardAppearance.itemAppearance.layout = .stacked },
             UIAction(title: "横向图文") { [weak self] _ in self?.bar.standardAppearance.itemAppearance.layout = .inline },
             UIAction(title: "胶囊") { [weak self] _ in
-                self?.bar.standardAppearance.selectionStyle = .capsule
-                self?.bar.standardAppearance.selectionColor = nil
+                self?.bar.indicatorStyle = .capsule
+                self?.bar.standardAppearance.indicatorLayout = nil
+                self?.bar.standardAppearance.indicatorColor = nil
             },
             UIAction(title: "下划线") { [weak self] _ in
-                self?.bar.standardAppearance.selectionStyle = .underline
-                self?.bar.standardAppearance.selectionColor = nil
+                self?.bar.indicatorStyle = .underline
+                self?.bar.standardAppearance.indicatorLayout = nil
+                self?.bar.standardAppearance.indicatorColor = nil
             },
-            UIAction(title: "隐藏选中背景") { [weak self] _ in self?.bar.standardAppearance.selectionStyle = .none },
+            UIAction(title: "隐藏指示器") { [weak self] _ in self?.bar.indicatorStyle = .none },
             UIAction(title: "更新内容") { [weak self] _ in
                 guard let self else {
                     return

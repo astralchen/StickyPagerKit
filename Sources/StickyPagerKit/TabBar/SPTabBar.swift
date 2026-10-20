@@ -4,7 +4,28 @@ import UIKit
 @MainActor
 open class SPTabBar: UIView {
     public weak var delegate: SPTabBarDelegate?
-    /// 内容展示方式，与 Appearance.selectionStyle 的指示器样式独立。
+    /// 指示器展示方式，与 ContentStyle 独立。
+    public enum IndicatorStyle: Int, Sendable {
+        /// 内置胶囊；默认在标签项四周内缩 4 pt，使用系统填充色。
+        case capsule
+        /// 内置线条；默认位于底部，高 3 pt，跟随选中文字颜色。
+        case underline
+        /// 启用几何代理和自定义视图；缺失的部分独立回退到默认实现。
+        case custom
+        /// 不使用指示器：跳过几何与渲染，不调用自定义扩展点；标签选择和分页不受影响。
+        case none
+    }
+
+    public var indicatorStyle: IndicatorStyle = .capsule {
+        didSet {
+            guard oldValue != indicatorStyle else {
+                return
+            }
+            reloadIndicator()
+        }
+    }
+
+    /// 内容展示方式，与 indicatorStyle 的指示器展示方式独立。
     public enum ContentStyle: Int, Sendable {
         /// 内置图文内容；不调用内容代理。
         case `default`
@@ -40,6 +61,24 @@ open class SPTabBar: UIView {
 
     private var storedMinimumItemWidth: CGFloat = 44
 
+    /// 相邻 Item 布局区域之间的固定水平间距，默认 0；首尾不额外留白。
+    /// 不计入 Item 的内容测量或 minimumItemWidth；宽度分配和滚动范围包含总间距。
+    /// 负数及非有限值归零，大于 1,000,000 pt 时截到该上限；空列表或单项不产生间距。
+    /// 运行时修改保留选择与分页进度；几何变化时沿用内容布局的滚动与动画更新策略。
+    public var itemSpacing: CGFloat {
+        get { storedItemSpacing }
+        set {
+            let value = newValue.isFinite ? min(1_000_000, max(0, newValue)) : 0
+            guard value != storedItemSpacing else {
+                return
+            }
+            storedItemSpacing = value
+            refreshContentLayout()
+        }
+    }
+
+    private var storedItemSpacing: CGFloat = 0
+
     /// 仅在 `.custom` 模式下使用，业务方需自行持有代理。
     /// 赋值会刷新自定义内容；`.default` 下不影响当前显示或交互。
     /// 弱引用释放不会主动安排布局，在下一次标签栏布局时回退到默认内容。
@@ -70,6 +109,40 @@ open class SPTabBar: UIView {
         superview?.setNeedsLayout()
     }
 
+    /// 仅在 `.custom` 模式下调用，优先于 Appearance 的布局配置；业务方须自行持有。
+    public weak var indicatorLayoutDelegate: (any SPTabBarIndicatorLayoutDelegate)? {
+        didSet { reloadIndicator() }
+    }
+
+    /// 仅在 `.custom` 模式下显示，强持有自定义装饰视图；nil 恢复内置绘制。替换时移除旧视图。
+    /// 视图不能与其他宿主共享；框架管理其 frame，不参与标签测量或安全归档。
+    public var indicatorView: SPTabBarIndicatorView? {
+        didSet {
+            guard oldValue !== indicatorView else {
+                return
+            }
+            oldValue?.removeFromSuperview()
+            if let indicatorView {
+                indicatorView.isUserInteractionEnabled = false
+                indicatorView.accessibilityElementsHidden = true
+                indicator.addSubview(indicatorView)
+            }
+            reloadIndicator()
+        }
+    }
+
+    /// 外部几何数据变化后调用。保留分页进度和手动滚动；程序动画落到当前选中项。
+    /// 回调内不得调用；代理释放后下一次布局或刷新自动回退。
+    public func reloadIndicator() {
+        stopSelectionAnimation()
+        transitionOrigin = nil
+        updateIndicator()
+        setNeedsLayout()
+    }
+
+    private var indicatorContentFrames: [Int: CGRect] = [:]
+    private var resolvingIndicator = false
+
     private let contentMeasurementHost = UIView()
     private var customContents: [SPTabBarContent?] = []
     private var customViewsNeedUpdate = false
@@ -82,6 +155,7 @@ open class SPTabBar: UIView {
         let delegateIdentity: ObjectIdentifier?
         let contents: [SPTabBarContent?]
         let itemWidths: [CGFloat]
+        let itemSpacing: CGFloat
         let height: CGFloat
     }
 
@@ -200,18 +274,55 @@ open class SPTabBar: UIView {
         shadowView
             .isHidden = (value.shadowImage == nil || value.shadowImage?.renderingMode == .alwaysTemplate) &&
             (value.shadowColor == nil || value.shadowColor == .clear)
-        updateIndicatorColor()
-        indicator.isHidden = value.selectionStyle == .none
+        renderIndicator()
     }
 
-    private func updateIndicatorColor() {
+    private var renderedIndicatorTransition: (from: Int?, to: Int?, progress: CGFloat)?
+
+    private func renderIndicator(from: Int? = nil, to: Int? = nil, progress: CGFloat? = nil) {
+        guard !isPreparingSelection else {
+            return
+        }
+        guard indicatorStyle != .none else {
+            indicator.frame = .zero
+            indicator.isHidden = true
+            indicatorView?.isHidden = true
+            return
+        }
+        if let progress {
+            // nil 是未选中的有效端点，不能用当前已提交的选择替代。
+            renderedIndicatorTransition = (from, to, progress)
+        } else if let transition {
+            renderedIndicatorTransition = (transition.from, transition.to, transition.progress)
+        } else if selectionAnimation == nil {
+            renderedIndicatorTransition = (selectedIndex, selectedIndex, 1)
+        }
+        let state = renderedIndicatorTransition ?? (selectedIndex, selectedIndex, CGFloat(1))
         let value = appearance
+        let layout = value.indicatorLayout ?? (indicatorStyle == .underline ? .underline : .capsule)
         let attributes = selectedItem?.titleTextAttributes(for: .selected) ?? selectedItem?
             .titleTextAttributes(for: .normal)
-        let selectedColor = attributes?[.foregroundColor] as? UIColor ?? value.itemAppearance.selected
-            .titleColor ?? tintColor
-        indicator.backgroundColor = value
-            .selectionColor ?? (value.selectionStyle == .underline ? selectedColor : .tertiarySystemFill)
+        let selectedColor: UIColor = (attributes?[.foregroundColor] as? UIColor)
+            ?? value.itemAppearance.selected.titleColor ?? tintColor ?? .systemBlue
+        let color: UIColor = value.indicatorColor ?? (indicatorStyle == .capsule ? .tertiarySystemFill : selectedColor)
+        let radius = layout.cornerRadius.map {
+            min(min(indicator.bounds.width, indicator.bounds.height) / 2, max(0, SPTabBarIndicatorLayout.finite($0)))
+        } ?? indicator.bounds.height / 2
+        indicator.isHidden = indicator.frame.isEmpty
+        indicator.layer.zPosition = layout.placement == .background ? -1 : 1
+        let customView = indicatorStyle == .custom ? indicatorView : nil
+        indicatorView?.isHidden = indicatorStyle != .custom
+        indicator.backgroundColor = customView == nil ? color : .clear
+        indicator.layer.cornerRadius = radius
+        customView?.frame = indicator.bounds
+        customView?.update(SPTabBarIndicatorState(
+            fromIndex: state.0,
+            toIndex: state.1,
+            progress: state.2,
+            frame: indicator.frame,
+            color: color,
+            cornerRadius: radius
+        ))
     }
 
     @objc private func accessibilitySettingsChanged() {
@@ -226,7 +337,7 @@ open class SPTabBar: UIView {
         } else {
             updateVisibleCells()
         }
-        updateIndicatorColor()
+        renderIndicator()
     }
 
     public private(set) var selectedIndex: Int?
@@ -238,6 +349,8 @@ open class SPTabBar: UIView {
     private var transition: (from: Int, to: Int, progress: CGFloat)?
     private var transitionOrigin: (indicator: CGRect, offset: CGFloat)?
     private struct SelectionAnimation {
+        let fromIndex: Int?
+        let toIndex: Int?
         let fromIndicator: CGRect
         let toIndicator: CGRect
         let fromOffset: CGFloat
@@ -246,6 +359,8 @@ open class SPTabBar: UIView {
     }
 
     private var selectionAnimation: SelectionAnimation?
+    // 选择提交期间先准备外观和几何，端点与动画状态就绪后再向指示器发送渲染状态。
+    private var isPreparingSelection = false
     private var displayLink: CADisplayLink?
     private let displayTarget = SPDisplayLinkTarget()
     private var needsSelectionAlignment = true
@@ -303,8 +418,9 @@ open class SPTabBar: UIView {
         )
         indicator.backgroundColor = .label
         indicator.isUserInteractionEnabled = false
+        indicator.accessibilityElementsHidden = true
         indicator.layer.zPosition = -1
-        indicator.accessibilityIdentifier = "sp.tabBar.selection"
+        indicator.accessibilityIdentifier = "sp.tabBar.indicator"
         collectionView.addSubview(indicator)
         updateAppearance()
     }
@@ -372,9 +488,9 @@ open class SPTabBar: UIView {
         storedItems = items
         items.forEach { $0.attach(self) }
         selectedIndex = oldSelection.flatMap { old in items.firstIndex { $0 === old } }
-        updateAppearance()
         transition = nil
         transitionOrigin = nil
+        updateAppearance()
         updateMetrics()
         collectionView.reloadData()
         invalidateIntrinsicContentSize()
@@ -387,8 +503,10 @@ open class SPTabBar: UIView {
         cancelUserSelection()
         layoutIfNeeded()
         collectionView.layoutIfNeeded()
+        isPreparingSelection = true
         // 中断时从当前实际呈现的位置继续，不回跳到上次动画的起点或终点。
         stopSelectionAnimation()
+        let fromIndex = selectedIndex
         let fromIndicator = indicator.frame
         let fromOffset = collectionView.contentOffset.x
         selectedIndex = index.flatMap { items.indices.contains($0) ? $0 : nil }
@@ -402,17 +520,21 @@ open class SPTabBar: UIView {
         updateVisibleCells()
         let targetIndicator = selectedIndex.map(indicatorFrame) ?? .zero
         let targetOffset = centeredOffset(for: selectedIndex)
+        isPreparingSelection = false
+        let canInterpolateIndicator = !fromIndicator.isEmpty && !targetIndicator.isEmpty
         if animated, !UIAccessibility.isReduceMotionEnabled, window != nil, bounds.width > 0, bounds.height > 0,
-           !fromIndicator.isEmpty, !targetIndicator.isEmpty,
-           fromIndicator != targetIndicator || abs(fromOffset - targetOffset) > 0.5 {
-            collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+           (canInterpolateIndicator && fromIndicator != targetIndicator) || abs(fromOffset - targetOffset) > 0.5 {
             selectionAnimation = SelectionAnimation(
-                fromIndicator: fromIndicator,
+                fromIndex: fromIndex,
+                toIndex: selectedIndex,
+                // 没有可插值的指示器时，内容偏移仍独立执行动画。
+                fromIndicator: canInterpolateIndicator ? fromIndicator : targetIndicator,
                 toIndicator: targetIndicator,
                 fromOffset: fromOffset,
                 toOffset: targetOffset,
                 startTime: CACurrentMediaTime()
             )
+            advanceSelectionAnimation(to: 0)
             let link = CADisplayLink(target: displayTarget, selector: #selector(SPDisplayLinkTarget.step(_:)))
             displayLink = link
             link.add(to: .main, forMode: .common)
@@ -448,6 +570,9 @@ open class SPTabBar: UIView {
         )
         let viewport = contentViewport
         let geometryChanged = previousViewport != viewport || previousDirection != direction
+        if geometryChanged {
+            indicatorContentFrames.removeAll()
+        }
         previousViewport = viewport
         previousDirection = direction
         tabLayout.isRightToLeft = direction == .rightToLeft
@@ -495,7 +620,15 @@ open class SPTabBar: UIView {
             transitionOrigin = nil
             stopSelectionAnimation()
             needsSelectionAlignment = false
-            alignSelection()
+            if let transition {
+                let from = centeredOffset(for: transition.from), to = centeredOffset(for: transition.to)
+                collectionView.setContentOffset(
+                    CGPoint(x: from + (to - from) * transition.progress, y: 0),
+                    animated: false
+                )
+            } else {
+                alignSelection()
+            }
         }
         updateIndicator()
         updateEdgeMask()
@@ -679,7 +812,7 @@ open class SPTabBar: UIView {
             widths = result.indices.map {
                 max(minimumItemWidth, result[$0]?.size?.width ?? (defaultSizes[$0].width + 32))
             }
-            let allocated = SPTabBarLayout.resolvedWidths(widths, viewportWidth: width)
+            let allocated = SPTabBarLayout.resolvedWidths(widths, viewportWidth: width, itemSpacing: itemSpacing)
             var failed = false
             for index in measuringViews.keys.sorted() {
                 guard let view = measuringViews[index] else {
@@ -713,6 +846,7 @@ open class SPTabBar: UIView {
             delegateIdentity: identity,
             contents: result,
             itemWidths: widths,
+            itemSpacing: itemSpacing,
             // 只对默认图文保留原有高度规则；自定义内容不承担容器的最小栏高策略。
             height: result.indices.map { result[$0]?.size?.height ?? max(44, defaultSizes[$0].height + 22) }
                 .max() ?? max(44, ceil(titleFont.lineHeight) + 22)
@@ -739,6 +873,7 @@ open class SPTabBar: UIView {
         appliedContentMeasurement = measurement
         customContents = measurement.contents
         tabLayout.itemWidths = measurement.itemWidths
+        tabLayout.itemSpacing = measurement.itemSpacing
         customViewsNeedUpdate = true
         return true
     }
@@ -747,12 +882,21 @@ open class SPTabBar: UIView {
         guard let previous, let current = appliedContentMeasurement else {
             return false
         }
-        return SPTabBarLayout.resolvedWidths(previous.itemWidths, viewportWidth: previous.width) !=
-            SPTabBarLayout.resolvedWidths(current.itemWidths, viewportWidth: current.width) ||
+        return (current.itemWidths.count > 1 && previous.itemSpacing != current.itemSpacing) ||
+            SPTabBarLayout.resolvedWidths(
+                previous.itemWidths,
+                viewportWidth: previous.width,
+                itemSpacing: previous.itemSpacing
+            ) != SPTabBarLayout.resolvedWidths(
+                current.itemWidths,
+                viewportWidth: current.width,
+                itemSpacing: current.itemSpacing
+            ) ||
             previous.height != current.height
     }
 
     private func invalidateContentMeasurements() {
+        indicatorContentFrames.removeAll()
         contentRevision &+= 1
         candidateContentMeasurement = nil
     }
@@ -861,6 +1005,7 @@ open class SPTabBar: UIView {
     }
 
     private func updateVisibleCells() {
+        indicatorContentFrames.removeAll()
         customViewsNeedUpdate = false
         for indexPath in collectionView.indexPathsForVisibleItems {
             if items.indices.contains(indexPath.item),
@@ -942,14 +1087,14 @@ open class SPTabBar: UIView {
             CGPoint(x: animation.fromOffset + (animation.toOffset - animation.fromOffset) * eased, y: 0),
             animated: false
         )
-        indicator.layer.cornerRadius = indicator.bounds.height / 2
+        renderIndicator(from: animation.fromIndex, to: animation.toIndex, progress: eased)
         if p == 1 {
             stopSelectionAnimation()
         }
     }
 
     private func updateIndicator() {
-        guard selectionAnimation == nil else {
+        guard !isPreparingSelection, selectionAnimation == nil else {
             return
         }
         if let transition {
@@ -957,38 +1102,76 @@ open class SPTabBar: UIView {
             let p = transition.progress
             indicator.frame = CGRect(
                 x: a.minX + (b.minX - a.minX) * p,
-                y: a.minY,
+                y: a.minY + (b.minY - a.minY) * p,
                 width: a.width + (b.width - a.width) * p,
-                height: a.height
+                height: a.height + (b.height - a.height) * p
             )
         } else if let selectedIndex {
             indicator.frame = indicatorFrame(selectedIndex)
         } else {
             indicator.frame = .zero
         }
-        indicator.layer.cornerRadius = indicator.bounds.height / 2
+        renderIndicator(
+            from: transition?.from ?? selectedIndex,
+            to: transition?.to ?? selectedIndex,
+            progress: transition?.progress ?? 1
+        )
     }
 
     private func indicatorFrame(_ index: Int) -> CGRect {
-        guard let frame = tabLayout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame else {
+        guard indicatorStyle != .none, items.indices.contains(index),
+              let frame = tabLayout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame else {
             return .zero
         }
-        if appearance.selectionStyle == .capsule {
-            // 极小自定义高度仍是有效输入；避免内缩超过尺寸后产生 CGRect.null。
-            return CGRect(
-                x: frame.minX + min(4, frame.width / 2),
-                y: frame.minY + min(4, frame.height / 2),
-                width: max(0, frame.width - 8),
-                height: max(0, frame.height - 8)
-            )
-        }
-        let height = min(3, frame.height)
-        return CGRect(
-            x: frame.minX + min(12, frame.width / 2),
-            y: max(0, bounds.height - height),
-            width: max(0, frame.width - 24),
-            height: height
+        let value = items[index].standardAppearance ?? standardAppearance
+        let layout = value.indicatorLayout ?? (indicatorStyle == .underline ? .underline : .capsule)
+        let context = SPTabBarIndicatorLayoutContext(
+            item: items[index],
+            index: index,
+            itemFrame: frame,
+            contentFrame: layout.reference == .content || (indicatorStyle == .custom && indicatorLayoutDelegate != nil)
+                ? indicatorContentFrame(at: index, itemFrame: frame) : frame,
+            viewportFrame: collectionView.bounds,
+            layoutDirection: tabLayout.isRightToLeft ? .rightToLeft : .leftToRight,
+            traitCollection: traitCollection,
+            layout: layout
         )
+        let fallback = layout.frame(in: context)
+        guard indicatorStyle == .custom, !resolvingIndicator else {
+            return fallback
+        }
+        resolvingIndicator = true
+        defer { resolvingIndicator = false }
+        if let custom = indicatorLayoutDelegate?.tabBar(self, indicatorFrameFor: context),
+           SPTabBarIndicatorLayout.valid(custom) {
+            return custom
+        }
+        return fallback
+    }
+
+    private func indicatorContentFrame(at index: Int, itemFrame: CGRect) -> CGRect {
+        if let cached = indicatorContentFrames[index] {
+            return cached
+        }
+        let local: CGRect
+        if let content = customContent(at: index) {
+            local = content.indicatorContentRect.flatMap { SPTabBarIndicatorLayout.valid($0) ? $0 : nil }
+                ?? CGRect(origin: .zero, size: itemFrame.size)
+        } else {
+            // 独立布局副本避免依赖屏幕外 Cell，也不改变当前显示或交互状态。
+            let cell = UICollectionViewCell(frame: CGRect(origin: .zero, size: itemFrame.size))
+            contentMeasurementHost.addSubview(cell)
+            cell.semanticContentAttribute = tabLayout.isRightToLeft ? .forceRightToLeft : .forceLeftToRight
+            configure(cell, item: items[index], at: index)
+            cell.layoutIfNeeded()
+            let rect = (cell.contentView as? SPTabIndicatorContentGeometry)?.indicatorContentRect
+            local = rect.flatMap { SPTabBarIndicatorLayout.valid($0) ? $0 : nil }
+                ?? CGRect(origin: .zero, size: itemFrame.size)
+            cell.removeFromSuperview()
+        }
+        let result = local.offsetBy(dx: itemFrame.minX, dy: itemFrame.minY)
+        indicatorContentFrames[index] = result
+        return result
     }
 
     private final class TabCollectionView: UICollectionView {
@@ -1020,6 +1203,7 @@ open class SPTabBar: UIView {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             owner?.updateEdgeMask()
+            owner?.updateIndicator()
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {

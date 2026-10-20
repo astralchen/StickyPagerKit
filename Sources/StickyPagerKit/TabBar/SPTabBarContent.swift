@@ -38,6 +38,9 @@ public struct SPTabBarContent {
     /// 独立使用标签栏时，由宿主根据 sizeThatFits(_:) 的测量结果设置最终高度。
     /// 所有 Cell 高度等于栏的实际高度；状态相关内容宜返回各状态所需尺寸的最大值。
     public var size: CGSize?
+    /// 指示器跟随内容时的区域，使用最终 Cell 的局部坐标，不参与内容测量。
+    /// nil 或非法矩形回退到整项；随尺寸变化的复杂区域可使用 indicatorLayoutDelegate 计算。
+    public var indicatorContentRect: CGRect?
     /// nil 使用 Item 的无障碍描述；选中、禁用和按钮 traits 由框架维护。
     public var accessibilityLabel: String?
     /// 整项无障碍提示；nil 使用 Item.accessibilityHint。

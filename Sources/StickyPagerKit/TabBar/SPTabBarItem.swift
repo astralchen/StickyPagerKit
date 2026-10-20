@@ -181,6 +181,12 @@ public final class SPTabBarItem: UIBarItem {
         hosts.remove(bar)
     }
 
+    internal func indicatorDidChange() {
+        for bar in hosts.allObjects {
+            bar.reloadIndicator()
+        }
+    }
+
     internal func appearanceDidChange() {
         changed()
     }

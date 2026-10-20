@@ -2,6 +2,101 @@
 
 验证日期：2026-10-15 至 2026-10-20。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-20：提交前全量审查与指示器边界修复
+
+- **审查范围：** 全部 20 个改动文件，包括 4 个新增文件。核对指示器模式／布局／颜色及归档职责、默认与自定义内容几何、间距测量与布局、动画与分页更新、Demo、测试、README 和历史验证记录。工程文件的两处配置项顺序调整不改变构建配置。当前源码、Demo、测试和 README 无旧 API、历史归档字段、旧装饰视图标识及旧菜单文案残留。
+- **发现并修复：未选中动画端点。** 程序化动画由未选中状态开始时，渲染路径使用当前选中索引替代 nil 来源，错误报告来源与目标相同。改为保留动画传入的 nil 端点，静止状态由调用方明确传入当前选择；公开注释和 README 明确 nil 表示无选中项。新增真实 UIWindow 回归检查 nil → Item 的起点／中间态及 Item → nil。
+- **发现并修复：负尺寸自定义矩形。** CGRect 的 width／height 访问会标准化负尺寸，原检查因此接受了非法矩形。改为校验原始 size.width／size.height；新增回归分别验证几何代理和自定义内容区域的负宽／负高均回退到配置或整项。
+- **测试覆盖补强：** 原间距安全区域夹具中标签栏未贴到窗口右边缘，右侧 Safe Area 断言可能仅检查零值。调整真实窗口宽度与标签栏一致，明确断言左 20 pt、右 30 pt，并保留 LTR／RTL、默认／自定义／回退内容、间距、居中和边缘渐隐检查。
+- **修复前证据保留：** [复现摘要](Results/precommit-indicator-probes-20261020/summary.json) 为 1 通过、2 失败；两个新增缺陷用例分别复现 nil 来源变为 4、负宽矩形错误呈现，增强后的双侧安全区域用例通过。该轮源码快照对应修复前实现。
+- **通过：修复后聚焦回归。** [聚焦摘要](Results/precommit-indicator-focused-20261020/summary.json)：指示器、间距、自动内容与模型套件共 59 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。
+- **通过：最终源码完整库回归。** [库摘要](Results/precommit-library-final-20261020/summary.json) 和 [结果包](Results/precommit-library-final-20261020/Result.xcresult)：170 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。环境为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。
+- **通过：最终源码 Demo UI 回归。** [UI 摘要](Results/precommit-ui-final-20261020/summary.json) 和 [结果包](Results/precommit-ui-final-20261020/Result.xcresult)：9 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。覆盖自动高度、指示器预设／关闭／恢复与前景点击、分页完成／取消、自定义内容切换及按住拖动、RTL 大字号与四次方向布局、双向宽度策略、动态标签与禁用项分页、间距菜单与间隙命中。环境同上述库回归。已查看最终隐藏指示器、自定义渐变指示器、底部线条截图；导出文件见 [截图清单](Results/precommit-ui-final-20261020/attachments/manifest.json)。
+- **通过：排版检查。** 全部 17 个改动 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。历史失败和各阶段结果均保留；源码未加入构建产物、测试结果包或临时文件。
+- **已知诊断与未覆盖范围：** 库测试日志仍有此前已存在的 UIKit observation feedback loop 诊断，本轮未专项分析；测试通过不表示无运行时诊断。本轮未运行完整 Demo UI 套件、iPad 分屏／窗口缩放、真机、iOS 15 实际运行、Release、VoiceOver 操作或性能测试。
+
+## 2026-10-20：清理指示器测试和接入文档中的历史字段
+
+- **清理范围：** 删除 `testRemovedArchiveFieldsDoNotOverrideIndicatorConfiguration`，不再构造 `selectionStyle`、`selectionColor`、`isIndicatorHidden` 及其历史归档键，也不验证历史字段被忽略的行为。README 删除旧 API 迁移说明，统一描述当前模式、颜色和布局配置。搜索源码、Demo、测试、当前 README 及 Validation 之外的仓库文本，旧 API 名称和旧测试名称均无匹配；本文件中的历史记录与既有结果包保留。
+- **当前契约覆盖：** 新增 `testMissingIndicatorArchiveConfigurationUsesCurrentStyleDefaults`，仅移除当前归档中的 `SP.indicatorColor`、`SP.indicatorLayout`，验证解码为 nil、应用 Appearance 保持 `.none`、切回线条／胶囊后使用默认颜色和几何。该用例覆盖字段缺失，与已有 nil 值归档用例不同；现有测试继续覆盖显式颜色与布局复制、归档往返、样式切换、nil 恢复和 none 行为。生产代码与归档职责未改变，`indicatorStyle` 仍由宿主恢复。
+- **通过：最终源码聚焦回归。** [摘要](Results/indicator-current-contract-cleanup-20261020/summary.json) 和 [结果包](Results/indicator-current-contract-cleanup-20261020/Result.xcresult)：`SPTabBarIndicatorTests`、`SPTabBarModelTests` 共 38 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。环境为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。
+- **通过：排版与差异检查。** 本轮修改的 1 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过；保留已有工作区修改，未提交或推送。
+- **未执行：** 本轮仅调整测试及文档，未重跑完整库、Demo 构建或 UI 测试，以及其他设备、系统版本、Release、VoiceOver 和性能验证。此前验证仍对应各自源码快照。
+
+## 2026-10-20：SPTabBar Item 间距
+
+- **API 与布局：** 新增 `SPTabBar.itemSpacing: CGFloat`，默认 0，表示相邻 Item 布局区域之间的固定水平间距；首尾不加间距，不计入内容理想尺寸或 `minimumItemWidth`，与左右 Safe Area 独立。负数和非有限值归零，上限 1,000,000 pt。总间距先从可分配宽度中扣除，溢出时计入滚动内容宽度；自动内容测量和 Collection View 共用同一宽度分配函数。
+- **动态更新：** 测量快照记录间距，保证 Item 宽度不变但间距变化时仍识别几何变化；相同归一化值不刷新。沿用内容布局更新策略，保留 Item 身份、选择及回调语义，手动偏移限制到新范围，程序动画落到当前选中项，分页保持进度并重算端点。Demo 的“页面”和“标签外观 → 配置”新增“标签间距”菜单，提供 0、8、16、24 pt。
+- **新增回归：** 6 项真实 UIWindow 库测试覆盖默认值与非法输入、空列表／单项、宽度分配和溢出、间隙命中、默认／自定义／回退内容、RTL、Safe Area、居中与渐隐、分页指示器插值、选择身份与回调、手动滚动及范围收缩、无效赋值保持动画、`.none` 动画、自动内容实际分配宽度与大字号高度，以及候选宽度测量不污染当前布局。新增 1 项 Demo UI 用例验证间距菜单、实际 frame 间隔、间隙点击、标签选择及页面滑动。
+- **首轮失败保留：** [首轮聚焦摘要](Results/item-spacing-focused-20261020/summary.json) 为 57 通过、1 失败。新增自动内容测试在直接覆盖 trait 后立即测量，出现栏高 143 pt 与显示内容所需 1176 pt 不一致。夹具改用既有的真实子控制器 trait 覆盖方式，完成布局后刷新，并增加测量环境字号断言；未为该失败修改生产代码。首轮摘要保留该测试文件的源码差异。
+- **通过：聚焦复测。** [复测摘要](Results/item-spacing-focused-recovery-20261020/summary.json)：58 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。
+- **通过：最终源码完整库回归。** [库摘要](Results/item-spacing-library-final-20261020/summary.json) 和 [结果包](Results/item-spacing-library-final-20261020/Result.xcresult)：168 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。环境为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。日志仍有 UIKit observation feedback loop 诊断，前一轮完整库日志中也存在；本轮未专项分析该诊断，不以测试通过推定无此运行时诊断。
+- **通过：最终源码 Demo UI 回归。** [UI 摘要](Results/item-spacing-ui-final-20261020/summary.json) 和 [结果包](Results/item-spacing-ui-final-20261020/Result.xcresult)：2 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。包含新增间距交互，以及既有自定义指示器分页完成／取消用例；环境同上述库回归。
+- **通过：排版与差异检查。** 本轮 7 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。README 已补充 API、布局公式、动态行为及 Demo 入口；保留此前指示器重构和其他已有修改，未提交或推送。
+- **未执行：** 完整 Demo UI 套件、iPad 分屏／窗口缩放、真机、iOS 15 实际运行、Release、VoiceOver 操作及性能测量。
+
+## 2026-10-20：指示器动画解耦、起始状态修复与命名统一
+
+- **修复：** 标签栏滚动动画不再要求指示器两端 frame 非空；`.none` 或零尺寸指示器仍按同一进度滚动，连续选择从当前偏移接续。指示器不能插值时直接采用目标几何，不从零 frame 生长。选择提交期间暂缓指示器更新，待外观、几何及动画状态准备完成后发送 `progress = 0` 的起始帧，避免提前向自定义视图发送目标完成态。
+- **命名：** 装饰视图标识改为 `sp.tabBar.indicator`，同步库测试定位；Demo 使用“隐藏指示器”“切换指示器样式”，同步 UI 测试文案；README 统一指示器术语。移除名称仅描述颜色、实际执行完整渲染的 `updateIndicatorColor()` 包装，直接调用 `renderIndicator()`。选择行为本身的 `selectedIndex`、`SelectionAnimation` 等名称保持其原有职责。
+- **修复前证据：** [审查首轮](Results/indicator-review-probes-20261020/summary.json) 0 通过、3 失败，其中对照用例因 0.01 pt 容差小于设备像素舍入误差而失败；改为设备单像素容差后的 [审查复测](Results/indicator-review-probes-pixel-20261020/summary.json) 1 通过、2 失败，确认线条模式滚动对照正常，none 直接跳到终点及自定义指示器提前收到完成态均可复现。两轮临时测试已撤除，源码差异仅为撤除的探针文件，夹具副本和失败日志保留在各自结果目录。
+- **正式回归：** 新增 2 项真实 UIWindow 测试。覆盖 LTR／RTL 下线条、none 和零尺寸自定义指示器的起点／中间偏移／终点、连续选择和非动画恢复；记录自定义视图完整回调序列，检查初次动画与中途改选均从正确索引、当前 frame、零进度开始，非动画选择只发送静止态。
+- **通过：聚焦回归。** [聚焦摘要](Results/indicator-animation-focused-20261020/summary.json)：58 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。
+- **通过：最终源码完整库回归。** [库摘要](Results/indicator-animation-library-final-20261020/summary.json) 和 [结果包](Results/indicator-animation-library-final-20261020/Result.xcresult)：162 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。环境为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。
+- **通过：最终源码 Demo UI 回归。** [UI 摘要](Results/indicator-animation-ui-final-20261020/summary.json) 和 [结果包](Results/indicator-animation-ui-final-20261020/Result.xcresult)：3 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。覆盖指示器预设／关闭／恢复、前景命中、自定义内容与横屏点击、实际分页完成与取消，以及动态标签、禁用项分页和“切换指示器样式”菜单；环境同上述库回归。
+- **通过：排版与差异检查。** 本次涉及的 15 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过；生产源码和 Demo 无旧 API、历史字段读取、旧装饰视图标识或旧菜单文案残留。未提交或推送。
+- **未执行：** 完整 Demo UI 套件、iPad 分屏／窗口缩放、真机、iOS 15 实际运行、Release、VoiceOver 操作及性能测量。
+
+## 2026-10-20：删除指示器历史归档兼容逻辑
+
+- **当前行为：** 删除 `SP.selectionStyle`、`SP.selectionColor` 的读取与迁移分支；生产源码不再引用旧样式、颜色或隐藏字段。Appearance 指示器归档只读写 `SP.indicatorColor`、`SP.indicatorLayout`，缺少新字段时保持 nil，采用当前样式默认值。`indicatorStyle` 仍由运行中的 `SPTabBar` 管理，宿主负责恢复。
+- **测试调整：** 移除旧字段迁移成功的测试，将历史字段相关测试合并为“不影响当前配置”的回归：仅含旧字段时不恢复旧配置，同时含新旧字段时只采用新字段，旧隐藏字段不能改变 `indicatorStyle`。保留当前配置的复制、归档往返及非有限值处理测试。
+- **通过：最终源码聚焦测试。** [聚焦摘要](Results/indicator-current-archive-focused-20261020/summary.json) 和 [结果包](Results/indicator-current-archive-focused-20261020/Result.xcresult)：`SPTabBarModelTests`、`SPTabBarIndicatorTests` 共 36 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。环境为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。
+- **通过：排版与差异检查。** 本轮修改的 2 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过，README 已同步。保留已有工作区修改，未提交或推送。
+- **未执行：** 本轮未重跑完整库、Demo 构建和 UI 测试，以及其他设备、系统版本、Release、VoiceOver 和性能验证。下方兼容行为及结果为历史记录，不代表当前实现。
+
+## 2026-10-20：指示器颜色统一使用 indicatorColor
+
+- **API 收敛：** 删除 `SPTabBarAppearance.selectionColor`，不保留兼容属性；复制、测试调用和新归档统一使用 `indicatorColor`。新归档写入 `SP.indicatorColor`；解码仍可读取历史数据字段 `SP.selectionColor`，不将其暴露为源码 API。显式颜色和 nil 默认颜色语义保持不变。
+- **通过：最终源码聚焦测试。** [聚焦摘要](Results/indicator-color-api-focused-20261020/summary.json) 和 [结果包](Results/indicator-color-api-focused-20261020/Result.xcresult)：`SPTabBarModelTests`、`SPTabBarIndicatorTests` 共 38 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。覆盖颜色实时刷新、复制／新归档中的显式颜色与 nil、历史颜色字段读取及既有指示器行为。环境为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。
+- **通过：排版与差异检查。** 本轮修改的 3 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过；README 已同步，未提交或推送。
+- **未执行：** 本轮未重跑完整库、Demo 构建和 UI 测试，以及其他设备、系统版本、Release、VoiceOver 和性能验证；此前结果保留为对应源码的历史证据。
+
+## 2026-10-20：指示器显隐统一由 indicatorStyle 控制
+
+- **API 收敛：** 删除 `SPTabBarAppearance.isIndicatorHidden`，不保留兼容入口；同时删除复制、归档读写和渲染中的隐藏覆盖。通过 `SPTabBar.indicatorStyle = .none` 关闭，切回 `.capsule` / `.underline` / `.custom` 恢复。Item 外观只能覆盖布局和颜色等配置，不能改变标签栏的指示器模式。
+- **归档行为：** 历史布局和颜色继续迁移；旧隐藏字段及旧样式中的隐藏语义不再决定是否显示，宿主统一恢复 `indicatorStyle`。新增旧隐藏字段回归，确认新归档没有该字段、读取旧字段不会隐藏、默认布局／颜色仍为 nil，修改 Item 外观不会覆盖 `.none`。
+- **通过：最终源码聚焦库测试。** [聚焦摘要](Results/indicator-visibility-focused-20261020/summary.json) 和 [结果包](Results/indicator-visibility-focused-20261020/Result.xcresult)：`SPTabBarIndicatorTests`、`SPTabBarModelTests`、`SPTabBarTests` 共 57 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。环境为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。
+- **通过：最终源码 Demo UI 测试。** [UI 摘要](Results/indicator-visibility-ui-20261020/summary.json) 和 [结果包](Results/indicator-visibility-ui-20261020/Result.xcresult)：1 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空；覆盖各模式切换、关闭后点击、恢复胶囊、自定义前景命中，以及自定义内容和横屏点击，环境同上述库测试。
+- **通过：排版与差异检查。** 本轮修改的 7 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过；保留已有工作区修改，未提交或推送。
+- **未执行：** 本轮未重跑完整库及完整 Demo UI 套件、独立分页 UI 用例、iPad 分屏、真机、iOS 15 实际运行、Release、VoiceOver 和性能测量。下方历史条目中的结果分别对应当时源码，不能替代本轮最终源码验证。
+
+## 2026-10-20：恢复内置指示器样式并明确 none 语义
+
+- **最终 API：** `SPTabBar.IndicatorStyle` 为 `.capsule` / `.underline` / `.custom` / `.none`，默认 `.capsule`，替代下节阶段设计中的 `.default` / `.custom`。胶囊与线条直接解析各自默认布局和颜色；Appearance 的 `indicatorLayout`、`indicatorColor` 默认 nil，显式覆盖在样式切换时保留，设回 nil 恢复当前样式预设。`SelectionStyle` / `selectionStyle` 仍不提供兼容入口。
+- **none 行为：** 表示不需要指示器，清空并隐藏指示器 frame，跳过几何解析和渲染，不调用自定义几何代理或视图更新；标签选择、文字状态和分页继续工作。切回其他模式时，按当前选择或分页进度恢复。自定义对象与外观配置保留。
+- **新增验证：** 4 项真实 UIWindow 测试覆盖内置样式默认几何与颜色、覆盖配置跨模式保留与 nil 恢复、none 期间的选择／分页及恢复、自定义回调停用，以及未指定配置的复制与安全归档。Demo UI 用例加入隐藏指示器和恢复胶囊操作。
+- **阶段通过：** [样式聚焦摘要](Results/indicator-styles-focused-20261020/summary.json) 82 通过、0 失败、0 跳过。随后补充 none 渲染早退及零 frame 断言，该阶段的 `sourceChangedSinceRun` 如实保留两个文件差异。
+- **通过：最终源码完整库回归。** [库摘要](Results/indicator-styles-library-final-20261020/summary.json) 和 [结果包](Results/indicator-styles-library-final-20261020/Result.xcresult)：160 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。环境为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。
+- **通过：最终源码 Demo UI 回归。** [UI 摘要](Results/indicator-styles-ui-final-20261020/summary.json) 和 [结果包](Results/indicator-styles-ui-final-20261020/Result.xcresult)：2 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空；覆盖预设切换、隐藏后继续点击、恢复胶囊、自定义内容、横屏点击，以及真实分页完成和取消。已查看导出的隐藏、恢复胶囊和底部线条截图，确认选中文字保持、指示器随模式消失或恢复；见 [截图清单](Results/indicator-styles-ui-final-20261020/attachments/manifest.json)。环境同上述库回归。
+- **通过：排版与差异检查。** SwiftFormat 0.64.0 对本次涉及的 15 个 Swift 文件 lint 为 `0/15 files require formatting`，`git diff --check` 通过。保留已有工作区修改，未提交或推送。
+- **未执行：** 完整 Demo UI 套件、iPad 分屏／窗口缩放、真机、iOS 15 实际运行、Release、VoiceOver 操作及性能测量。
+
+## 2026-10-20：指示器模式、自由布局与自定义视图（阶段设计）
+
+- **API 与职责：** 按接入要求移除 `SelectionStyle` / `selectionStyle`，不保留类型或属性别名。`SPTabBar.IndicatorStyle` 参照 `ContentStyle`，使用 `.default` / `.custom` 两种独立模式。Appearance 持有 `SPTabBarIndicatorLayout` 值配置、颜色与隐藏状态；胶囊和下划线是布局预设。自定义模式启用弱几何代理与强持有的装饰视图，缺失部分分别回退，切回默认模式保留配置并停止调用自定义扩展。
+- **几何与生命周期：** 支持标签／实际内容参考区域、逻辑水平对齐、垂直对齐、固定或跟随宽高、正负内缩、偏移、圆角及前后层级。默认图文从独立布局副本解析，屏幕外项也可用；自定义内容可以声明局部区域。所有几何使用滚动内容坐标；指示器不参与测量、不拦截触摸或无障碍，最终裁剪到安全视口。任意 frame 的 x/y/width/height 统一插值；保持分页进度、取消恢复与连续点击接续。复制和安全归档仅包含配置，不包含代理或视图；历史归档可读取。
+- **新增验证：** 13 项真实 UIWindow 库测试覆盖预设与测量隔离、默认图文实际区域、屏幕外标签、LTR／RTL、Safe Area 与滚动坐标、自定义区域／回退、Dynamic Type、Item 外观、自由 frame 四分量插值、取消／旋转尺寸更新、模式独立、弱代理与视图释放、颜色刷新保留进度、清空项后渲染索引、复制／新旧归档、非有限值。新增 2 项 Demo UI 测试覆盖六种效果、前景命中、真实分页完成与取消、自定义标签和横屏点击，并保留截图。
+- **首次编译失败保留：** [首轮日志](Results/indicator-focused-20261020-a/xcodebuild.log) 记录可选 UIColor 推断导致的编译失败，未执行测试；修正为明确的非可选解析及回退。`.xcresult` 的测试结果为 unknown、0 项，不能视为通过。
+- **首轮测试失败保留：** [聚焦结果 b](Results/indicator-focused-20261020-b/summary.json) 45 通过、1 失败。自定义视图释放断言发生在 UIKit 事务提交前；改为移除视图后清空 autoreleasepool、提交事务并跨过 RunLoop，再验证弱引用释放，同时保留视图移出层级断言。
+- **阶段恢复通过：** [聚焦结果 c](Results/indicator-focused-20261020-c/summary.json) 75 通过、0 失败；[第一轮 UI](Results/indicator-ui-20261020-a/summary.json) 2 通过、0 失败；导出的六种效果截图已完成视觉检查。其后补充颜色刷新时保留自定义渲染进度、旧归档颜色语义及清空项后的渲染状态检查，阶段摘要如实记录源码差异。
+- **阶段完整回归：** [库结果第一轮](Results/indicator-library-final-20261020/summary.json) 156 通过、0 失败、0 跳过。随后补充清空页面时不再向自定义视图发送旧转场索引的保护，该轮保留为阶段结果。[第二轮 UI](Results/indicator-ui-final-20261020/summary.json) 同样 2 通过、0 失败，但不包含最后的清空项状态保护，摘要保留相应源码差异。
+- **通过：最终源码完整库回归。** [最终库摘要](Results/indicator-library-final-v2-20261020/summary.json) 和 [结果包](Results/indicator-library-final-v2-20261020/Result.xcresult)：156 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空。
+- **通过：最终源码 Demo UI 回归。** [最终 UI 摘要](Results/indicator-ui-final-v2-20261020/summary.json) 和 [结果包](Results/indicator-ui-final-v2-20261020/Result.xcresult)：2 通过、0 失败、0 跳过，终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空；[截图清单](Results/indicator-ui-final-v2-20261020/attachments/manifest.json) 包含六种效果、横屏和分页终态。两轮最终验证均为 Xcode 26.6 / Swift 6.3.3 / Debug、iPhone 17 Pro / iOS 26.5 Simulator。
+- **通过：排版与差异检查。** SwiftFormat 0.64.0 按仓库配置检查本次涉及的 Swift 文件，0 个文件需要修改；`git diff --check` 通过。Demo 构建按既有配置执行 SwiftFormat Build Phase。未提交或推送。
+- **环境说明：** 普通沙箱下 CoreSimulator 连接和 xcresulttool 报告缓存写入被限制；提权后读取、构建和测试均可执行。未修改全局 xcode-select。
+- **未执行：** 完整 Demo UI 套件、iPad 真正分屏／窗口缩放、真机、iOS 15 实际运行、Release、VoiceOver 操作及性能测量。本次结果不替代这些验收。
+
 ## 2026-10-20：标签宽度策略与内容测量分离
 
 - **公开 API：** 新增 `SPTabBar.minimumItemWidth`，默认 44 pt，作用于默认、自定义及回退项。0 不额外设下限，负数归零，非有限数恢复 44，超过 1,000,000 pt 截到该上限。更新使测量缓存失效；按实际分配宽度和高度判断几何变化，分配结果不变时保留动画和分页进度。原公开接口保持可用，`SPPageLayout` 的最小栏高及 0 隐藏语义不变。

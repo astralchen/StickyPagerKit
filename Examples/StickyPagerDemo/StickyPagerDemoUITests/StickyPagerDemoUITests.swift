@@ -735,8 +735,96 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("page=list")
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
         app.buttons["demo.pages"].tap()
-        app.buttons["切换选中样式"].tap()
+        app.buttons["切换指示器样式"].tap()
         expect("page=list")
+    }
+
+    func testItemSpacingUpdatesGeometryAndPreservesSelectionAndPaging() {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        for spacing in [24, 0] {
+            app.buttons["demo.pages"].tap()
+            app.buttons["标签间距"].tap()
+            app.buttons["项间距 \(spacing)"].tap()
+            let first = app.buttons["sp.tab.0"]
+            let second = app.buttons["sp.tab.1"]
+            XCTAssertTrue(first.isSelected)
+            XCTAssertEqual(second.frame.minX - first.frame.maxX, CGFloat(spacing), accuracy: 1)
+            if spacing > 0 {
+                let gap = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: (first.frame.maxX + second.frame.minX) / 2,
+                    dy: tabs.frame.midY
+                ))
+                gap.tap()
+                XCTAssertTrue(first.isSelected)
+                expect("page=grid")
+            }
+        }
+        app.buttons["demo.pages"].tap()
+        app.buttons["标签间距"].tap()
+        app.buttons["项间距 16"].tap()
+        select(1)
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        app.tables["demo.list"].swipeRight()
+        expect("page=grid")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["标签外观"].tap()
+        app.buttons["配置"].tap()
+        app.buttons["标签间距"].tap()
+        app.buttons["项间距 8"].tap()
+        XCTAssertEqual(app.buttons["sp.tab.1"].frame.minX - app.buttons["sp.tab.0"].frame.maxX, 8, accuracy: 1)
+        select(1)
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+    }
+
+    func testCustomIndicatorGalleryPresetsAndForegroundHitTesting() {
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["标签外观"].tap()
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let originalHeight = tabs.frame.height
+        for mode in ["默认胶囊", "底部线条", "顶部固定线条", "跟随内容宽度", "内容背景", "自由布局与自定义视图", "隐藏指示器", "默认胶囊"] {
+            app.buttons["配置"].tap()
+            app.buttons["指示器"].tap()
+            app.buttons[mode].tap()
+            select(1)
+            XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+            XCTAssertEqual(tabs.frame.height, originalHeight, accuracy: 1)
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = mode; screenshot.lifetime = .keepAlways
+            add(screenshot)
+            select(0)
+        }
+        app.buttons["配置"].tap(); app.buttons["自定义卡片"].tap()
+        select(1)
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+        select(0)
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+    }
+
+    func testCustomIndicatorPagingAndCancelledGesture() {
+        app.buttons["demo.pages"].tap()
+        app.buttons["指示器"].tap()
+        app.buttons["自由布局与自定义视图"].tap()
+        let page = app.collectionViews["demo.grid"]
+        let start = page.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.6))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: -page.frame.width * 0.15, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.4
+        )
+        expect("page=grid")
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        page.swipeLeft()
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        select(0); expect("page=grid")
+        app.buttons["demo.pages"].tap(); app.buttons["切换自定义标签"].tap()
+        app.collectionViews["demo.grid"].swipeLeft()
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
     }
 
     func testStandaloneTabGallerySelectionAndLiveContent() {

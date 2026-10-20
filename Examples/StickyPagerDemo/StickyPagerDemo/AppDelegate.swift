@@ -98,6 +98,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         "compositional": "组合布局"
     ]
     private let status = RegressionStatusLabel()
+    private let indicatorProvider = DemoIndicatorProvider()
     private let customTabProvider = DemoTabContentProvider()
     private var controllerHeader = false
     private var generation = 0
@@ -140,6 +141,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         let height = UIBarButtonItem(title: "高度", primaryAction: heightAction)
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
+            indicatorProvider.menu(for: tabBar),
             headerAction,
             heightAction,
             UIAction(title: "切换自定义标签") { [weak self] _ in
@@ -156,6 +158,11 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                 self.tabBar.contentStyle = .custom
                 self.tabBar.reloadContent()
             },
+            UIMenu(title: "标签间距", children: [0, 8, 16, 24].map { spacing in
+                UIAction(title: "项间距 \(spacing)") { [weak self] _ in
+                    self?.tabBar.itemSpacing = CGFloat(spacing)
+                }
+            }),
             UIMenu(title: "标签宽度", children: [
                 UIAction(title: "紧凑编号内容") { [weak self] _ in
                     guard let self else {
@@ -233,13 +240,14 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                 }
                 self.tabBar.items[1].isEnabled.toggle()
             },
-            UIAction(title: "切换选中样式") { [weak self] _ in
+            UIAction(title: "切换指示器样式") { [weak self] _ in
                 guard let self else {
                     return
                 }
-                self.tabBar.standardAppearance.selectionStyle = self.tabBar.standardAppearance
-                    .selectionStyle == .capsule ? .underline : .capsule
-                self.tabBar.standardAppearance.selectionColor = nil
+                self.tabBar.indicatorStyle = self.tabBar.indicatorStyle == .capsule ? .underline : .capsule
+                let appearance = self.tabBar.standardAppearance
+                appearance.indicatorLayout = nil
+                appearance.indicatorColor = nil
             },
             UIAction(title: "重排页面") { [weak self] _ in
                 guard let self else {

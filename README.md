@@ -176,47 +176,124 @@ tabs.standardAppearance.itemAppearance.layout = .automatic
 tabs.tintColor = .systemBlue // 默认选中文字和模板图标跟随 tintColor
 // 显式外观可覆盖默认颜色：
 tabs.standardAppearance.itemAppearance.selected.titleColor = .systemPurple
-tabs.standardAppearance.selectionStyle = .capsule
-// 需要旧版下划线时：
-tabs.standardAppearance.selectionStyle = .underline
-tabs.standardAppearance.selectionColor = nil
+tabs.indicatorStyle = .capsule
 ```
 
-`SPTabBarAppearance.SelectionStyle` 是公开枚举，外部可在运行时切换原来的线条或胶囊，不需要替换标签栏：
+### 选中指示器
+
+`SPTabBar.IndicatorStyle` 定义在标签栏中，包含 `.capsule`、`.underline`、`.custom`、`.none`，默认 `.capsule`。它与 `ContentStyle` 独立：两种内置样式直接提供默认布局和颜色；`.custom` 启用几何代理与自定义视图；`.none` 表示不使用指示器，跳过几何计算和渲染，不调用自定义扩展点，标签选择、文字状态和分页照常工作。
+
+未显式覆盖时，胶囊在标签四周内缩 4 pt，使用 `.tertiarySystemFill`；线条左右内缩 12 pt、底部对齐、高 3 pt，跟随选中文字颜色。两种内置布局均保护极小尺寸。自定义模式缺少几何代理时使用布局配置或胶囊几何，缺少视图时使用内置绘制，默认颜色跟随选中文字。切回内置样式或 `.none` 保留自定义对象，但不调用代理或视图更新。
+
+Appearance 的 `indicatorLayout` 和 `indicatorColor` 默认均为 nil，表示采用当前样式的默认值；显式配置优先于样式，切换样式不会清除配置，设回 nil 恢复当前样式默认值。指示器是否启用统一由 `SPTabBar.indicatorStyle` 控制；`.none` 表示不需要指示器，切回其他模式时按当前选择或分页进度恢复显示。
 
 ```swift
-// 两端圆角的线条指示器，默认跟随选中文字颜色
-tabs.standardAppearance.selectionStyle = .underline
-tabs.standardAppearance.selectionColor = nil
+// 内置底部线条；nil 颜色跟随选中文字颜色，最终回退到 tintColor。
+tabs.indicatorStyle = .underline
 
-// 胶囊选中背景，默认使用系统填充色
-tabs.standardAppearance.selectionStyle = .capsule
-tabs.standardAppearance.selectionColor = nil
+// 切回胶囊，不需要同步修改布局或颜色。
+tabs.indicatorStyle = .capsule
 
-// 隐藏指示器
-tabs.standardAppearance.selectionStyle = .none
+// 再使用线条，并按业务需要覆盖位置和尺寸。
+tabs.indicatorStyle = .underline
+
+// 顶部居中、固定尺寸；只调位置和尺寸无需创建自定义视图。
+var layout = SPTabBarIndicatorLayout()
+layout.width = 24
+layout.height = 4
+layout.verticalAlignment = .top
+layout.offset.y = 2
+layout.cornerRadius = 2
+tabs.standardAppearance.indicatorLayout = layout
+
+// 跟随实际图文宽度，放在内容下方。
+layout.reference = .content
+layout.width = nil
+layout.height = 3
+layout.verticalAlignment = .bottom
+layout.offset.y = 5
+tabs.standardAppearance.indicatorLayout = layout
+
+// 内容背景：负内缩表示外扩。
+layout.height = nil
+layout.verticalAlignment = .center
+layout.offset = .zero
+layout.horizontalInset = -6
+layout.verticalInset = -3
+layout.placement = .background
+tabs.standardAppearance.indicatorLayout = layout
+tabs.standardAppearance.indicatorColor = .tertiarySystemFill
+
+// 不需要指示器；标签选择与分页继续工作。
+tabs.indicatorStyle = .none
+
+// 清除覆盖，再恢复线条预设。
+tabs.standardAppearance.indicatorLayout = nil
+tabs.standardAppearance.indicatorColor = nil
+tabs.indicatorStyle = .underline
 ```
 
-`selectionColor` 控制指示器背景色，默认为 nil，按样式自动解析：`.underline` 跟随选中文字颜色（Item 文字属性、selected.titleColor、tintColor 依次优先），`.capsule` 使用 `.tertiarySystemFill`。显式设置颜色可独立覆盖，设回 nil 恢复自动颜色；切换样式无需手动换色。线条高度为 3 pt、圆角为 1.5 pt，两端呈胶囊形；分页和选中动画期间仍保留圆角。
+`indicatorColor = nil` 时，胶囊使用系统填充色；线条和自定义模式依次使用 Item 的选中文字属性、`itemAppearance.selected.titleColor`、`tintColor`。显式颜色在样式切换时保持。Appearance 的指示器归档配置仅包含 `indicatorColor` 和 `indicatorLayout`。缺少配置时保持 nil，由当前样式提供默认值。指示器样式及是否启用属于运行中的标签栏，不编码到 Appearance，应由宿主恢复 `indicatorStyle`。
+
+布局以 `.item` 或 `.content` 为参考区域，支持 leading/center/trailing、top/center/bottom、独立可选宽高、水平/垂直内缩及物理偏移。nil 宽高填充内缩后的区域，固定宽高默认可超出参考区域；`limitsSizeToReference` 可显式限制到参考区域。leading/trailing 跟随 RTL，`offset.x` 始终按物理方向计算。负尺寸归零、非有限尺寸使用参考尺寸、非有限内缩/偏移使用 0；标量限制到 ±1,000,000 pt。`cornerRadius = nil` 使用高度的一半，显式值限制到宽高较小值的一半。
+
+默认内容区域来自独立布局副本中 UIButton 实际呈现的文字和图片，不含角标；屏幕外标签也可解析。自定义内容通过 `SPTabBarContent.indicatorContentRect` 提供最终 Cell 局部坐标的区域，nil 或非法值回退到整项。随可用宽度变化的复杂区域可以在下面的几何代理中根据 `itemFrame` 自行计算。
 
 ```swift
-// 单独修改指示器颜色，不影响选中文字和图标
-tabs.standardAppearance.selectionColor = .systemOrange
-// 恢复样式默认颜色
-tabs.standardAppearance.selectionColor = nil
+@MainActor
+final class IndicatorGeometry: SPTabBarIndicatorLayoutDelegate {
+    func tabBar(
+        _ tabBar: SPTabBar,
+        indicatorFrameFor context: SPTabBarIndicatorLayoutContext
+    ) -> CGRect? {
+        CGRect(
+            x: context.contentFrame.midX - 16,
+            y: context.itemFrame.maxY - 8,
+            width: 32,
+            height: 6
+        )
+    }
+}
+
+// 宿主通过属性强持有 geometry，标签栏仅弱引用它。
+tabs.indicatorStyle = .custom
+tabs.indicatorLayoutDelegate = geometry
+// 如需自定义绘制，再设置 SPTabBarIndicatorView 子类。
+tabs.indicatorView = customIndicatorView
 ```
 
-默认使用系统材质背景和胶囊选中背景。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中标识支持 `.capsule`、`.underline`、`.none`。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
+几何代理优先于布局配置；返回 nil 或含负尺寸、非有限值等非法 CGRect 时回退到配置布局，零尺寸可隐藏某项。上下文包括 Item、逻辑索引、标签区域、内容区域、安全视口对应区域、布局方向、traits 和布局配置。所有 frame 使用 Collection View 的滚动内容坐标系，框架负责滚动转换，不要再次减去 contentOffset。回调可能处理屏幕外项，应保持同步、无副作用，不修改标签栏、不依赖调用次数。外部数据变化后调用 `reloadIndicator()`。
+
+自定义视图继承 `SPTabBarIndicatorView`，在 `update(_:)` 中读取来源/目标索引、连续进度、当前 frame、颜色和圆角；索引为 nil 表示对应端点没有选中项。框架强持有视图并管理 frame、隐藏、层级与交互；业务只布局内部子视图，不修改根视图 frame/transform。替换或设为 nil 会移除旧视图；不能把同一视图交给多个标签栏。代理和视图不进入 Appearance 的复制与归档；布局值和颜色可以复制与安全归档。
+
+指示器是装饰，不参与标签宽度、栏高或点击区域测量；需要预留空间时，在标签内容中提供留白，并用 `SPPageLayout.tabBarHeight` 或独立宿主栏高保证空间。允许超出单项，但始终随内容滚动并裁剪到标签栏安全视口，不能跨到 Header 或页面上。前景/背景层都不拦截触摸，也不增加无障碍焦点。
+
+点击、程序化切换和分页共享位置与宽高插值。标签栏的滚动动画独立于指示器是否存在，`.none` 或零尺寸指示器不会关闭标签栏的滚动动画。自定义指示器在程序动画开始时先接收 `progress = 0` 和起始 frame，再按动画进度更新；连续点击从当前 frame 接续，不提前发送目标完成态。取消返回选中项；分页期间修改指示器配置或栏尺寸会保留进度并重新计算端点，程序动画期间修改配置则落到当前选中项，保留已有滚动偏移。每项几何使用该 Item 的 Appearance 或栏级回退；颜色、层级和圆角使用当前已选 Item 的外观，提交选择时更新；Item 外观不会改变标签栏的 `indicatorStyle`。交互分页按手势进度更新，减少动态效果时程序化选择直接完成。
+
+独立“标签外观”和分页“页面”菜单的“指示器”子菜单展示六种效果：默认胶囊、底部线条、顶部固定线条、跟随内容宽度、内容背景、自由布局与自定义视图；另提供不使用指示器的隐藏选项。
+
+默认使用系统材质背景和胶囊指示器。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中指示器支持布局预设、自定义几何，并通过 `.none` 关闭。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
 
 默认文字和模板图标采用 UITabBar 风格：未选中为 `.secondaryLabel`，选中跟随标签栏的 `tintColor`（包括从父视图继承的颜色），禁用为 `.tertiaryLabel`。显式状态颜色优先；`titleColor`、`iconColor` 设为 nil 时恢复该状态的默认颜色。默认模式下，运行时改变 tint 会立即刷新可见标签，不改变滚动位置和选中动画。深浅色使用动态颜色解析。
 
 默认标签宽度按正常、选中、禁用状态的最大内容尺寸预留，避免选择时字体变化导致跳动。先满足每项的内容宽度和 `minimumItemWidth` 下限，再让其余项尽量等宽；总需求超出视口则横向滚动。默认最小项宽为 44 pt，默认图文高度仍至少 44 pt；选中项尽量居中，首尾受内容边界限制。布局和字体变化重新对齐，普通刷新保留用户手动滚动位置。RTL 仅反转视觉顺序，逻辑索引不变。
 
-背景铺满容器，内部 Collection View、点击区域和选中背景共用左右安全视口。超出视口的内容在仍有隐藏项的一侧使用 16 pt 渐隐；材质背景不参与渐隐。`tabBarHeight` 是最小高度（0 隐藏），实际高度由图文和 Dynamic Type 字体测量；变化后容器更新页面边界并保留滚动位置。独立宿主应在布局时使用 `sizeThatFits(_:)`。降低透明度时改用不透明系统背景，减少动态效果时关闭程序化选中动画。角标、选中和禁用状态同步无障碍信息。
+`SPTabBar.itemSpacing` 控制相邻 Item 布局区域之间的固定水平间距，默认 `0`，适用于默认、自定义和回退内容。它不属于 Item 内部留白，不计入 `minimumItemWidth`，也不替代标签栏两侧 Safe Area；首尾不额外增加间距。负值和非有限值归零，超过 1,000,000 pt 截到该上限。
+
+```swift
+tabs.itemSpacing = 16 // 相邻 Item 之间留出 16 pt
+tabs.minimumItemWidth = 44 // 单个 Item 的最小布局宽度，不含间距
+```
+
+有 n 个 Item 时，总间距为 `max(0, n - 1) × itemSpacing`。先从视口扣除总间距，再按现有策略分配 Item 宽度；超出视口时，滚动内容宽度为 Item 宽度之和加总间距。自动内容按扣除间距后实际分配的宽度计算高度；空列表和单项不产生额外间距。间隙不属于任意 Item 的点击区域，也不增加无障碍元素。
+
+运行时修改间距无需重设 Items，保留对象身份、当前选择和选择回调语义。几何变化时，手动偏移限制到新滚动范围，程序动画落到当前选中项，分页交互保持进度并重算端点；归一化后的间距未变化时不触发刷新。居中、边缘渐隐和指示器均跟随最终布局，`.none` 下滚动动画照常工作。Demo 的“页面”及“标签外观 → 配置”中均可通过“标签间距”选择 0、8、16、24 pt。
+
+背景铺满容器，内部 Collection View、点击区域和指示器共用左右安全视口。超出视口的内容在仍有隐藏项的一侧使用 16 pt 渐隐；材质背景不参与渐隐。`tabBarHeight` 是最小高度（0 隐藏），实际高度由图文和 Dynamic Type 字体测量；变化后容器更新页面边界并保留滚动位置。独立宿主应在布局时使用 `sizeThatFits(_:)`。降低透明度时改用不透明系统背景，减少动态效果时关闭程序化选中动画。角标、选中和禁用状态同步无障碍信息。
 
 分页和非相邻选择继续共享选中标识与居中偏移的连续进度；连续点击从当前位置接续。按住标签按钮后横向拖动时允许 Collection View 接管手势。自定义栏可重写 `setItems(_:)`、`setSelectedItem(_:animated:)` 和 `setTransitionProgress(from:to:progress:)`，调用 super 保持模型同步，使用 `requestSelection(of:)` 发送用户请求。通过 `pager.tabBar = CustomTabBar()` 替换。
 
-迁移旧代码：将 `onSelect` 替换为 `SPTabBarDelegate`；自定义点击调用 `requestSelection(of:)`；持有并修改 Item 对象，避免复制结构体的假设；读取 title 时处理 nil。Demo 启动页的“标签外观”提供独立标签栏，分页 Demo 的“页面”菜单可切换图文、角标、禁用和选中样式。首版未提供 scrollEdgeAppearance、More 导航或系统编辑排序。NSCoding 保存 Item 的基类属性、自定义图片、角标与 Appearance；Appearance 的复制和安全归档保留背景、选中标识、布局和状态样式。
+迁移旧代码：将 `onSelect` 替换为 `SPTabBarDelegate`；自定义点击调用 `requestSelection(of:)`；持有并修改 Item 对象，避免复制结构体的假设；读取 title 时处理 nil。Demo 启动页的“标签外观”提供独立标签栏，分页 Demo 的“页面”菜单可切换图文、角标、禁用和指示器样式。首版未提供 scrollEdgeAppearance、More 导航或系统编辑排序。NSCoding 保存 Item 的基类属性、自定义图片、角标与 Appearance；Appearance 的复制和安全归档保留背景、选中标识、布局和状态样式。
 
 例如，旧 `onSelect` 中的业务通知迁移到代理。嵌入分页容器时，代理无需再调用容器切页；内部协调负责完成该操作。
 
@@ -242,7 +319,7 @@ final class ScreenController: UIViewController, SPTabBarDelegate {
 
 ### 自定义标签 UI
 
-`SPTabBar.ContentStyle` 将内容展示分为 `.default` 和 `.custom`，默认值为 `.default`。已有接入无需修改。设置 `.custom` 后，由弱引用 `contentDelegate` 为每项提供 `SPTabBarContent`；切回 `.default` 恢复内置图文样式，保留 Item 身份和当前选择。内容样式与 `standardAppearance.selectionStyle` 独立，背景、指示器和分页进度仍由标签栏维护。
+`SPTabBar.ContentStyle` 将内容展示分为 `.default` 和 `.custom`，默认值为 `.default`。已有接入无需修改。设置 `.custom` 后，由弱引用 `contentDelegate` 为每项提供 `SPTabBarContent`；切回 `.default` 恢复内置图文样式，保留 Item 身份和当前选择。内容样式与 `indicatorStyle` 独立，背景、指示器和分页进度仍由标签栏维护。
 
 每项内容以 `UIContentConfiguration` 描述 UI，默认由内容视图的 Auto Layout 自动测量。可以返回系统的 `UIListContentConfiguration`，也可以自行实现配置及 `UIView & UIContentView`，在视图中任意组合编号、图片、标题、副标题或角标。框架继续使用标准 `UICollectionViewCell` 和 `CellRegistration`，业务方无需注册 Cell 或继承 Cell。
 
@@ -286,7 +363,7 @@ pager.tabBar.reloadContent()
 - `SPTabBarContent(configuration:)` 默认自动测量，`size == nil`。框架用独立的内容视图调用 `systemLayoutSizeFitting`：先以压缩目标求首选宽度，再由普通 Auto Layout 测量宿主以水平优先级 999 尝试视口内的首选宽度（未知视口时使用内容首选宽度）；业务 required 最小宽度可以超出视口。然后由布局应用 `minimumItemWidth`，先满足较宽项、再让较窄项尽量等宽，以水平 `.required`、垂直 `.fittingSizeLevel` 定宽求高度。所有 Cell 高度取各项所需高度的最大值，并受容器最低栏高约束；`tabBarHeight == 0` 仍隐藏标签栏。
 - 自定义视图需要完整的内部 Auto Layout 约束或能参与求解的 `intrinsicContentSize`。例如多行 UILabel 应连接内容视图四边，框架不额外添加业务内边距。`targetSize` 本身不是最大尺寸；普通 UIView 只重写 `sizeThatFits` 也不代表它一定参与 Auto Layout 测量。手动布局视图可继续提供显式尺寸，或自行实现 `systemLayoutSizeFitting`。
 - 仍可使用 `SPTabBarContent(configuration: configuration, size: CGSize(width: 160, height: 76))` 跳过自动测量；它是理想尺寸覆盖，最终宽度可能由标签栏扩展。`size` 现在为 `CGSize?`，旧的显式尺寸初始化调用保持可用，读取属性的代码需要处理 nil；赋值 nil 可恢复自动测量。显式尺寸和自动测量结果必须为有限正数且不超过 1,000,000 pt，否则该项回退到默认内容；理想尺寸不再混入 Cell 最小宽度，高度不额外设下限（自动测量尺寸向上取整到 pt）。显式尺寸不限制到视口；自动测量可能压缩可换行内容。
-- `SPPageLayout.tabBarHeight` 是最小栏高，默认 44，设为 0 时隐藏。正值时实际栏高为 `max(tabBarHeight, 内容所需高度)`，不是固定高度。例如自定义内容需要 28 pt 时，配置 32 / 60 / 44，实际栏高分别为 32 / 60 / 44；内容需要 80 pt 时，这三个配置都得到 80。默认图文及回退项保留自身至少 44 pt 的规则，因此混用时仍可能把整栏撑高。宽度由标签栏自身的 `minimumItemWidth` 和分配规则控制，不由 `SPPageLayout` 控制。
+- `SPPageLayout.tabBarHeight` 是最小栏高，默认 44，设为 0 时隐藏。正值时实际栏高为 `max(tabBarHeight, 内容所需高度)`，不是固定高度。例如自定义内容需要 28 pt 时，配置 32 / 60 / 44，实际栏高分别为 32 / 60 / 44；内容需要 80 pt 时，这三个配置都得到 80。默认图文及回退项保留自身至少 44 pt 的规则，因此混用时仍可能把整栏撑高。宽度由标签栏自身的 `minimumItemWidth`、`itemSpacing` 和分配规则控制，不由 `SPPageLayout` 控制。
 - `SPTabBar.minimumItemWidth` 默认 44 pt，同时作用于默认、自定义及回退项。0 表示不额外设下限，负数归零，非有限值恢复为 44，超过 1,000,000 pt 截到该上限。它是 Cell 最小布局宽度，不改变业务返回的理想尺寸，也不扩大 Cell 外的命中区域。较小的宽度或栏高属于业务主动选择的紧凑交互，不能据此认为仍有 44 × 44 pt 点击区域。
 - 宽度分配连续：320 pt 视口中，理想宽度 `[160, 44]` 得到 `[160, 160]`，变成 `[161, 44]` 后得到 `[161, 159]`，不会再跳到 `[218.5, 101.5]`。这是对原“固有宽度加平均剩余空间”策略的行为调整。减少最小宽度不会关闭剩余空间分配，两个短标签仍可能等宽填满整栏。
 - 内容根视图须允许随实际分配宽度扩展。内部可设置 required 的最小宽度，超出视口时横向滚动；根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
@@ -308,6 +385,7 @@ pager.tabBar.contentDelegate = provider
 pager.tabBar.contentStyle = .custom
 pager.layout.tabBarHeight = 32 // 内容较小时栏高为 32，需要更多空间时自动增高
 pager.tabBar.minimumItemWidth = 24 // 按需选择紧凑项宽；默认仍为 44
+pager.tabBar.itemSpacing = 8 // 相邻 Item 间距；默认 0
 // pager.layout.tabBarHeight = 0 // 隐藏；恢复为 44 即恢复默认下限
 ```
 

@@ -49,7 +49,9 @@ final class SPTabBarCustomContentTests: XCTestCase {
     private func scrollable(_ provider: CustomContentSource, rtl: Bool = false) -> SPTabBar {
         let bar = mount(provider)
         bar.items = (0 ..< 10).map { SPTabBarItem(title: "标签 \($0)") }
-        bar.standardAppearance.selectionStyle = .underline
+        bar.indicatorStyle = .underline
+        bar.standardAppearance.indicatorLayout = nil
+        bar.standardAppearance.indicatorColor = nil
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         bar.setSelectedIndex(0, animated: false)
         bar.layoutIfNeeded()
@@ -57,7 +59,7 @@ final class SPTabBarCustomContentTests: XCTestCase {
     }
 
     private func indicator(_ bar: SPTabBar) -> UIView {
-        collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.selection" }!
+        collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
     }
 
     private func itemFrame(_ bar: SPTabBar, _ index: Int) -> CGRect {
