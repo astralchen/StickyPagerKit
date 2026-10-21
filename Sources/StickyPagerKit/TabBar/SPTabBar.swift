@@ -305,9 +305,10 @@ open class SPTabBar: UIView {
         let selectedColor: UIColor = (attributes?[.foregroundColor] as? UIColor)
             ?? value.itemAppearance.selected.titleColor ?? tintColor ?? .systemBlue
         let color: UIColor = value.indicatorColor ?? (indicatorStyle == .capsule ? .tertiarySystemFill : selectedColor)
+        let maximumRadius = min(indicator.bounds.width, indicator.bounds.height) / 2
         let radius = layout.cornerRadius.map {
-            min(min(indicator.bounds.width, indicator.bounds.height) / 2, max(0, SPTabBarIndicatorLayout.finite($0)))
-        } ?? indicator.bounds.height / 2
+            min(maximumRadius, max(0, SPTabBarIndicatorLayout.finite($0)))
+        } ?? maximumRadius
         indicator.isHidden = indicator.frame.isEmpty
         indicator.layer.zPosition = layout.placement == .background ? -1 : 1
         let customView = indicatorStyle == .custom ? indicatorView : nil

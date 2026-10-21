@@ -49,6 +49,62 @@ final class SPTabBarIndicatorTests: XCTestCase {
         XCTAssertEqual(indicator.backgroundColor, .tertiarySystemFill)
     }
 
+    func testAutomaticCornerRadiusUsesSmallerDimensionAcrossStylesAndSizeChanges() {
+        let (bar, _, indicator) = mount()
+        let renderer = RecordingIndicator()
+        bar.indicatorView = renderer
+        let cases: [(width: CGFloat, height: CGFloat, radius: CGFloat)] = [
+            (40, 10, 5),
+            (20, 20, 10),
+            (10, 40, 5),
+            (0, 40, 0),
+            (40, 0, 0),
+            (0, 0, 0)
+        ]
+        for style: SPTabBar.IndicatorStyle in [.capsule, .underline, .custom] {
+            bar.indicatorStyle = style
+            for value in cases {
+                var layout = SPTabBarIndicatorLayout()
+                layout.width = value.width
+                layout.height = value.height
+                bar.standardAppearance.indicatorLayout = layout
+                XCTAssertEqual(indicator.bounds.size, CGSize(width: value.width, height: value.height))
+                XCTAssertEqual(indicator.layer.cornerRadius, value.radius, "\(style): \(value)")
+                XCTAssertEqual(indicator.isHidden, value.width == 0 || value.height == 0)
+                if style == .custom {
+                    XCTAssertEqual(renderer.state?.cornerRadius, value.radius)
+                    XCTAssertEqual(renderer.layer.cornerRadius, value.radius)
+                }
+            }
+        }
+    }
+
+    func testExplicitCornerRadiusClampsAndNilRestoresAutomaticRadius() {
+        let (bar, _, indicator) = mount()
+        for size in [CGSize(width: 40, height: 10), CGSize(width: 20, height: 20), CGSize(width: 10, height: 40)] {
+            var layout = SPTabBarIndicatorLayout()
+            layout.width = size.width
+            layout.height = size.height
+            let maximumRadius: CGFloat = size.width == size.height ? 10 : 5
+            let cases: [(radius: CGFloat, expected: CGFloat)] = [
+                (4, 4),
+                (100, maximumRadius),
+                (0, 0),
+                (-1, 0),
+                (.nan, 0),
+                (.infinity, 0)
+            ]
+            for value in cases {
+                layout.cornerRadius = value.radius
+                bar.standardAppearance.indicatorLayout = layout
+                XCTAssertEqual(indicator.layer.cornerRadius, value.expected)
+                bar.standardAppearance.indicatorLayout?.cornerRadius = nil
+                XCTAssertEqual(indicator.layer.cornerRadius, maximumRadius)
+                XCTAssertEqual(indicator.bounds.size, size)
+            }
+        }
+    }
+
     func testOverridesSurviveStyleChangesAndNilRestoresCurrentPreset() {
         let (bar, collection, indicator) = mount()
         var layout = SPTabBarIndicatorLayout()

@@ -235,7 +235,7 @@ tabs.indicatorStyle = .underline
 
 `indicatorColor = nil` 时，胶囊使用系统填充色；线条和自定义模式依次使用 Item 的选中文字属性、`itemAppearance.selected.titleColor`、`tintColor`。显式颜色在样式切换时保持。Appearance 的指示器归档配置仅包含 `indicatorColor` 和 `indicatorLayout`。缺少配置时保持 nil，由当前样式提供默认值。指示器样式及是否启用属于运行中的标签栏，不编码到 Appearance，应由宿主恢复 `indicatorStyle`。
 
-布局以 `.item` 或 `.content` 为参考区域，支持 leading/center/trailing、top/center/bottom、独立可选宽高、水平/垂直内缩及物理偏移。nil 宽高填充内缩后的区域，固定宽高默认可超出参考区域；`limitsSizeToReference` 可显式限制到参考区域。leading/trailing 跟随 RTL，`offset.x` 始终按物理方向计算。负尺寸归零、非有限尺寸使用参考尺寸、非有限内缩/偏移使用 0；标量限制到 ±1,000,000 pt。`cornerRadius = nil` 使用高度的一半，显式值限制到宽高较小值的一半。
+布局以 `.item` 或 `.content` 为参考区域，支持 leading/center/trailing、top/center/bottom、独立可选宽高、水平/垂直内缩及物理偏移。nil 宽高填充内缩后的区域，固定宽高默认可超出参考区域；`limitsSizeToReference` 可显式限制到参考区域。leading/trailing 跟随 RTL，`offset.x` 始终按物理方向计算。负尺寸归零、非有限尺寸使用参考尺寸、非有限内缩/偏移使用 0；标量限制到 ±1,000,000 pt。`cornerRadius = nil` 使用指示器最终宽高较小值的一半，使横向胶囊、圆形和纵向胶囊采用一致的自动圆角规则；显式值也限制到该上限。
 
 默认内容区域来自独立布局副本中 UIButton 实际呈现的文字和图片，不含角标；屏幕外标签也可解析。自定义内容通过 `SPTabBarContent.indicatorContentRect` 提供最终 Cell 局部坐标的区域，nil 或非法值回退到整项。随可用宽度变化的复杂区域可以在下面的几何代理中根据 `itemFrame` 自行计算。
 

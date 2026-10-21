@@ -21,7 +21,7 @@ public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
     /// 物理坐标偏移；x 正值始终向右。逻辑对齐使用 horizontalAlignment。
     public var offset: CGPoint = .zero
     public var placement: Placement = .background
-    /// nil 使用高度的一半；显式值限制到宽高较小值的一半。
+    /// nil 使用最终宽高较小值的一半；显式值也限制到该上限。
     public var cornerRadius: CGFloat?
 
     public init() {}

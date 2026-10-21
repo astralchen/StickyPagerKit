@@ -2,6 +2,17 @@
 
 验证日期：2026-10-15 至 2026-10-20。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-21：指示器自动圆角统一
+
+`SPTabBarIndicatorLayout.cornerRadius = nil` 改为使用指示器最终 `min(width, height) / 2`，与显式圆角的上限一致；同步 API 注释与 README。新增真实 UIWindow 测试覆盖横向、正方形、纵向和零尺寸，检查胶囊、线条、自定义模式及自定义渲染状态；另检查显式值截断、非法值归零和设回 nil 后恢复自动圆角。
+
+- **通过：** Xcode 27.1 / iPhone Duo / iOS 27.1 / Debug 下，独立 Package 的 `SPTabBarIndicatorTests` 与 `SPTabBarModelTests` 共 **42 通过、0 失败、0 跳过**。已读取终态 `.xcresult`，`sourceChangedSinceRun` 为空。见[摘要](Results/indicator-corner-radius-20261021/summary.json)与[结果包](Results/indicator-corner-radius-20261021/Result.xcresult)。
+- **通过：** 修改的 3 个 Swift 文件使用 SwiftFormat 0.64.0 格式化并通过 lint；`git diff --check` 通过。
+- **未执行：** 本次未重跑其他库测试、Demo UI、Release、iOS 15、iPad 和真机矩阵；上述结果不替代其他章节尚未通过的 UI 验收。
+
+官方 Xcode MCP 当前打开的工程仅列出 Demo scheme，未提供独立 Package 库测试，因此使用 `Scripts/validate.sh` 执行。CoreSimulator 访问和 `.xcresult` 摘要缓存首次受沙盒限制，经授权执行环境完成，最终测试及摘要均成功。
+
+
 ## 2026-10-20：提交前全量审查与指示器边界修复
 
 - **审查范围：** 全部 20 个改动文件，包括 4 个新增文件。核对指示器模式／布局／颜色及归档职责、默认与自定义内容几何、间距测量与布局、动画与分页更新、Demo、测试、README 和历史验证记录。工程文件的两处配置项顺序调整不改变构建配置。当前源码、Demo、测试和 README 无旧 API、历史归档字段、旧装饰视图标识及旧菜单文案残留。
