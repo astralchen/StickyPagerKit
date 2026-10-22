@@ -2,6 +2,84 @@
 
 验证日期：2026-10-15 至 2026-10-22。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-22：UIKit observation 诊断根因与测试宿主修复
+
+本轮从干净的 `1720708` 开始。修复范围是库测试运行环境、真实窗口夹具、验证门禁及文档；`Sources/`、Demo、Package 公开配置及公开 API 未改变。测试宿主只提供 UIKit application／scene 生命周期，不链接 StickyPagerKit，不把库测试加入 Demo target 或 scheme。
+
+### 根因及证据
+
+原完整库 [192 项日志](Results/review-library-full-20261022/xcodebuild.log)包含 214 次 observation feedback loop 诊断；首次报告的自定义内容状态用例[单独运行](Results/observation-baseline-state-20261022/Result.xcresult)通过且没有诊断，不能仅凭首次出现的位置归因于该用例。临时生命周期对照分别创建 240 个原生集合视图和 240 个标签栏，也没有单独复现；这些临时用例不进入最终提交。
+
+通过 Apple 官方 Xcode MCP 调试器附加真实库测试进程，在 `UIObservationTrackingFeedbackLoopDetected` 与 `UIObservationTrackingInvalidated` 断点取得了[调用栈及寄存器记录](Results/observation-debug-stack-20261022/debugger-evidence.json)：
+
+- `UIApplication.sharedApplication == nil`，原 Package 测试运行在无 application host 的 `xctest` 中。
+- 当前 iOS 27.0 运行时的检测计数为 41、阈值为 40；首次断点来自新标签栏挂载时的 `SPTabBar.layoutSubviews → collectionView.layoutIfNeeded → UIView._performPropertiesUpdate`，没有业务状态递归回调的调用栈证据。
+- 调试器读取的 UIKit 实现将计数清理安排到 application 的 CA transaction 提交后回调；无 application 时，该清理路径不能正常安排。后续新对象复用地址时继续触发诊断。阈值和内部符号仅作本次运行时诊断证据，仓库实现不依赖它们。
+- 同一套库实现和原 192 项测试改用真实 application host 后，feedback loop 降为 0。对照中的 2 项失败是无 scene 窗口的导航安全区域前提失效，另行修复夹具，没有修改框架折叠公式。
+
+根因确认范围是本仓库此次无宿主库测试诊断，不推断其他 App 或所有 UIKit feedback loop 都属于同一原因。未关闭 observation、抬高检测阈值或屏蔽系统日志；只在调试器中读取内部实现，没有把私有 API 调用加入源码。
+
+### 修复内容与迁移影响
+
+`Scripts/validate.sh` 为 library 的 `test`／`build-for-testing` 构建独立 `Tests/UIKitTestHost`，仍由根 Package 编译测试包，再通过 `xcodebuild.xctestrun` 文档化的 application host 配置运行。`prepare_hosted_tests.py` 冻结宿主和同次测试包，保留筛选参数、Main Thread Checker 等原环境，不修改原始 xctestrun。直接给 Package scheme 传外部 `TEST_HOST` 的[不支持记录](Results/observation-hosted-comparison-20261022/xcodebuild.log)保留；最终采用 `TestHostPath` 路径。官方 MCP 用于断点诊断；当前工作区的测试工具没有这条自定义 xctestrun 执行入口，因此完整库回归使用脚本。
+
+真实 application host 还暴露了原夹具的窗口生命周期缺口。固定几何窗口现在连接真实 `UIWindowScene`，保留请求尺寸并显式将屏幕安全区域设为零，仅用 `additionalSafeAreaInsets` 注入几何条件；导航集成窗口保留原生安全区域。异步 `setUp` 仅创建窗口，在测试方法挂载时显示；替换旧窗口前先关闭，关闭时在窗口仍可见时移除根控制器，完成回调后再隐藏。新增回归直接断言 scene、固定尺寸、额外安全区域、完整 appearance 回调顺序，以及 64 次自动 observation 更新后的收敛。
+
+两项原测试假设同步纠正：系统 `UITabBar` 在 iOS 26.5 可保留多个内部角标副本，系统内部 UILabel 坐标／数量改为视觉参考记录，框架自己的 RTL、中文／阿拉伯文、尺寸、点击与无障碍断言保留；屏幕外指示器用例显式关闭 UIKit 预取并重建布局，同时断言目标位于视口外且没有 Cell，确保真正覆盖无 Cell 几何路径。
+
+运行时门禁分别记录 observation feedback loop 和 appearance transition 不平衡；任一出现，即使 XCTest 通过也返回非零。摘要增加运行时计数，并将运行后新增输入也纳入 `sourceChangedSinceRun`。
+
+### 失败、对照与复测记录
+
+| 状态 | 证据及解释 |
+| --- | --- |
+| **失败，已修复** | 首次[有宿主全量对照](Results/observation-hosted-xctestrun-20261022/summary.json)：190 通过、2 失败，feedback loop 为 0；失败来自导航安全区域夹具。 |
+| **通过，中间版本** | [导航与 observation 聚焦](Results/observation-hosted-focused-20261022/summary.json)：17 通过；此后继续补充生命周期夹具，不能据此替代最终全量。 |
+| **预期失败，反向验证通过** | [旧无宿主路径](Results/observation-unhosted-negative-20261022/summary.json)：当时新增的两项环境测试均明确失败，不能将无 UIApplication 环境误记为正常验收。 |
+| **失败，已修复** | [首次 iPad Release](Results/observation-hosted-final-release-20261022/summary.json)：193 通过、1 失败；[首次角标重试](Results/observation-hosted-badge-retry-20261022/summary.json)仍失败；[角标专项](Results/observation-hosted-badge-final-20261022/summary.json)5 项通过。原失败的[图层截图](Results/observation-hosted-final-release-20261022/attachments/CC105C6B-F35F-4DEB-986D-D40717EC8FE4.png)保留，不能作为最终真实 UI 视觉通过证据。 |
+| **失败，已修复** | [生命周期首次回归](Results/observation-lifecycle-focused-20261022/Result.xcresult)暴露缺失 `didDisappear`；[销毁顺序调整](Results/observation-lifecycle-order-20261022/runtime-diagnostics.json)和[scene 调整](Results/observation-scene-focused-20261022/runtime-diagnostics.json)仍有 appearance 诊断，未作为最终通过；[挂载时显示复测](Results/observation-window-method-focused-20261022/runtime-diagnostics.json)两类诊断均为 0。 |
+| **失败，已修复** | [后续 Release 全量](Results/observation-accepted-release-20261022/Result.xcresult)暴露屏幕外 Cell 可能被预取的错误前提；保留原失败，按无 Cell 路径的明确条件另行复测。 |
+| **通过** | [门禁反向检查](Results/observation-gate-audit-20261022/check-output.json)从历史日志识别 214 条 observation 诊断，[退出码](Results/observation-gate-audit-20261022/check-exit-code.txt)为 1；[脚本单测](Results/observation-gate-audit-20261022/script-tests.log)覆盖冻结、筛选／环境保留、异常 target 拒绝及两类诊断判定。 |
+
+中间结果与最终源码可能不同，分别保留快照和终态，不覆盖失败记录。
+
+### 最终验证方式与覆盖边界
+
+| 状态 | 最终源码验收 | 证据 |
+| --- | --- | --- |
+| **通过** | Debug，iPhone 18 Pro Max / iOS 27.0（24A434）：196 通过、0 失败、0 跳过；observation 与 appearance 诊断各 0 | [摘要](Results/observation-commit-debug-20261022/summary.json) · [结果包](Results/observation-commit-debug-20261022/Result.xcresult) · [完整日志](Results/observation-commit-debug-20261022/xcodebuild.log) |
+| **通过** | Release，iPad Pro 13-inch (M4) / iOS 26.5（23F77）：196 通过、0 失败、0 跳过；observation 与 appearance 诊断各 0 | [摘要](Results/observation-commit-release-20261022/summary.json) · [结果包](Results/observation-commit-release-20261022/Result.xcresult) · [完整日志](Results/observation-commit-release-20261022/xcodebuild.log) |
+| **通过** | 两套最终命令退出码 0，终态 `TEST EXECUTE SUCCEEDED`，`sourceChangedSinceRun` 均为空；同次 Debug／Release 宿主及库测试构建通过 | 各运行目录的 `source-hashes.json`、`host-build.log`、`Build.xcresult`；不是以构建成功代替测试 |
+| **通过** | 脚本单测 6 项；包含结果包摘要不可用时保留真实 test-without-building 终态，且明确标记结果摘要不可用 | [脚本日志](Results/observation-gate-audit-20261022/script-tests.log) |
+| **通过** | 13 个修改／新增 Swift 文件的 SwiftFormat 0.64.0 lint、Shell 语法、宿主工程 plist、文档本地链接及 `git diff --check` | [格式日志](Results/observation-gate-audit-20261022/swiftformat-lint.txt)；框架、Demo、`Package.swift`、`.swiftformat` 与本轮起点无差异 |
+
+最终完整套件新增 4 项环境／生命周期／自动 observation 用例；两套各执行同一组 196 项，不合并为 392 个不同用例。迁移期间的失败均在上表独立保留，当前范围没有未修复的失败或环境阻塞。
+
+最终回归使用 Xcode 27.1（27A9275），命令如下；每个运行名对应独立源码快照、构建日志、`Build.xcresult`、`Result.xcresult` 和运行时诊断记录。Release 显式启用 `@testable` 所需配置。
+
+```sh
+SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SP_SIMULATOR_ID=41AF9CED-9BBB-4B60-B563-73AFB035C2D4 \
+SP_SCOPE=library SP_RUN_NAME=observation-commit-debug-20261022 \
+Scripts/validate.sh test
+
+SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SP_SIMULATOR_ID=9E4895DA-132A-4BAE-800B-7A322E1A2918 \
+SP_SCOPE=library SP_CONFIGURATION=Release \
+SP_RUN_NAME=observation-commit-release-20261022 \
+Scripts/validate.sh test ENABLE_TESTABILITY=YES
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+python3 Scripts/summarize_validation.py Validation/Results/observation-commit-debug-20261022
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+python3 Scripts/summarize_validation.py Validation/Results/observation-commit-release-20261022
+python3 -m unittest discover -s Scripts/Tests -v
+```
+
+本轮**未执行** Demo UI 全套、Duo 内外屏及实际旋转复跑、iOS 15 运行、真机、完整 VoiceOver 和性能压力验证；本轮仅变更库测试及验证设施，不以真实 scene 的固定尺寸夹具代替上述系统 UI 验收。此前 Duo 分段结果及其限制保持原记录。最终两类运行时门禁通过不代表日志没有其他提示；自定义内容切换仍可出现 UIKit content configuration 替换提示，本轮没有改变该实现。
+
+官方 MCP 调试诊断完成后已移除本轮断点、结束调试，并恢复 Xcode 原来的 iPhone 13 运行目标。生成的测试宿主、结果包和完整日志留在忽略目录，不加入源码提交。
+
 ## 2026-10-22：全部待提交改动审查与补测
 
 审查覆盖全部已跟踪差异及新增文件：标签栏留白、附件测量与裁切、角标、Demo 配置与启动参数、真实方向／窗口触摸测试、外部旋转脚本、公开说明和截图证据。保留已有工程 Debug／Release 的空签名 Team 配置，不改变 iOS 15 部署目标。未发现需要修改生产实现的新增阻塞缺陷；本轮补上两项此前没有直接断言的边界：候选宽度测量不终止选择动画、零尺寸及超上限附件恢复后保留业务约束。

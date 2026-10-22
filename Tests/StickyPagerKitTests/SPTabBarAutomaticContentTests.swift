@@ -6,18 +6,18 @@ import UIKit
 final class SPTabBarAutomaticContentTests: XCTestCase {
     private var window: UIWindow!
     override func setUp() async throws {
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = UIViewController()
-        window.makeKeyAndVisible()
     }
 
     override func tearDown() async throws {
-        window.isHidden = true
+        window.closeForTesting()
         window.rootViewController = nil
         window = nil
     }
 
     private func mount(_ source: any SPTabBarContentDelegate, count: Int = 2) -> SPTabBar {
+        window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 100, width: 320, height: 80))
         window.rootViewController!.view.addSubview(bar)
         bar.items = (0 ..< count).map { SPTabBarItem(title: "标签 \($0)") }

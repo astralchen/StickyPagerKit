@@ -6,18 +6,18 @@ import UIKit
 final class SPTabBarModelTests: XCTestCase {
     private var window: UIWindow!
     override func setUp() async throws {
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = UIViewController()
-        window.makeKeyAndVisible()
     }
 
     override func tearDown() async throws {
-        window.isHidden = true
+        window.closeForTesting()
         window.rootViewController = nil
         window = nil
     }
 
     private func mount(_ items: [SPTabBarItem]) -> SPTabBar {
+        window.showForTesting()
         let bar = SPTabBar()
         bar.items = items
         bar.frame = CGRect(x: 0, y: 100, width: 320, height: bar.sizeThatFits(.zero).height)

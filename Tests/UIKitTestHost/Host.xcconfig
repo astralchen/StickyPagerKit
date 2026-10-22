@@ -1,0 +1,12 @@
+// 独立且不链接 StickyPagerKit，避免测试包重复加载被测类型。
+PRODUCT_BUNDLE_IDENTIFIER = com.stickypagerkit.UIKitTestHost
+PRODUCT_NAME = $(TARGET_NAME)
+TARGETED_DEVICE_FAMILY = 1,2
+SUPPORTED_PLATFORMS = iphonesimulator
+GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
+INFOPLIST_KEY_UILaunchScreen_Generation = YES
+INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+CODE_SIGN_IDENTITY = -
+CODE_SIGN_STYLE = Automatic
+ALWAYS_SEARCH_USER_PATHS = NO

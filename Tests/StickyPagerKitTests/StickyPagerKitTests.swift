@@ -9,7 +9,7 @@ final class StickyPagerKitTests: XCTestCase {
     private var pager: SPPageViewController?
 
     override func tearDown() async throws {
-        window?.isHidden = true
+        window?.closeForTesting()
         window?.rootViewController = nil
         window = nil; pager = nil; source = nil
     }
@@ -21,6 +21,7 @@ final class StickyPagerKitTests: XCTestCase {
         inNavigation: Bool = false,
         mixedLayout: Bool? = nil
     ) -> SPPageViewController {
+        window?.closeForTesting()
         let source = FixtureSource(ids: ids, plain: plain, contentHeight: height)
         source.mixedLayout = mixedLayout
         let pager = SPPageViewController()
@@ -28,9 +29,18 @@ final class StickyPagerKitTests: XCTestCase {
         pager.headerView = UIView()
         pager.layout = SPPageLayout(headerHeight: 240, minimumHeaderHeight: 40)
         pager.reloadData()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let window: UIWindow
+        if inNavigation {
+            // 系统导航栏的安全区域依赖真实场景，不能用无场景窗口替代。
+            let application: UIApplication? = UIApplication.shared
+            let scene = application?.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            XCTAssertNotNil(scene, "请通过 Scripts/validate.sh 的 UIKit application host 运行库测试")
+            window = scene.map(UIWindow.init(windowScene:)) ?? SPTestWindow(frame: .zero)
+        } else {
+            window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        }
         window.rootViewController = inNavigation ? UINavigationController(rootViewController: pager) : pager
-        window.makeKeyAndVisible()
+        window.showForTesting()
         pager.view.layoutIfNeeded()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         // 通用交互夹具保留 200 pt 折叠距离；总高度现在包含顶部安全区域。
@@ -1403,7 +1413,7 @@ final class StickyPagerKitTests: XCTestCase {
             let container = mount()
             scroll = container.currentScrollView!
             weakPager = container
-            window?.isHidden = true
+            window?.closeForTesting()
             window?.rootViewController = nil
             self.pager = nil
         }

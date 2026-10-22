@@ -513,7 +513,15 @@ SP_SCOPE=library SP_CONFIGURATION=Release Scripts/validate.sh test ENABLE_TESTAB
 SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer Scripts/validate.sh build
 ```
 
-`SP_SCOPE=library` 在仓库根目录运行 Swift Package 的 `StickyPagerKit` scheme；`SP_SCOPE=demo`（默认）运行 Demo 的应用及 UI 测试 scheme。在 Xcode 中单独打开根目录 `Package.swift`，选择 `StickyPagerKit` scheme 和 iOS 模拟器，也可运行库测试。库依赖 UIKit，不能以 macOS 为目标直接执行 `swift test`。
+`SP_SCOPE=library` 先以根 Swift Package 的 `StickyPagerKit` scheme 执行 `build-for-testing`，再将同次测试包嵌入 `Tests/UIKitTestHost` 的独立最小应用，通过生成的 `Hosted.xctestrun` 执行 `test-without-building`。测试定义及编译仍由 `Package.swift` 管理，宿主不链接 StickyPagerKit，也不包含 Demo 页面；Demo 工程仍只有原来的两个 target。`SP_SCOPE=demo`（默认）继续运行 Demo 的应用及 UI 测试 scheme。两种流程都要求显式核对 `SP_DEVELOPER_DIR` 和 `SP_SIMULATOR_ID`，不修改全局 `xcode-select`。
+
+UIKit 库测试需要真实 `UIApplication` 生命周期。直接在 Xcode 中对裸 Package 执行 Test，或直接运行 SwiftPM 生成的无宿主 `xctest`，不作为本仓库的 UIKit 验收入口：这种进程没有 application，系统 observation 的提交后清理与场景安全区域不能代表 App。新增环境回归会明确拒绝无宿主运行；导航栏安全区域夹具连接宿主的 `UIWindowScene`；窗口夹具在测试方法的挂载步骤显示（异步 `setUp` 只创建），显示后提交布局并推进运行循环，关闭时在窗口仍可见的阶段移除根控制器、完成消失回调，再隐藏窗口。固定宽度算法用例也连接真实 scene，但由 `SPTestWindow` 固定窗口尺寸并将屏幕安全区域设为零，仅通过 `additionalSafeAreaInsets` 注入测试条件；系统导航安全区域使用未覆盖安全区域的原生 UIWindow。库依赖 UIKit，不能以 macOS 为目标执行 `swift test`。
+
+`SP_SCOPE=library Scripts/validate.sh build-for-testing` 也会准备宿主和测试包，保存 `Build.xcresult`、`Hosted.xctestrun` 及独立的 `host-build.log`；完整 `test` 另保存 `Result.xcresult`。冻结的宿主／测试包位于忽略的 `Validation/Products/LibraryHosted/<运行名>/`，运行名应唯一。`-only-testing:` 和 `-skip-testing:` 参数继续生效；Release 库测试仍需 `ENABLE_TESTABILITY=YES`。
+
+验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
+
+系统 `UITabBar` 的角标截图和内部标签坐标只作为视觉参照，不对其私有视图副本数量建立测试契约。StickyPagerKit 自身的角标 RTL 方向、内容锚点、文字尺寸、点击和无障碍行为仍由库测试直接断言；图层快照不能替代真实 UI 视觉验收。
 
 Demo 的 `--window-regression` 参数让分页页和标签外观页通过无障碍状态值提供当前 `UIWindowScene` 的实际界面方向，仅供测试诊断。iOS 26+ 同时提供 `interfaceOrientationLocked`（`1` 为场景锁定、`0` 为未锁定、`unknown` 为场景尚不可用），旧系统记录 `unavailable`，不改变方向策略。旋转用例必须等待实际界面方向与目标一致；发送 `XCUIDevice.orientation` 请求或转动 Device Hub 外框不代表旋转已完成。系统容器旋转后的滚动检查按当前可见视口高度计算拖动距离，并保留实际位移断言。真实触摸使用窗口与控件的可见交集，并避开覆盖按钮和浮动工具栏内容；系统工具栏的无障碍容器 frame 可能覆盖整个窗口，不能直接将其上边界当作可触摸区域下边界。各设备的实际通过、失败和未覆盖范围见 [验证记录](Validation/README.md)。
 
@@ -544,6 +552,7 @@ python3 Scripts/run_external_rotation.py \
 
 - `Sources/StickyPagerKit`：Container、Interfaces、TabBar、Layout、Internal。
 - `Tests/StickyPagerKitTests`：由根目录 Swift Package 管理的纯状态计算及 UIKit 行为测试。
+- `Tests/UIKitTestHost`：模拟器库测试专用的最小 UIKit 应用，仅提供 application／scene 生命周期。
 - `Examples/StickyPagerDemo`：应用、完整最小接入和 UI 测试工程。
 - `Scripts`：可复现验证和结果汇总脚本。
 - `Validation`：验证记录与本地产物。

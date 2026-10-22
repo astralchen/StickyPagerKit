@@ -6,10 +6,10 @@ import UIKit
 final class SPPagingScrollViewTests: XCTestCase {
     func testNestedHorizontalScrollUsesDirectionalEdgesAndInsets() {
         let root = UIViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = root
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil }
+        window.showForTesting()
+        defer { window.closeForTesting(); window.rootViewController = nil }
         let pager = SPPagingScrollView(frame: root.view.bounds)
         pager.contentInsetAdjustmentBehavior = .never
         root.view.addSubview(pager)

@@ -7,15 +7,16 @@ final class SPTabBarIndicatorTests: XCTestCase {
     private var window: UIWindow!
 
     override func tearDown() async throws {
-        window?.isHidden = true
+        window?.closeForTesting()
         window?.rootViewController = nil
         window = nil
     }
 
     private func mount(rtl: Bool = false) -> (SPTabBar, UICollectionView, UIView) {
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1000, height: 800))
+        window?.closeForTesting()
+        window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 1000, height: 800))
         window.rootViewController = UIViewController()
-        window.makeKeyAndVisible()
+        window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: 320, height: 60))
         window.rootViewController!.view.addSubview(bar)
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight

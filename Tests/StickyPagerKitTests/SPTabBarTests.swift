@@ -7,7 +7,7 @@ final class SPTabBarTests: XCTestCase {
     private var window: UIWindow?
 
     override func tearDown() async throws {
-        window?.isHidden = true
+        window?.closeForTesting()
         window?.rootViewController = nil
         window = nil
     }
@@ -18,11 +18,12 @@ final class SPTabBarTests: XCTestCase {
         rtl: Bool = false,
         titles: [String]? = nil
     ) -> (SPTabBar, UICollectionView) {
+        window?.closeForTesting()
         let controller = UIViewController()
         // 宽度算法用例会放大标签栏；安全区域由容器集成测试单独验证。
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: max(2048, width), height: 844))
+        let window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: max(2048, width), height: 844))
         window.rootViewController = controller
-        window.makeKeyAndVisible()
+        window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 100, width: width, height: 44))
         bar.indicatorStyle = .underline
         bar.standardAppearance.indicatorLayout = nil
@@ -323,6 +324,11 @@ final class SPTabBarTests: XCTestCase {
     func testTransitionUsesOffscreenGeometryAndSurvivesRelayout() {
         let (bar, collection) = mount()
         let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
+        // UIKit 可以为屏幕外项目预取 Cell；本用例明确覆盖没有 Cell 的布局属性路径。
+        collection.isPrefetchingEnabled = false
+        collection.reloadData()
+        collection.layoutIfNeeded()
+        XCTAssertFalse(frame(10, in: collection).intersects(collection.bounds))
         XCTAssertNil(collection.cellForItem(at: IndexPath(item: 10, section: 0)))
         bar.setTransitionProgress(from: 0, to: 10, progress: 0.4)
         let expected = frame(0, in: collection)
@@ -367,7 +373,7 @@ final class SPTabBarTests: XCTestCase {
         XCTAssertEqual(collection.contentOffset.x, frame(8, in: collection).midX - 160, accuracy: 0.01)
         bar.setSelectedIndex(2, animated: true)
         bar.setSelectedIndex(9, animated: true)
-        // 无应用宿主的 Package 测试不推进系统滚动动画；动画落点另由 Demo UI 测试验证。
+        // 非动画选择必须中断尚未完成的动画并立即落到目标；动画过程由独立进度用例验证。
         bar.setSelectedIndex(5, animated: false)
         XCTAssertEqual(collection.contentOffset.x, frame(5, in: collection).midX - 160, accuracy: 0.5)
         XCTAssertTrue(button(5, in: collection)?.accessibilityTraits.contains(.selected) == true)
