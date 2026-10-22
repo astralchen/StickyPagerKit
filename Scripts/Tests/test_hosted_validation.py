@@ -94,6 +94,14 @@ class HostedValidationTests(unittest.TestCase):
             self.assertNotIn('tests', summary)
             self.assertIn('Package.swift', summary['sourceChangedSinceRun'])
 
+    def test_incompatible_content_replacement_is_a_separate_failure(self):
+        result = diagnostics('Warning: the existing content view does not support the new configuration')
+        self.assertEqual(result['observationFeedbackLoopCount'], 0)
+        self.assertEqual(result['unbalancedAppearanceCount'], 0)
+        self.assertEqual(result['contentViewReplacementCount'], 1)
+        self.assertEqual(result['contentViewReplacementLineNumbers'], [1])
+        self.assertEqual(result['status'], 'failed')
+
     def test_clean_log_has_no_observation_diagnostic(self):
         self.assertEqual(diagnostics('** TEST SUCCEEDED **')['observationFeedbackLoopCount'], 0)
 

@@ -1066,7 +1066,7 @@ open class SPTabBar: UIView {
             var state = UICellConfigurationState(traitCollection: traitCollection)
             state.isSelected = index == selectedIndex
             state.isDisabled = !item.isEnabled
-            cell.contentConfiguration = SPCustomTabContentConfiguration(
+            cell.contentConfiguration = SPTabContentConfiguration.custom(SPCustomTabContentConfiguration(
                 content: content.configuration,
                 measuredSize: content.size ?? CGSize(width: 44, height: 44),
                 state: state,
@@ -1081,7 +1081,7 @@ open class SPTabBar: UIView {
                     }
                     self?.requestSelection(of: item)
                 }
-            )
+            ))
             return
         }
         let styles = appearance.itemAppearance
@@ -1129,7 +1129,7 @@ open class SPTabBar: UIView {
         if !item.isEnabled {
             traits.insert(.notEnabled)
         }
-        cell.contentConfiguration = SPTabContentConfiguration(
+        cell.contentConfiguration = SPTabContentConfiguration.standard(SPDefaultTabContentConfiguration(
             buttonConfiguration: configuration,
             layoutDirection: contentDirection,
             iconColor: iconColor,
@@ -1150,7 +1150,7 @@ open class SPTabBar: UIView {
                 }
                 self?.requestSelection(of: item)
             }
-        )
+        ))
     }
 
     private func updateVisibleCells() {

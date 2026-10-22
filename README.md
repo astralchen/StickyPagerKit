@@ -425,7 +425,7 @@ pager.tabBar.reloadContent()
 - `reloadContent()` 不发送选择回调。尺寸不变时保留手动滚动偏移、正在进行的选择动画和分页进度；尺寸变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.default` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
 - `sizeThatFits(_:)` 只测量建议宽度对应的高度，不提交配置、不改变当前 Cell 布局、偏移或指示器。实际布局时才采用实际视口的配置与尺寸。显示快照与最近一次候选测量分开缓存，重复询问相同宽度不会反复调用代理或构造测量视图；候选宽度变化仍可能触发代理，所以回调不能假定标签栏已经改变 frame。
 - 测量视图处于隐藏、无交互和无障碍入口的独立宿主中，继承标签栏 traits、tint 和视觉方向，完成测量后移除；不会借用正在显示的 Cell。`makeContentView()` 和配置更新可能用于测量，不能依赖可见性或触发业务副作用。配置需独立描述完整内容。业务异步数据变化后调用 `reloadContent()`；仅在某个显示视图上调用 `invalidateIntrinsicContentSize()` 不会自动清除标签栏缓存。
-- 自定义配置的 `updated(for:)` 接收 `UICellConfigurationState`，其中包含选中、禁用和真实按压高亮。高亮变化仅更新内容配置，不重新询问尺寸。提供方法的 `context.state` 高亮为 false；框架只保证 traits、选中、禁用和运行时按压高亮，不承诺同步 Cell 的焦点、编辑或多选状态。`UIContentView.configuration` 应覆盖旧状态并复用子视图；更换不兼容配置类型时框架会替换内容视图。iOS 16+ 使用 `supports(_:)` 判断兼容性，iOS 15 按配置类型判断。
+- 自定义配置的 `updated(for:)` 接收 `UICellConfigurationState`，其中包含选中、禁用和真实按压高亮。高亮变化仅更新内容配置，不重新询问尺寸。提供方法的 `context.state` 高亮为 false；框架只保证 traits、选中、禁用和运行时按压高亮，不承诺同步 Cell 的焦点、编辑或多选状态。`UIContentView.configuration` 应覆盖旧状态并复用子视图。默认、自定义及回退模式共用同一个框架内容容器和激活按钮；切换模式不会重建整个 Cell 内容容器。兼容的业务配置通过 `configuration` 原位更新；业务配置不兼容时仅替换内部自定义视图。iOS 16+ 使用 `supports(_:)` 判断业务配置兼容性，iOS 15 按配置类型判断。离开自定义模式会释放业务视图，恢复时按当前配置重新创建，不隐藏缓存旧内容。
 - 每个标签保留一个由框架管理的整项点击和无障碍入口。自定义视图内部控件不参与命中测试或独立无障碍导航；如需标签内的独立按钮，当前接口不提供该交互模型。点击否决、禁用、程序化选择和分页手势的回调语义均沿用原规则。
 - `SPTabBarContent.accessibilityLabel`、`accessibilityHint`、`accessibilityValue` 可覆盖描述；nil 沿用 Item 标题／描述与角标值。选中和禁用 traits 由框架维护，避免重复暴露内部标签。
 
@@ -519,7 +519,7 @@ UIKit 库测试需要真实 `UIApplication` 生命周期。直接在 Xcode 中�
 
 `SP_SCOPE=library Scripts/validate.sh build-for-testing` 也会准备宿主和测试包，保存 `Build.xcresult`、`Hosted.xctestrun` 及独立的 `host-build.log`；完整 `test` 另保存 `Result.xcresult`。冻结的宿主／测试包位于忽略的 `Validation/Products/LibraryHosted/<运行名>/`，运行名应唯一。`-only-testing:` 和 `-skip-testing:` 参数继续生效；Release 库测试仍需 `ENABLE_TESTABILITY=YES`。
 
-验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
+验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，以及不兼容 content configuration 引起的整个 Cell 内容视图替换提示，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
 
 系统 `UITabBar` 的角标截图和内部标签坐标只作为视觉参照，不对其私有视图副本数量建立测试契约。StickyPagerKit 自身的角标 RTL 方向、内容锚点、文字尺寸、点击和无障碍行为仍由库测试直接断言；图层快照不能替代真实 UI 视觉验收。
 

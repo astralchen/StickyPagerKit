@@ -66,6 +66,137 @@ final class SPTabBarCustomContentTests: XCTestCase {
         collection(bar).collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))!.frame
     }
 
+    func testModeAndFallbackChangesReuseContainerAndActivationButton() {
+        let provider = CustomContentSource()
+        let bar = mount(provider)
+        let container = cell(bar).contentView
+        let control = button(bar)
+        let spy = SelectionSpy()
+        bar.delegate = spy
+        for _ in 0 ..< 3 {
+            bar.items[0].badgeValue = "旧角标"
+            bar.items[0].largeContentSizeImage = UIImage(systemName: "star")
+            control.isHighlighted = true
+            weak var previousCustom = probe(bar)
+            bar.contentStyle = .default
+            XCTAssertTrue(cell(bar).contentView === container)
+            XCTAssertTrue(button(bar) === control)
+            XCTAssertNil(previousCustom?.superview, "离开自定义模式应移除业务内容")
+            XCTAssertFalse(control.isHighlighted)
+            XCTAssertEqual(control.configuration?.title, "第一项")
+            XCTAssertNotNil(control.largeContentImage)
+            bar.contentStyle = .custom
+            XCTAssertTrue(cell(bar).contentView === container)
+            XCTAssertTrue(button(bar) === control)
+            XCTAssertNil(control.configuration?.title)
+            XCTAssertNil(control.image(for: .normal))
+            XCTAssertNil(control.largeContentImage)
+            XCTAssertEqual(control.largeContentImageInsets, .zero)
+            XCTAssertTrue(container.subviews.compactMap { $0 as? UILabel }.allSatisfy(\.isHidden))
+            XCTAssertNotNil(probe(bar))
+            provider.size = .zero
+            bar.reloadContent()
+            XCTAssertTrue(cell(bar).contentView === container)
+            XCTAssertTrue(button(bar) === control)
+            XCTAssertEqual(control.configuration?.title, "第一项")
+            provider.size = CGSize(width: 150, height: 80)
+            bar.reloadContent()
+            XCTAssertTrue(cell(bar).contentView === container)
+            XCTAssertTrue(button(bar) === control)
+            XCTAssertNotNil(probe(bar))
+        }
+        control.sendActions(for: .touchUpInside)
+        XCTAssertEqual(spy.selected.count, 1, "模式切换不能重复安装 action")
+        XCTAssertTrue(spy.selected.first === bar.items[0])
+    }
+
+    func testCompatibleRefreshKeepsContentIdentityAndCreationCount() {
+        let provider = CustomContentSource()
+        let bar = mount(provider)
+        let container = cell(bar).contentView
+        let control = button(bar)
+        let content = probe(bar)!
+        let creations = provider.creations
+        for index in 0 ..< 5 {
+            provider.textSuffix = "刷新 \(index)"
+            bar.reloadContent()
+            bar.items[0].isEnabled = true
+            control.isHighlighted = true
+            XCTAssertTrue(content.value.highlighted)
+            control.isHighlighted = false
+            bar.items[0].isEnabled.toggle()
+            bar.setSelectedIndex(index % 2, animated: false)
+            bar.tintColor = index.isMultiple(of: 2) ? .systemRed : .systemBlue
+            bar.layoutIfNeeded()
+            XCTAssertTrue(cell(bar).contentView === container)
+            XCTAssertTrue(button(bar) === control)
+            XCTAssertTrue(probe(bar) === content)
+            XCTAssertEqual(provider.creations, creations)
+            XCTAssertEqual(content.value.disabled, !bar.items[0].isEnabled)
+        }
+    }
+
+    func testIncompatibleBusinessConfigurationOnlyReplacesInnerView() {
+        let provider = CustomContentSource()
+        let bar = mount(provider)
+        let container = cell(bar).contentView
+        let control = button(bar)
+        weak var original = probe(bar)
+        provider.useListConfiguration = true
+        bar.reloadContent()
+        XCTAssertTrue(cell(bar).contentView === container)
+        XCTAssertTrue(button(bar) === control)
+        XCTAssertNil(original?.superview)
+        let list = container.subviews.compactMap { $0 as? UIListContentView }.first!
+        bar.reloadContent()
+        XCTAssertTrue(container.subviews.contains { $0 === list })
+        provider.useListConfiguration = false
+        let creations = provider.creations
+        bar.reloadContent()
+        XCTAssertTrue(cell(bar).contentView === container)
+        XCTAssertTrue(button(bar) === control)
+        XCTAssertNil(list.superview)
+        XCTAssertNotNil(probe(bar))
+        XCTAssertEqual(provider.creations - creations, 2, "只有两项业务内容需要重新创建")
+    }
+
+    func testBusinessSupportsCanRejectSameConfigurationType() throws {
+        guard #available(iOS 16.0, *) else {
+            throw XCTSkip("supports(_:) 需要 iOS 16+")
+        }
+        let provider = CustomContentSource()
+        let bar = mount(provider)
+        let container = cell(bar).contentView
+        let control = button(bar)
+        weak var previous = probe(bar)
+        let creations = provider.creations
+        provider.compatibilityKey = 1
+        bar.reloadContent()
+        XCTAssertNil(previous?.superview)
+        XCTAssertTrue(cell(bar).contentView === container)
+        XCTAssertTrue(button(bar) === control)
+        XCTAssertEqual(probe(bar)?.value.compatibilityKey, 1)
+        XCTAssertEqual(provider.creations - creations, 2)
+        let current = probe(bar)
+        bar.reloadContent()
+        XCTAssertTrue(probe(bar) === current)
+        XCTAssertEqual(provider.creations - creations, 2)
+    }
+
+    func testLeavingCustomModeReleasesBusinessViewAfterAutoreleasePool() {
+        weak var content: UIView?
+        autoreleasepool {
+            let provider = CustomContentSource()
+            let bar = mount(provider)
+            content = probe(bar)
+            XCTAssertNotNil(content)
+            bar.contentStyle = .default
+            XCTAssertNil(content?.superview)
+            bar.layoutIfNeeded()
+        }
+        XCTAssertNil(content, "Cell 仍挂载时也不能强持有已移除的业务内容")
+    }
+
     func testReloadSameSizePreservesManualOffsetAndUpdatesVisibleContent() {
         for rtl in [false, true] {
             let provider = CustomContentSource()
@@ -442,6 +573,7 @@ final class CustomContentSource: SPTabBarContentDelegate {
     var omittedIndex: Int?
     var customAccessibility = false
     var useListConfiguration = false
+    var compatibilityKey = 0
     var calls = 0
     var creations = 0
     var context: SPTabBarContentContext?
@@ -464,6 +596,7 @@ final class CustomContentSource: SPTabBarContentDelegate {
         } else {
             configuration = CustomProbeConfiguration(
                 title: (item.title ?? "") + textSuffix + (usesAvailableWidth ? "\(Int(context.availableWidth))" : ""),
+                compatibilityKey: compatibilityKey,
                 made: { [weak self] in self?.creations += 1 }
             )
         }
@@ -486,6 +619,7 @@ private struct CustomProbeConfiguration: UIContentConfiguration {
     var selected = false
     var highlighted = false
     var disabled = false
+    var compatibilityKey = 0
     let made: @MainActor () -> Void
     func makeContentView() -> UIView & UIContentView {
         made()
@@ -514,6 +648,11 @@ private final class CustomProbeView: UIView, UIContentView {
                 self.value = value
             }
         }
+    }
+
+    @available(iOS 16.0, *)
+    func supports(_ configuration: any UIContentConfiguration) -> Bool {
+        (configuration as? CustomProbeConfiguration)?.compatibilityKey == value.compatibilityKey
     }
 
     init(value: CustomProbeConfiguration) {

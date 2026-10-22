@@ -25,7 +25,7 @@ internal enum SPTabBadgeMetrics {
 }
 
 /// 已按标签栏选中项、外观和 traits 解析的内容快照，不持有可变的 Item 或 Appearance。
-internal struct SPTabContentConfiguration: UIContentConfiguration {
+internal struct SPDefaultTabContentConfiguration {
     let buttonConfiguration: UIButton.Configuration
     let layoutDirection: UIUserInterfaceLayoutDirection
     let iconColor: UIColor
@@ -41,13 +41,26 @@ internal struct SPTabContentConfiguration: UIContentConfiguration {
     let badgeTextColor: UIColor
     let badgeBackgroundColor: UIColor
     let onTap: @MainActor () -> Void
+}
+
+/// Cell 始终使用同一种配置与内容容器；模式切换只更新内部呈现。
+internal enum SPTabContentConfiguration: UIContentConfiguration {
+    case standard(SPDefaultTabContentConfiguration)
+    case custom(SPCustomTabContentConfiguration)
+
+    var onTap: @MainActor () -> Void {
+        switch self {
+        case let .standard(value): value.onTap
+        case let .custom(value): value.onTap
+        }
+    }
 
     func makeContentView() -> UIView & UIContentView {
         SPTabContentView(configuration: self)
     }
 
     func updated(for state: UIConfigurationState) -> Self {
-        // 选中与禁用由 SPTabBar 解析，高亮由 UIButton 管理；Cell 状态不覆盖这两者。
+        // 选中与禁用由标签栏解析，高亮由激活按钮管理。
         self
     }
 }
@@ -66,12 +79,28 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
             guard let value = newValue as? SPTabContentConfiguration else {
                 return
             }
+            let resetHighlight: Bool
+            switch (storedConfiguration, value) {
+            case let (.custom(old), .custom(new)):
+                resetHighlight = old.itemIdentifier != new.itemIdentifier
+            case (.standard, .standard):
+                resetHighlight = false
+            default:
+                resetHighlight = true
+            }
             storedConfiguration = value
+            applyingConfiguration = true
+            if resetHighlight {
+                button.isHighlighted = false
+            }
             applyConfiguration()
+            applyingConfiguration = false
         }
     }
 
-    private let button = UIButton(type: .system)
+    private let button = ActivationButton(type: .system)
+    private var customView: (UIView & UIContentView)?
+    private var applyingConfiguration = false
     private let badge = UILabel()
 
     init(configuration: SPTabContentConfiguration) {
@@ -80,6 +109,12 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         // 只安装一次 action，执行时读取最新配置，避免复用时累积回调或引用旧 Item。
         button.addAction(UIAction { [weak self] _ in self?.storedConfiguration.onTap() }, for: .touchUpInside)
+        button.highlightDidChange = { [weak self] in
+            guard let self, !self.applyingConfiguration else {
+                return
+            }
+            self.updateCustomContent()
+        }
         addSubview(button)
         badge.textAlignment = .center
         badge.clipsToBounds = true
@@ -94,7 +129,12 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
     }
 
     private func applyConfiguration() {
-        let value = storedConfiguration
+        guard case let .standard(value) = storedConfiguration else {
+            applyCustomConfiguration()
+            return
+        }
+        customView?.removeFromSuperview()
+        customView = nil
         // 配置可能用于新建、复用或脱离 Collection View 的测量视图，不依赖 UIKit 的内部继承链。
         semanticContentAttribute = value.layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
         button.semanticContentAttribute = semanticContentAttribute
@@ -117,6 +157,99 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         setNeedsLayout()
     }
 
+    private func applyCustomConfiguration() {
+        guard case let .custom(value) = storedConfiguration else {
+            return
+        }
+        // 清除默认模式的视觉和大内容预览，保留同一个点击／无障碍入口。
+        button.configuration = nil
+        button.setTitle(nil, for: .normal)
+        button.setImage(nil, for: .normal)
+        semanticContentAttribute = .unspecified
+        button.semanticContentAttribute = .unspecified
+        button.largeContentTitle = nil
+        button.largeContentImage = nil
+        button.largeContentImageInsets = .zero
+        badge.text = nil
+        badge.isHidden = true
+        button.isEnabled = !value.state.isDisabled
+        button.accessibilityIdentifier = value.accessibilityIdentifier
+        button.accessibilityLabel = value.accessibilityLabel
+        button.accessibilityHint = value.accessibilityHint
+        button.accessibilityValue = value.accessibilityValue
+        button.accessibilityTraits = value.state.isSelected ? [.button, .selected] : .button
+        if value.state.isDisabled {
+            button.accessibilityTraits.insert(.notEnabled)
+        }
+        updateCustomContent()
+    }
+
+    private func updateCustomContent() {
+        guard case let .custom(value) = storedConfiguration else {
+            return
+        }
+        var state = value.state
+        state.isHighlighted = button.isHighlighted && button.isEnabled
+        let content = value.content.updated(for: state)
+        let compatible: Bool
+        if let customView {
+            if #available(iOS 16, *) {
+                compatible = customView.supports(content)
+            } else {
+                compatible = type(of: customView.configuration) == type(of: content)
+            }
+        } else {
+            compatible = false
+        }
+        if compatible {
+            customView?.configuration = content
+        } else {
+            customView?.removeFromSuperview()
+            let view = content.makeContentView()
+            customView = view
+            insertSubview(view, belowSubview: button)
+        }
+        customView?.isUserInteractionEnabled = false
+        customView?.accessibilityElementsHidden = true
+        customView?.frame = bounds
+        setNeedsLayout()
+    }
+
+    override func systemLayoutSizeFitting(
+        _ targetSize: CGSize,
+        withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+        verticalFittingPriority: UILayoutPriority
+    ) -> CGSize {
+        guard case let .custom(value) = storedConfiguration else {
+            // 默认图文也由标签布局分配尺寸；手动布局视图不能交给无约束的 Auto Layout 求解。
+            return bounds.size
+        }
+        // 业务内容已独立测量，Cell 的 fitting 查询不再次求解内部业务约束。
+        return CGSize(
+            width: bounds.width > 0 ? bounds.width : value.measuredSize.width,
+            height: bounds.height > 0 ? bounds.height : value.measuredSize.height
+        )
+    }
+
+    private final class ActivationButton: UIButton {
+        var highlightDidChange: (() -> Void)?
+        override var isHighlighted: Bool {
+            didSet {
+                if oldValue != isHighlighted {
+                    highlightDidChange?()
+                }
+            }
+        }
+
+        override func accessibilityActivate() -> Bool {
+            guard isEnabled else {
+                return false
+            }
+            sendActions(for: .touchUpInside)
+            return true
+        }
+    }
+
     var indicatorContentRect: CGRect {
         layoutIfNeeded()
         button.layoutIfNeeded()
@@ -133,7 +266,12 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         super.layoutSubviews()
         button.frame = bounds
         button.layoutIfNeeded()
-        let size = SPTabBadgeMetrics.size(for: storedConfiguration.badgeValue, font: storedConfiguration.badgeFont)
+        customView?.frame = bounds
+        guard case let .standard(value) = storedConfiguration else {
+            badge.frame = .zero
+            return
+        }
+        let size = SPTabBadgeMetrics.size(for: value.badgeValue, font: value.badgeFont)
         guard size != .zero else {
             badge.frame = .zero
             return
@@ -150,7 +288,7 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         if anchor.isNull || anchor.isEmpty {
             anchor = CGRect(x: bounds.midX, y: bounds.midY, width: 0, height: 0)
         }
-        let x = storedConfiguration.layoutDirection == .rightToLeft ? anchor.minX + 4 - size.width : anchor.maxX - 4
+        let x = value.layoutDirection == .rightToLeft ? anchor.minX + 4 - size.width : anchor.maxX - 4
         badge.frame = CGRect(
             x: max(0, min(x, bounds.width - size.width)),
             y: max(0, min(anchor.minY - size.height / 2, bounds.height - size.height)),

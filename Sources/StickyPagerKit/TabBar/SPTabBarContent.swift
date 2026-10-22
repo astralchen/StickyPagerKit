@@ -22,6 +22,8 @@ public struct SPTabBarContentContext {
 @MainActor
 public struct SPTabBarContent {
     /// 负责显示的内容配置；框架通过 `makeContentView()` 创建视图并通过 configuration 更新。
+    /// 兼容配置原位更新；iOS 16+ 尊重 supports(_:)，iOS 15 按配置类型判断。
+    /// 不兼容时只替换内部业务视图；离开自定义模式时释放，恢复时重新创建。
     /// 内容视图须适应实际 bounds，不应保存旧状态或在更新时重复添加子视图。
     /// 内部控件不接受触摸，也不单独暴露无障碍入口；整项交互由框架维护。
     public var configuration: any UIContentConfiguration

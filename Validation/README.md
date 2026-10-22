@@ -2,6 +2,67 @@
 
 验证日期：2026-10-15 至 2026-10-22。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-22：内容配置替换提示与容器复用修复
+
+本轮从干净的 `232e3a0` 开始，针对 UIKit `ContentConfiguration` 提示排查实际视图重建。Apple 对 [`UICollectionViewCell.contentConfiguration`](https://developer.apple.com/documentation/uikit/uicollectionviewcell/contentconfiguration-1lcqh) 的契约是：兼容配置原位应用，不兼容配置更换整个内容视图；将配置先置 nil 还会创建空内容视图，因此本轮没有采用先清空配置或过滤日志的方式隐藏提示。
+
+### 根因与修复边界
+
+上一轮最终 Debug 日志有 **115 条**不兼容替换提示，[逐项映射](Results/content-reuse-audit-20261022/baseline-warning-map.json)显示它们分布在默认／自定义模式切换、内容回退和混合内容更新中。原实现分别向 Cell 赋值 `SPTabContentConfiguration` 与 `SPCustomTabContentConfiguration`；两个框架内容视图互不兼容，即使标签本身和激活行为未变，也会重建容器、按钮及其 action。
+
+新增身份／创建次数对照在原实现上得到 [1 通过、2 失败](Results/content-reuse-before-20261022/summary.json)，同时记录 **30 条替换提示**。其中同类型刷新通过；模式／回退切换的容器和按钮身份断言失败，确认了不必要的框架视图重建。另一处失败是测试直接要求弱引用立即为 nil，忽略 UIKit getter 返回对象的 autorelease 生命周期；后续改为先断言已移出层级，再用独立 autoreleasepool 验证释放，没有将此失败归因为产品泄漏。
+
+框架现使用同一种枚举配置与内容容器，默认和自定义模式共享激活按钮，模式变化仅更新呈现与无障碍状态。默认图文、角标和大内容预览切到自定义后显式清理；业务内容离开自定义模式时移除并释放，恢复时按当前配置重新创建。兼容业务配置仍原位更新，iOS 16+ 尊重 `supports(_:)`，iOS 15 保留配置类型判断。不兼容业务配置只替换内部视图；这类必要创建与自动测量使用的独立视图不算冗余重建，也不承诺所有 `makeContentView()` 调用都消失。
+
+新增回归检查：模式与非法尺寸回退时的容器／按钮身份及残留状态、兼容刷新／选中／禁用／高亮／tint 更新时的业务视图身份与创建次数、不兼容配置仅替换内部视图、同一配置类型由 `supports(_:)` 拒绝复用，以及 autoreleasepool 结束后释放旧业务视图。既有点击、指示器、自动测量、动画和容器测试继续运行。公开 API、iOS 15 部署边界和 Demo 菜单未改变。
+
+运行时诊断门禁增加 `contentViewReplacementCount` 与行号；该提示和 observation／appearance 诊断分别计数，任一出现都会使验证返回非零。脚本单测增加“XCTest 之外的内容替换诊断也失败”验证。
+
+### 失败与复测记录
+
+| 状态 | 证据及说明 |
+| --- | --- |
+| **失败，已定位** | 原实现[聚焦对照](Results/content-reuse-before-20261022/Result.xcresult)：1 通过、2 失败；退出码 65，替换提示 30 条。模式身份缺陷与弱引用断言前提分别处理。 |
+| **失败，已修复** | [首轮修复聚焦](Results/content-reuse-focused-20261022/summary.json)：16 通过、3 条失败记录；自动内容回退暴露统一容器默认 fitting 返回无约束最大尺寸的问题，另含宿主异常退出及启动失败记录。默认分支现返回布局分配的 bounds，保持手动布局语义。 |
+| **被环境阻塞，已另行复测** | [首次重试](Results/content-reuse-focused-retry-20261022/summary.json)：0 通过、1 条启动失败记录；dyld 报告 `libSystem.B.dylib`／系统缓存不可用，尚未进入用例。仅正常重启本轮 iPhone 18 Pro Max，未清空模拟器或删除运行时；保留失败日志。 |
+
+官方 Demo UI 首轮为 [2 通过、1 失败](Results/content-reuse-demo-ui-20261022/summary.json)。失败用例在打开“页面”菜单后找不到“切换自定义标签”，尚未进入自定义内容步骤；[失败截图](Results/content-reuse-demo-ui-20261022/attachments/68F25D09-97FE-4EF5-8522-2F84499A0A9A.png)未见菜单展开，输入记录的 `(387, 84)` 位于按钮 `{{358, 66}, {58, 36}}` 内，不能解释为点击落在按钮外。同一源码、同一用例[原样复测 1 项通过](Results/content-reuse-demo-ui-retry-20261022/summary.json)，未改 UI 测试、关闭动画或放宽断言。该菜单呈现失败未再次复现，根因尚未确定，不能声称由本轮修复解决。
+
+两个原通过项覆盖默认／自定义切换、内容更新、禁用、分页、按住拖动、同尺寸刷新与恢复；重试项覆盖自动栏高增长／恢复及页面衔接。两轮日志三类诊断各 0，`sourceChangedSinceRun` 均为空。已检查[外观页恢复默认](Results/content-reuse-demo-ui-20261022/attachments/F4B28D46-5E0E-4712-B151-336F439959A5.png)、[分页页拖动与恢复](Results/content-reuse-demo-ui-20261022/attachments/60402118-B68F-4A43-94FD-3FEF1FACFB39.png)和[自动高度复测终态](Results/content-reuse-demo-ui-retry-20261022/attachments/5096B1C4-14E0-46E7-AD9E-B0DC3BF42BED.png)；首轮失败及其录屏、层级和输入记录保存在原运行目录。这是 3 个适用用例分别取得通过，不是一次无失败的 UI 套件。
+
+官方 MCP 确认当前工作区只有 Demo scheme。库测试继续使用仓库 application host 脚本；受影响的 Demo 真实触摸回归使用官方 MCP `RunSomeTests`，终态与源码快照单独记录。历史失败与旧版本通过证据均保留。
+
+聚焦复测 [79 项全部通过](Results/content-reuse-ipad-focused-20261022/summary.json)，三类诊断各 0，源码快照一致。脚本[7 项单测](Results/content-reuse-audit-20261022/script-tests.log)通过；[门禁反向验证](Results/content-reuse-audit-20261022/gate-check.json)对原 XCTest 已通过、但存在 115 条替换提示的历史日志返回退出码 1。仅主动格式化 5 个修改的 Swift 文件，[lint](Results/content-reuse-audit-20261022/swiftformat-lint.txt)为 `0/5 files require formatting`；Demo Build Phase 为 `0/46 files formatted, 2 files skipped`，无额外格式化差异。
+
+
+### 最终源码验收与未覆盖范围
+
+| 状态 | 验证范围 | 证据 |
+| --- | --- | --- |
+| **通过** | Debug，iPhone 18 Pro Max / iOS 27.0（24A434）：201 通过、0 失败、0 跳过 | [摘要](Results/content-reuse-final-debug-20261022/summary.json) · [结果包](Results/content-reuse-final-debug-20261022/Result.xcresult) · [完整日志](Results/content-reuse-final-debug-20261022/xcodebuild.log) |
+| **通过** | Release，iPad Pro 13-inch (M4) / iOS 26.5（23F77）：201 通过、0 失败、0 跳过 | [摘要](Results/content-reuse-final-release-20261022/summary.json) · [结果包](Results/content-reuse-final-release-20261022/Result.xcresult) · [完整日志](Results/content-reuse-final-release-20261022/xcodebuild.log) |
+| **通过** | 两套最终库运行的内容替换、observation、appearance 诊断各 0；退出码 0、`TEST EXECUTE SUCCEEDED`，`sourceChangedSinceRun` 均为空 | 各运行目录的 `runtime-diagnostics.json`、`source-hashes.json`、`host-build.log` 和 `Build.xcresult` |
+| **通过，含一次原样复测** | 官方 MCP 的 3 个受影响 UI 用例均取得通过；首轮 2 通过／1 失败，原样单项复测 1 通过 | 上述两轮独立结果；构建、真实触摸及终态截图分别记录，不计为全套 UI 回归 |
+| **通过** | 7 项脚本单测、115 条历史提示的门禁反向检查、5 个 Swift 文件 lint、Shell 语法、文档链接与 diff 检查 | [审计目录](Results/content-reuse-audit-20261022) |
+| **未执行** | 本轮完整 Demo UI、Duo 内外屏与旋转、iPad UI／分屏、深色和辅助字号 UI 矩阵、iOS 15 实际运行、真机、完整 VoiceOver 与性能压力测试 | 库测试覆盖相关几何／状态，不替代上述系统 UI 及性能验收 |
+
+最终使用 Xcode 27.1（27A9275）；库测试仍编译到 iOS 15 部署目标，但不等于已在 iOS 15 运行。旧模拟器启动阻塞已恢复，最终 iPhone 全量通过；菜单偶发不展开的根因未确定，保留首轮失败，不声称本轮解决了系统菜单或 XCTest 动画通知问题。Xcode 原来的物理 iPhone 13 运行目标已恢复；生成产物、日志、结果包和附件留在忽略目录。
+
+```sh
+SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SP_SIMULATOR_ID=41AF9CED-9BBB-4B60-B563-73AFB035C2D4 \
+SP_SCOPE=library SP_RUN_NAME=content-reuse-final-debug-20261022 \
+Scripts/validate.sh test
+
+SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SP_SIMULATOR_ID=9E4895DA-132A-4BAE-800B-7A322E1A2918 \
+SP_SCOPE=library SP_CONFIGURATION=Release \
+SP_RUN_NAME=content-reuse-final-release-20261022 \
+Scripts/validate.sh test ENABLE_TESTABILITY=YES
+```
+
+两套各执行相同的 201 项（比本轮起点新增 5 项），不合并为 402 个不同用例。结果包摘要通过 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 Scripts/summarize_validation.py <运行目录>` 生成。官方 UI 请求的准确测试标识及终态保存在各自 `mcp-summary.txt`，首次日志中的动画空闲等待提示不作为本次布局循环证据。
+
 ## 2026-10-22：UIKit observation 诊断根因与测试宿主修复
 
 本轮从干净的 `1720708` 开始。修复范围是库测试运行环境、真实窗口夹具、验证门禁及文档；`Sources/`、Demo、Package 公开配置及公开 API 未改变。测试宿主只提供 UIKit application／scene 生命周期，不链接 StickyPagerKit，不把库测试加入 Demo target 或 scheme。

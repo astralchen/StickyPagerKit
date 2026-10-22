@@ -64,7 +64,7 @@ else
     -resultBundlePath "$SP_EVIDENCE/Result.xcresult" -parallel-testing-enabled NO \
     -collect-test-diagnostics never ONLY_ACTIVE_ARCH=YES "$@" > "$SP_EVIDENCE/xcodebuild.log" 2>&1 || SP_STATUS=$?
 fi
-# 保留 XCTest 原始退出码与日志；即便 XCTest 通过，feedback loop 或 appearance 不平衡也使验证失败。
+# 保留 XCTest 原始退出码与日志；即便 XCTest 通过，feedback loop、appearance 不平衡或不兼容内容替换也使验证失败。
 python3 Scripts/check_runtime_diagnostics.py "$SP_EVIDENCE" || { if [[ "$SP_STATUS" == 0 ]]; then SP_STATUS=1; fi; }
 printf '%s\n' "Evidence: $SP_EVIDENCE"
 exit "$SP_STATUS"
