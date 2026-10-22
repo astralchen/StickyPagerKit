@@ -34,7 +34,7 @@ Demo 通过本地 Package 引用根目录库，只包含 `StickyPagerDemo` 和 `
 
 ## 需要保持的行为边界
 
-- **布局与安全区域：** Header 总高度包含顶部安全区域，折叠范围为 `max(0, headerHeight - safeTop - minimumHeaderHeight)`。页面根视图顶部跟随当前标签栏底部，宽度和底边延伸至容器边界。内部控件及滚动内容分别通过 Safe Area 和 `adjustedContentInset` 避让系统栏，不重复扣除系统栏高度；详见 `README.md` 的“滚动坐标与布局”。
+- **布局与安全区域：** Header 总高度包含顶部安全区域，折叠范围为 `max(0, headerHeight - safeTop - minimumHeaderHeight)`。页面根视图顶部与当前标签栏顶部对齐，宽度和底边延伸至容器边界；标签栏在页面上方，框架通过子控制器附加安全区域及必要的滚动 inset 避让其遮挡。内部控件及滚动内容分别通过 Safe Area 和 `adjustedContentInset` 避让系统栏，不重复扣除系统栏高度；详见 `README.md` 的“滚动坐标与布局”。
 - **滚动所有权：** `SPScrollBinding` 保留业务 delegate，只管理框架贡献的 inset，并在解绑时恢复业务设置。每页只协调一个主要纵向滚动视图；复杂页面允许显式绑定，异步替换后重新发现。普通页面不额外包装滚动容器。
 - **分页与生命周期：** 页面以稳定标识复用和保存位置；转场取消、重载、缓存淘汰和尺寸变化不能让旧页回调覆盖当前状态。保持 containment、appearance 转发及选中提交时机。RTL 改变视觉排列，不改变逻辑索引。
 - **嵌套横向滚动：** 内部 Section 在可滚动方向优先处理手势，到边界后下一次向外拖动可交给外层分页；归属在手势开始时判定，不在拖动中途抢占，并兼顾 RTL 和系统返回手势。

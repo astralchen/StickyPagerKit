@@ -443,9 +443,9 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertEqual(page.frame.width, window.width, accuracy: 1, file: file, line: line)
         XCTAssertEqual(
             page.frame.minY,
-            app.collectionViews["sp.tabBar.collection"].frame.maxY,
+            app.collectionViews["sp.tabBar.collection"].frame.minY,
             accuracy: 1,
-            "页面根视图应始终紧接当前标签栏底部",
+            "页面根视图顶部应始终与当前标签栏顶部对齐",
             file: file,
             line: line
         )
@@ -524,7 +524,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertEqual(viewport.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
         XCTAssertEqual(tab.frame.minY, viewport.minY + verticalInset, accuracy: 1)
         XCTAssertEqual(tab.frame.maxY, viewport.maxY - verticalInset, accuracy: 1)
-        XCTAssertEqual(table.frame.minY, viewport.maxY, accuracy: 1)
+        XCTAssertEqual(table.frame.minY, viewport.minY, accuracy: 1)
         XCTAssertEqual(table.frame.minX, app.windows.firstMatch.frame.minX, accuracy: 1)
         XCTAssertEqual(table.frame.width, app.windows.firstMatch.frame.width, accuracy: 1)
         assertListSafeArea()
@@ -830,7 +830,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         let plain = app.staticTexts["demo.plain"]
         plain.swipeDown(); expect("progress=0.00")
         XCTAssertEqual(header.frame.minY, app.frame.minY, accuracy: 1)
-        XCTAssertEqual(plain.frame.minY, app.buttons["sp.tab.4"].frame.maxY, accuracy: 1)
+        XCTAssertEqual(plain.frame.minY, app.buttons["sp.tab.4"].frame.minY, accuracy: 1)
         app.buttons["demo.header"].tap(); expect("header=controller")
         XCTAssertEqual(header.frame.minY, app.frame.minY, accuracy: 1)
         app.buttons["demo.height"].tap(); expect("height=300")
@@ -853,9 +853,9 @@ final class StickyPagerDemoUITests: XCTestCase {
             )
             XCTAssertEqual(
                 app.tables["demo.list"].frame.minY,
-                tab.frame.maxY,
+                tab.frame.minY,
                 accuracy: 1,
-                "列表视口应紧贴标签栏底部",
+                "列表视口顶部应与标签栏顶部对齐",
                 file: file,
                 line: line
             )
@@ -960,11 +960,11 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("progress=1.00")
         let tab = app.buttons["sp.tab.4"]
         XCTAssertEqual(tab.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
-        XCTAssertEqual(plain.frame.minY, tab.frame.maxY, accuracy: 1)
+        XCTAssertEqual(plain.frame.minY, tab.frame.minY, accuracy: 1)
         XCTAssertEqual(plain.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
         plain.swipeUp(); expect("progress=1.00")
         plain.swipeDown(); expect("progress=0.00")
-        XCTAssertEqual(plain.frame.minY, tab.frame.maxY, accuracy: 1)
+        XCTAssertEqual(plain.frame.minY, tab.frame.minY, accuracy: 1)
         XCTAssertEqual(plain.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
         plain.swipeDown(); expect("progress=0.00")
 
@@ -1289,7 +1289,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         app.buttons["demo.replaceScroll"].tap()
         XCTAssertTrue(app.scrollViews["demo.asyncScroll"].exists)
         print(
-            "ASYNC VIEWPORT app=\(app.frame), window=\(app.windows.firstMatch.frame), scroll=\(app.scrollViews["demo.asyncScroll"].frame), toolbar=\(app.toolbars.firstMatch.frame)"
+            "ASYNC VIEWPORT app=\(app.frame), window=\(app.windows.firstMatch.frame), scroll=\(app.scrollViews["demo.asyncScroll"].frame), toolbar=\(app.toolbars.firstMatch.exists ? app.toolbars.firstMatch.frame : .zero)"
         )
         let scroll = app.scrollViews["demo.asyncScroll"]
         let window = app.windows.firstMatch
@@ -1543,7 +1543,7 @@ final class StickyPagerDemoUITests: XCTestCase {
             rotate(to: orientation)
             expect("page=list"); expect("progress=1.00")
             XCTAssertEqual(app.buttons["sp.tab.1"].frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
-            XCTAssertEqual(app.tables["demo.list"].frame.minY, app.buttons["sp.tab.1"].frame.maxY, accuracy: 1)
+            XCTAssertEqual(app.tables["demo.list"].frame.minY, app.buttons["sp.tab.1"].frame.minY, accuracy: 1)
             assertListSafeArea()
         }
         // Duo 旋转后 App 锚点可能不投递边缘触摸；使用实际窗口，并核对新输入确实进入窗口。

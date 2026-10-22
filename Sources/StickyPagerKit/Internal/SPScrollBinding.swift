@@ -26,6 +26,16 @@ internal final class SPScrollBinding {
     private let originalBounce: Bool
     private var range: CGFloat = 0
     private var pageDisplacement: CGFloat = 0
+    private weak var pageRoot: UIView?
+    private var topOcclusion: CGFloat = 0
+
+    private var overlappingTop: CGFloat {
+        guard let pageRoot else {
+            return 0
+        }
+        let frame = scrollView.convert(scrollView.bounds, to: pageRoot)
+        return min(scrollView.bounds.height, max(0, topOcclusion - (frame.minY - pageRoot.bounds.minY)))
+    }
 
     var position: CGFloat {
         scrollView.contentOffset.y + scrollView.adjustedContentInset.top
@@ -111,6 +121,9 @@ internal final class SPScrollBinding {
             },
             scrollView.observe(\.adjustedContentInset, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.updateGeometry() }
+            },
+            scrollView.observe(\.automaticallyAdjustsScrollIndicatorInsets, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.updateIndicators() }
             }
         ]
     }
@@ -123,7 +136,13 @@ internal final class SPScrollBinding {
     }
 
     /// 将页面尺寸与折叠 inset 作为一次几何更新，避免 UIKit 的中间偏移反向驱动 Header。
-    func layoutPage(range newRange: CGFloat, collapse: CGFloat, updates: () -> Void) {
+    func layoutPage(
+        range newRange: CGFloat,
+        collapse: CGFloat,
+        root: UIView? = nil,
+        topOcclusion: CGFloat = 0,
+        updates: () -> Void
+    ) {
         guard !updating, !changingExternalInset, !detached else {
             return
         }
@@ -131,6 +150,8 @@ internal final class SPScrollBinding {
         updating = true
         range = max(0, newRange)
         pageDisplacement = max(0, range - collapse)
+        pageRoot = root
+        self.topOcclusion = max(0, topOcclusion)
         updates()
         updating = false
         updateGeometry(preserving: oldPosition)
@@ -207,11 +228,13 @@ internal final class SPScrollBinding {
         let adjustment = scrollView.adjustedContentInset.top - scrollView.contentInset.top
         let bottomAdjustment = scrollView.adjustedContentInset.bottom - scrollView.contentInset.bottom
         // 尚未折叠的距离由页面根视图的下移承担，inset 只承担已经折叠的距离。
-        topContribution = max(0, range - pageDisplacement)
+        // 自动 inset 已通过子页面 Safe Area 避让标签栏；仅补足 .never 等策略留下的遮挡。
+        let uncoveredTop = max(0, overlappingTop - adjustment)
+        topContribution = max(0, range - pageDisplacement) + uncoveredTop
         bottomContribution = SPScrollGeometry.shortContentInset(
             height: scrollView.bounds.height + pageDisplacement,
             contentHeight: scrollView.contentSize.height,
-            baseTop: baseInset.top + adjustment,
+            baseTop: baseInset.top + adjustment + uncoveredTop,
             baseBottom: baseInset.bottom + bottomAdjustment
         )
         var inset = baseInset
@@ -239,7 +262,9 @@ internal final class SPScrollBinding {
         if visible {
             // 仅在需要显示时更新轨道；隐藏期间不处理指示器几何。
             var inset = baseIndicatorInset
-            // 页面本身已位于标签栏下方，不再重复缩短指示器轨道。
+            // 自动指示器已避让 Safe Area，手动模式仅补上仍被标签栏遮挡的轨道。
+            let automaticTop = scrollView.automaticallyAdjustsScrollIndicatorInsets ? scrollView.safeAreaInsets.top : 0
+            inset.top += max(0, overlappingTop - automaticTop)
             inset.top += max(0, range - SPScrollGeometry.collapse(position, range: range) - pageDisplacement)
             if scrollView.verticalScrollIndicatorInsets != inset {
                 scrollView.verticalScrollIndicatorInsets = inset

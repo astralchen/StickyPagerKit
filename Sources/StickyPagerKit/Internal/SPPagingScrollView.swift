@@ -73,11 +73,13 @@ internal final class SPDisplayLinkTarget {
 internal final class SPPageRecord {
     let identifier: AnyHashable
     let controller: UIViewController
+    let safeArea: SPPageSafeArea
     var binding: SPScrollBinding?
     weak var explicitScrollView: UIScrollView?
     var access: UInt = 0
     init(identifier: AnyHashable, controller: UIViewController) {
         self.identifier = identifier
         self.controller = controller
+        safeArea = SPPageSafeArea(controller: controller)
     }
 }

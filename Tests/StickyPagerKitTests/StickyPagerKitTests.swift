@@ -19,11 +19,13 @@ final class StickyPagerKitTests: XCTestCase {
         plain: Set<Int> = [],
         height: CGFloat = 1800,
         inNavigation: Bool = false,
-        mixedLayout: Bool? = nil
+        mixedLayout: Bool? = nil,
+        rootScroll: Bool = false
     ) -> SPPageViewController {
         window?.closeForTesting()
         let source = FixtureSource(ids: ids, plain: plain, contentHeight: height)
         source.mixedLayout = mixedLayout
+        source.rootScroll = rootScroll
         let pager = SPPageViewController()
         pager.dataSource = source
         pager.headerView = UIView()
@@ -47,6 +49,193 @@ final class StickyPagerKitTests: XCTestCase {
         pager.layout.headerHeight = 240 + pager.view.safeAreaInsets.top
         self.window = window; self.source = source; self.pager = pager
         return pager
+    }
+
+    func testPageRootTopAlignsWithTabBarAndSafeContentStaysBelowIt() throws {
+        let pager = mount(plain: [1])
+        for position: CGFloat in [0, 80, 200, 350, 0] {
+            pager.setSelectedIndex(0, animated: false)
+            let scroll = try XCTUnwrap(pager.currentScrollView)
+            scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+            for index in [0, 1] {
+                pager.setSelectedIndex(index, animated: false)
+                pager.view.layoutIfNeeded()
+                let root = try XCTUnwrap(pager.records[index]?.controller.view)
+                XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.minY, accuracy: 0.01)
+                XCTAssertEqual(root.convert(root.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
+                XCTAssertEqual(
+                    root.convert(root.safeAreaLayoutGuide.layoutFrame, to: pager.view).minY,
+                    pager.tabBar.frame.maxY,
+                    accuracy: 0.01
+                )
+            }
+        }
+    }
+
+    func testTabOcclusionIsCompensatedOnceForEveryInsetStrategyAndRootKind() throws {
+        for rootScroll in [false, true] {
+            for height: CGFloat in [0, 100, 1800] {
+                let pager = mount(height: height, rootScroll: rootScroll)
+                let scroll = try XCTUnwrap(pager.currentScrollView)
+                let binding = try XCTUnwrap(pager.records[0]?.binding)
+                let base = UIEdgeInsets(top: 7, left: 3, bottom: 19, right: 5)
+                for behavior: UIScrollView.ContentInsetAdjustmentBehavior in [
+                    .automatic,
+                    .always,
+                    .scrollableAxes,
+                    .never
+                ] {
+                    scroll.contentInsetAdjustmentBehavior = behavior
+                    scroll.contentInset = base
+                    for position: CGFloat in [0, 40, 200, 350, 200, 50, 0, -25, 0] {
+                        if height < 200, position > 200 {
+                            continue
+                        }
+                        scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+                        pager.view.layoutIfNeeded()
+                        let root = pager.records[0]!.controller.view!
+                        XCTAssertEqual(
+                            root.convert(root.bounds, to: pager.view).minY,
+                            pager.tabBar.frame.minY,
+                            accuracy: 0.01
+                        )
+                        XCTAssertEqual(binding.position, position, accuracy: 0.01)
+                        XCTAssertEqual(pager.collapseOffset, min(200, max(0, position)), accuracy: 0.01)
+                        XCTAssertEqual(
+                            scroll.convert(.zero, to: pager.view).y,
+                            pager.tabBar.frame.maxY + base.top - max(0, position - 200) - min(0, position),
+                            accuracy: 0.01
+                        )
+                        if height < 200 {
+                            let physicalRange = scroll.contentSize.height + scroll.adjustedContentInset.top + scroll
+                                .adjustedContentInset.bottom - scroll.bounds.height
+                            XCTAssertEqual(physicalRange, 200, accuracy: 0.01)
+                            XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+                        }
+                    }
+                }
+                scroll.contentOffset.y = (height > 200 ? 350 : 200) - scroll.adjustedContentInset.top
+                source!.ids.removeFirst()
+                pager.reloadData()
+                XCTAssertEqual(scroll.contentInset, base)
+                XCTAssertEqual(
+                    scroll.contentOffset.y + scroll.adjustedContentInset.top,
+                    height > 200 ? 150 : 0,
+                    accuracy: 0.01
+                )
+            }
+        }
+    }
+
+    func testPageSafeAreaPreservesBusinessInsetsAndRestoresOnRemoval() throws {
+        let pager = mount(plain: [1])
+        for index in [0, 1] {
+            pager.setSelectedIndex(try XCTUnwrap(source!.ids.firstIndex(of: index)), animated: false)
+            let controller = try XCTUnwrap(pager.records[index]?.controller)
+            let business = UIEdgeInsets(top: 11, left: 7, bottom: 17, right: 9)
+            controller.additionalSafeAreaInsets = business
+            controller.additionalSafeAreaInsets.bottom = business.bottom + 4
+            XCTAssertEqual(controller.additionalSafeAreaInsets.top, business.top + pager.tabBar.frame.height)
+            controller.additionalSafeAreaInsets.bottom = business.bottom
+            for height: CGFloat in [80, 0, 48, 100, 48] {
+                pager.layout.tabBarHeight = height
+                pager.view.layoutIfNeeded()
+                XCTAssertEqual(
+                    controller.additionalSafeAreaInsets.top,
+                    business.top + pager.tabBar.frame.height,
+                    accuracy: 0.01
+                )
+                XCTAssertEqual(controller.additionalSafeAreaInsets.left, business.left)
+                XCTAssertEqual(controller.additionalSafeAreaInsets.bottom, business.bottom)
+                XCTAssertEqual(controller.additionalSafeAreaInsets.right, business.right)
+                let safeFrame = controller.view.convert(controller.view.safeAreaLayoutGuide.layoutFrame, to: pager.view)
+                XCTAssertEqual(safeFrame.minY, pager.tabBar.frame.maxY + business.top, accuracy: 0.01)
+            }
+            let latest = UIEdgeInsets(top: 5, left: 3, bottom: 21, right: 13)
+            controller.additionalSafeAreaInsets = latest
+            source!.ids.removeAll { $0 == index }
+            pager.reloadData()
+            XCTAssertNil(controller.parent)
+            XCTAssertEqual(controller.additionalSafeAreaInsets, latest)
+        }
+    }
+
+    func testSafeAreaContributionRestoresOnCacheEviction() throws {
+        let pager = mount()
+        let first = try XCTUnwrap(pager.records[0]?.controller)
+        first.additionalSafeAreaInsets = UIEdgeInsets(top: 9, left: 0, bottom: 4, right: 0)
+        pager.maximumCachedPageCount = 1
+        pager.setSelectedIndex(1, animated: false)
+        XCTAssertNil(first.parent)
+        XCTAssertEqual(first.additionalSafeAreaInsets.top, 9)
+    }
+
+    func testTabBarOwnsTouchesAboveOverlappingPage() throws {
+        let pager = mount()
+        for position: CGFloat in [0, 100, 200, 350] {
+            let scroll = try XCTUnwrap(pager.currentScrollView)
+            scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+            pager.view.layoutIfNeeded()
+            let bar = pager.tabBar
+            let point = CGPoint(x: bar.frame.midX, y: bar.frame.midY)
+            let hit = try XCTUnwrap(pager.view.hitTest(point, with: nil))
+            XCTAssertTrue(hit === bar || hit.isDescendant(of: bar))
+            let below = try XCTUnwrap(pager.view.hitTest(CGPoint(x: point.x, y: bar.frame.maxY + 10), with: nil))
+            XCTAssertTrue(below === scroll || below.isDescendant(of: scroll))
+        }
+    }
+
+    func testManualIndicatorInsetsAvoidTabBarAndRestoreLatestBusinessValues() throws {
+        let pager = mount()
+        let scroll = try XCTUnwrap(pager.currentScrollView)
+        let base = UIEdgeInsets(top: 7, left: 3, bottom: 19, right: 5)
+        scroll.verticalScrollIndicatorInsets = base
+        for automatic in [false, true, false] {
+            scroll.automaticallyAdjustsScrollIndicatorInsets = automatic
+            for position: CGFloat in [0, 70, 200, 350] {
+                scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+                pager.view.layoutIfNeeded()
+                let automaticTop = automatic ? scroll.safeAreaInsets.top : 0
+                let trackTop = scroll.convert(scroll.bounds, to: pager.view).minY + scroll.verticalScrollIndicatorInsets
+                    .top + automaticTop
+                XCTAssertEqual(trackTop, pager.tabBar.frame.maxY + base.top, accuracy: 0.01)
+            }
+        }
+        let latest = UIEdgeInsets(top: 9, left: 2, bottom: 13, right: 4)
+        scroll.verticalScrollIndicatorInsets = latest
+        source!.ids.removeFirst()
+        pager.reloadData()
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets, latest)
+        XCTAssertFalse(scroll.automaticallyAdjustsScrollIndicatorInsets)
+    }
+
+    func testTabHeightChangePreservesContentOriginAndClampsNewBottom() throws {
+        let pager = mount()
+        let scroll = try XCTUnwrap(pager.currentScrollView)
+        let binding = try XCTUnwrap(pager.records[0]?.binding)
+        for behavior: UIScrollView.ContentInsetAdjustmentBehavior in [.automatic, .never] {
+            scroll.contentInsetAdjustmentBehavior = behavior
+            for position: CGFloat in [0, 80, 200, 350] {
+                scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+                for height: CGFloat in [100, 0, 44] {
+                    pager.layout.tabBarHeight = height
+                    pager.view.layoutIfNeeded()
+                    XCTAssertEqual(binding.position, position, accuracy: 0.01)
+                    XCTAssertEqual(
+                        scroll.convert(.zero, to: pager.view).y,
+                        pager.tabBar.frame.maxY - max(0, position - 200),
+                        accuracy: 0.01
+                    )
+                }
+            }
+        }
+        pager.layout.tabBarHeight = 150
+        scroll.contentOffset.y = binding.maximumPosition - scroll.adjustedContentInset.top
+        pager.layout.tabBarHeight = 44
+        XCTAssertEqual(binding.position, binding.maximumPosition, accuracy: 0.01)
+        pager.setSelectedIndex(1, animated: false)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(binding.position, binding.maximumPosition, accuracy: 0.01)
     }
 
     func testTabUserSelectionCommitsOnceAndCancelsOnReplacementOrReload() {
@@ -124,7 +313,7 @@ final class StickyPagerKitTests: XCTestCase {
                         for index in [0, 1] {
                             let root = pager.records[index]!.controller.view!
                             let frame = root.convert(root.bounds, to: pager.view)
-                            XCTAssertEqual(frame.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                            XCTAssertEqual(frame.minY, pager.tabBar.frame.minY, accuracy: 0.01)
                             XCTAssertEqual(frame.maxY, pager.view.bounds.maxY, accuracy: 0.01)
                         }
                         if minimum > 0 {
@@ -169,7 +358,7 @@ final class StickyPagerKitTests: XCTestCase {
                 for index in [0, 1] {
                     let root = pager.records[index]!.controller.view!
                     let frame = root.convert(root.bounds, to: pager.view)
-                    XCTAssertEqual(frame.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                    XCTAssertEqual(frame.minY, pager.tabBar.frame.minY, accuracy: 0.01)
                     XCTAssertEqual(frame.maxY, pager.view.bounds.maxY, accuracy: 0.01)
                 }
             }
@@ -202,7 +391,7 @@ final class StickyPagerKitTests: XCTestCase {
             pager.view.layoutIfNeeded()
             XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
             let root = pager.records[0]!.controller.view!
-            XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+            XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.minY, accuracy: 0.01)
             XCTAssertEqual(root.convert(root.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
         }
         provider.text = "短标签"
@@ -227,7 +416,7 @@ final class StickyPagerKitTests: XCTestCase {
                 XCTAssertEqual(pager.tabBar.bounds.height, style == .custom ? 80 : 44, accuracy: 0.01)
                 XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
                 let root = pager.records[0]!.controller.view!
-                XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.minY, accuracy: 0.01)
                 XCTAssertEqual(root.convert(root.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
             }
         }
@@ -241,7 +430,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
         XCTAssertEqual(
             pager.records[0]!.controller.view.convert(.zero, to: pager.view).y,
-            pager.tabBar.frame.maxY,
+            pager.tabBar.frame.minY,
             accuracy: 0.01
         )
     }
@@ -258,7 +447,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertGreaterThan(pager.tabBar.bounds.height, oldHeight)
         XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
         let root = pager.records[0]!.controller.view!
-        XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+        XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.minY, accuracy: 0.01)
     }
 
     func testSiblingLabelAndScrollStayBelowTabBar() throws {
@@ -275,14 +464,14 @@ final class StickyPagerKitTests: XCTestCase {
                     let root = page.view.convert(page.view.bounds, to: pager.view)
                     let label = page.label.convert(page.label.bounds, to: pager.view)
                     let scrollFrame = scroll.convert(scroll.bounds, to: pager.view)
-                    XCTAssertEqual(root.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                    XCTAssertEqual(root.minY, pager.tabBar.frame.minY, accuracy: 0.01)
                     XCTAssertEqual(root.maxY, pager.view.bounds.maxY, accuracy: 0.01)
                     XCTAssertEqual(label.minY, pager.tabBar.frame.maxY + 12, accuracy: 0.01)
                     XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
                     let contentTop = scroll.convert(.zero, to: pager.view).y
                     XCTAssertEqual(
                         contentTop,
-                        scrollFrame.minY - max(0, position - 200) - min(0, position),
+                        max(scrollFrame.minY, pager.tabBar.frame.maxY) - max(0, position - 200) - min(0, position),
                         accuracy: 0.01
                     )
                     if belowLabel {
@@ -311,9 +500,9 @@ final class StickyPagerKitTests: XCTestCase {
                         let child = try XCTUnwrap(record.controller as? MixedFixturePage)
                         let root = child.view.convert(child.view.bounds, to: pager.view)
                         let label = child.label.convert(child.label.bounds, to: pager.view)
-                        XCTAssertEqual(root.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                        XCTAssertEqual(root.minY, pager.tabBar.frame.minY, accuracy: 0.01)
                         XCTAssertEqual(root.maxY, pager.view.bounds.maxY, accuracy: 0.01)
-                        XCTAssertEqual(label.minY, root.minY + 12, accuracy: 0.01)
+                        XCTAssertEqual(label.minY, pager.tabBar.frame.maxY + 12, accuracy: 0.01)
                         XCTAssertEqual(
                             label.width,
                             root.width - child.view.safeAreaInsets.left - child.view.safeAreaInsets.right - 32,
@@ -370,9 +559,13 @@ final class StickyPagerKitTests: XCTestCase {
         }
         scroll.contentSize.height = 1800
         XCTAssertTrue(scroll.showsVerticalScrollIndicator)
-        scroll.bounds.size.height = 2000
-        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
-        scroll.bounds.size.height = 500
+        // 保持视口顶部不动；直接改 bounds 会绕 center 放大，并移入标签栏／Header 覆盖区域。
+        scroll.frame.size.height = 2000
+        XCTAssertFalse(
+            scroll.showsVerticalScrollIndicator,
+            "bounds=\(scroll.bounds), content=\(scroll.contentSize), adjusted=\(scroll.adjustedContentInset), maximum=\(pager.records[0]!.binding!.maximumPosition)"
+        )
+        scroll.frame.size.height = 500
         XCTAssertTrue(scroll.showsVerticalScrollIndicator)
     }
 
@@ -385,7 +578,7 @@ final class StickyPagerKitTests: XCTestCase {
         for position: CGFloat in [-30, 0, 100, 200, 350, 50] {
             scroll.contentOffset.y = position - scroll.adjustedContentInset.top
             let trackTop = scroll.convert(scroll.bounds.origin, to: pager.view).y + scroll.verticalScrollIndicatorInsets
-                .top
+                .top + scroll.safeAreaInsets.top
             XCTAssertEqual(trackTop, pager.tabBar.frame.maxY + base.top, accuracy: 0.01)
             XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, base.bottom)
             XCTAssertEqual(scroll.verticalScrollIndicatorInsets.left, base.left)
@@ -394,9 +587,17 @@ final class StickyPagerKitTests: XCTestCase {
         }
         pager.setSelectedIndex(1, animated: false)
         let next = pager.currentScrollView!
-        XCTAssertEqual(next.verticalScrollIndicatorInsets.top, 0, accuracy: 0.01)
+        XCTAssertEqual(
+            next.verticalScrollIndicatorInsets.top + next.safeAreaInsets.top,
+            pager.tabBar.bounds.height,
+            accuracy: 0.01
+        )
         pager.layout.headerHeight += 40
-        XCTAssertEqual(next.verticalScrollIndicatorInsets.top, 0, accuracy: 0.01)
+        XCTAssertEqual(
+            next.verticalScrollIndicatorInsets.top + next.safeAreaInsets.top,
+            pager.tabBar.bounds.height,
+            accuracy: 0.01
+        )
     }
 
     func testBindingRestoresLatestIndicatorPreferences() {
@@ -634,7 +835,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top + 120, accuracy: 0.01)
         scroll.contentOffset.y = 350 - scroll.adjustedContentInset.top
         XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
-        XCTAssertEqual(pager.tabBar.frame.maxY, pager.pagingView.frame.minY, accuracy: 0.01)
+        XCTAssertEqual(pager.tabBar.frame.minY, pager.pagingView.frame.minY, accuracy: 0.01)
         scroll.contentOffset.y = 50 - scroll.adjustedContentInset.top
         XCTAssertEqual(pager.collapseOffset, 50, accuracy: 0.01)
     }
@@ -666,7 +867,7 @@ final class StickyPagerKitTests: XCTestCase {
                 pager.setSelectedIndex(1, animated: false)
                 pager.view.layoutIfNeeded()
                 let plain = try XCTUnwrap(pager.records[1]?.controller.view)
-                XCTAssertEqual(plain.convert(.zero, to: pager.view).y, pager.tabBar.frame.maxY, accuracy: 0.01)
+                XCTAssertEqual(plain.convert(.zero, to: pager.view).y, pager.tabBar.frame.minY, accuracy: 0.01)
                 pager.setSelectedIndex(0, animated: false)
                 XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
             }
@@ -849,7 +1050,7 @@ final class StickyPagerKitTests: XCTestCase {
             pan.send(to: pager, state: .changed, y: -1000)
             XCTAssertEqual(pager.collapseOffset, 240 - minimum)
             XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top + minimum, accuracy: 0.01)
-            XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+            XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).minY, pager.tabBar.frame.minY, accuracy: 0.01)
             XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
             pan.send(to: pager, state: .cancelled)
             pager.setSelectedIndex(0, animated: false)
@@ -859,7 +1060,7 @@ final class StickyPagerKitTests: XCTestCase {
             pan.send(to: pager, state: .began)
             pan.send(to: pager, state: .changed, y: 1000)
             XCTAssertEqual(pager.collapseOffset, 0)
-            XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+            XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).minY, pager.tabBar.frame.minY, accuracy: 0.01)
             XCTAssertEqual(plain.convert(plain.bounds, to: pager.view).maxY, pager.view.bounds.maxY, accuracy: 0.01)
             pan.send(to: pager, state: .cancelled)
         }
@@ -1354,12 +1555,12 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.pagingView.contentOffset.x, 0, accuracy: 0.01)
     }
 
-    func testPlainPageStartsBelowVisibleTabBar() {
+    func testPlainPageStartsAtVisibleTabBarTop() {
         let pager = mount(plain: [1])
         pager.setSelectedIndex(1, animated: false)
         pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
         let child = pager.records[1]!.controller.view!
-        XCTAssertEqual(child.convert(child.bounds, to: pager.view).minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+        XCTAssertEqual(child.convert(child.bounds, to: pager.view).minY, pager.tabBar.frame.minY, accuracy: 0.01)
     }
 
     func testHeaderReplacedDuringParentAppearanceBalancesCallbacks() {
@@ -1409,9 +1610,12 @@ final class StickyPagerKitTests: XCTestCase {
     func testContainerReleaseRestoresOwnedInsets() {
         weak var weakPager: SPPageViewController?
         var scroll: UIScrollView!
+        var child: UIViewController!
         autoreleasepool {
             let container = mount()
             scroll = container.currentScrollView!
+            child = container.records[0]!.controller
+            child.additionalSafeAreaInsets = UIEdgeInsets(top: 6, left: 3, bottom: 8, right: 2)
             weakPager = container
             window?.closeForTesting()
             window?.rootViewController = nil
@@ -1420,6 +1624,7 @@ final class StickyPagerKitTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertNil(weakPager)
         XCTAssertEqual(scroll.contentInset.top, 0)
+        XCTAssertEqual(child.additionalSafeAreaInsets, UIEdgeInsets(top: 6, left: 3, bottom: 8, right: 2))
     }
 
     func testInactivePositionSurvivesHeaderResizeAndEviction() {
@@ -1451,7 +1656,7 @@ final class StickyPagerKitTests: XCTestCase {
         pager.view.layoutIfNeeded()
         XCTAssertEqual(pager.collapseOffset, 180, accuracy: 0.01)
         XCTAssertEqual(pager.records[1]!.binding!.position, 330, accuracy: 0.01)
-        XCTAssertEqual(pager.tabBar.frame.maxY, pager.pagingView.frame.minY, accuracy: 0.01)
+        XCTAssertEqual(pager.tabBar.frame.minY, pager.pagingView.frame.minY, accuracy: 0.01)
     }
 
     func testInactiveHistorySurvivesTemporaryAlignmentAndRebinding() {
@@ -1496,7 +1701,7 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.selectedIndex, 0)
         XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
         XCTAssertEqual(pager.records[0]!.binding!.position, 350, accuracy: 0.01)
-        XCTAssertEqual(pager.tabBar.frame.maxY, pager.pagingView.frame.minY, accuracy: 0.01)
+        XCTAssertEqual(pager.tabBar.frame.minY, pager.pagingView.frame.minY, accuracy: 0.01)
         pager.setSelectedIndex(1, animated: false)
         XCTAssertEqual(pager.collapseOffset, 0)
         XCTAssertLessThanOrEqual(pager.records[1]!.binding!.position, 0)
@@ -1561,6 +1766,7 @@ final class StickyPagerKitTests: XCTestCase {
 @MainActor
 private final class FixtureSource: SPPageViewControllerDataSource {
     var mixedLayout: Bool?
+    var rootScroll = false
     var ids: [Int]
     var createdIDs: [Int] = []
     let plain: Set<Int>
@@ -1588,7 +1794,14 @@ private final class FixtureSource: SPPageViewControllerDataSource {
         if let mixedLayout {
             return MixedFixturePage(height: contentHeight, belowLabel: mixedLayout)
         }
-        return FixturePage(height: contentHeight, plain: plain.contains(ids[index]))
+        let page = FixturePage(height: contentHeight, plain: plain.contains(ids[index]))
+        if rootScroll {
+            let scroll = UIScrollView()
+            scroll.contentSize = CGSize(width: 1, height: contentHeight)
+            page.view = scroll
+            page.scroll = scroll
+        }
+        return page
     }
 }
 

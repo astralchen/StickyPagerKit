@@ -32,6 +32,42 @@
 
 临时调试启动参数、人工等待测试和 LLDB 断点均移除；本轮公开 API 与接入行为无变化，README 的公开契约不调整。构建产生的格式化已与起始快照比较，既有布局修改保持原样。未运行完整库／完整 Demo 套件、iPad、Duo、独立 Release、最低 iOS、真机或 VoiceOver 专项；这些结果不由本轮聚焦回归推定通过。原失败和本轮假设失败证据均保留。
 
+## 2026-10-22：内容页根视图与标签栏顶部对齐
+
+本轮将 `viewControllerAt` 返回页面的真实根视图顶部从标签栏底部移至标签栏顶部，保留容器左右／底边、Header 折叠范围和逻辑分页索引。开始时已有菜单诊断修改；执行期间另一端新增 `fb9cc1f` 将其提交，本轮保留该内容，未执行提交或推送。
+
+提交前复核：用户随后授权全部本地提交。重新检查全部 13 个改动文件，10 个 Swift 文件的 SwiftFormat 0.64.0 lint 与 `git diff --check` 通过。本次复核没有重新运行 XCTest。实时重算 SHA-256 后，顶部对齐终态 iPad 库测试、iPhone UI 修正回归及 iPad UI 的快照均仅有 `StickyPagerDemoUITests.swift` 与当前文件不同：差异恰为既有提交 `96cd7b4` 新增的 32 行菜单取消测试，剔除该新增片段后与三份快照逐字节一致，框架、库测试及原 UI 回归代码未变。该菜单提交的四项最终回归快照与当前源码完全一致。下表的 `sourceChangedSinceRun=[]` 为对应运行结束时的记录，不能理解为后来新增菜单测试后仍无文件差异；原有失败证据及生成结果继续保留在忽略目录中。
+
+### 影响分析与实现
+
+- 分页视口起点由 `S + minimumHeaderHeight + T` 改为 `S + minimumHeaderHeight`，子页仍下移剩余折叠距离 `C - c`；根视图与标签栏共同位于实际 Header 底部，标签栏保持最高显示／触摸层级。
+- 子页附加安全区域增加实际栏高 `T`，普通控件可继续约束到 Safe Area。滚动绑定按实际重叠量扣除已有自动 inset，仅补足尚未避让的标签栏部分，覆盖 `.automatic`、`.always`、`.scrollableAxes`、`.never`、滚动根视图及固定 Label 下方的独立滚动视图。
+- 短／空内容的底部补齐量扣除标签栏避让，实际滚动范围仍足以折叠 Header。自动指示器使用 Safe Area，手动指示器补足标签栏遮挡，保留业务指示器值。
+- 框架管理的附加安全区域随隐藏／动态栏高更新，并在删除、缓存淘汰及容器释放时恢复业务值；只改业务其他 inset 边不会累计 top。根视图尺寸不再随栏高改变，因此单独追踪栏高变化以保留底部钳制、缓存位置和转场取消行为。
+- API 签名不变；依赖旧根视图起点或直接使用 `topAnchor` 的业务布局需按新 Safe Area 调整。公开协议、README 及 AGENTS 的长期布局约定已同步。
+
+### 基线、修正与终态证据
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [基线](Results/20261022-top-alignment-baseline/Result.xcresult) | 0 通过、1 失败 | 新增真实窗口测试在旧实现稳定检测到根视图比标签栏顶部低 44 pt。 |
+| [聚焦 r1](Results/20261022-top-alignment-focused-r1/Result.xcresult) | 79 通过、3 失败 | 指示器显式 inset 旧假设、测试删除后索引错误，以及放大 bounds 后顶部随中心移动的几何问题；失败证据保留。 |
+| [聚焦 r2](Results/20261022-top-alignment-focused-r2/Result.xcresult) | 81 通过、1 失败 | 修正前两项；剩余用例的 bounds 放大使视口移入 Header／标签栏区域，实际 adjustedTop 为 763 pt，不能按未遮挡的完整视口判断短内容。 |
+| [聚焦 r3](Results/20261022-top-alignment-focused-r3/Result.xcresult) | 86 通过、0 失败 | 用 frame 放大保持视口顶部不动，保留实际范围与指示器断言；另验证手动指示器、业务 Safe Area 增量修改、动态栏高、移除后位置恢复和分页仲裁。 |
+| [iPhone 完整库测试](Results/20261022-top-alignment-library-final/Result.xcresult) | 208 通过、0 失败、0 跳过 | Xcode 27.1／Swift 6.4、iPhone 17 Pro／iOS 26.5；此后仅修正两个 Demo UI 测试文件，框架与库测试源码未变化。 |
+| [终态 iPad 完整库测试](Results/20261022-top-alignment-library-ipad-final/Result.xcresult) | 208 通过、0 失败、0 跳过 | iPad Pro 13-inch (M4)／iOS 26.5；独立 UIKit application host，`sourceChangedSinceRun=[]`。 |
+| [iPhone UI 首轮](Results/20261022-top-alignment-ui-iphone/Result.xcresult) | 13 通过、4 失败、0 跳过 | 官方 MCP 与原始 xcresult 计数一致；包含系统容器三项、嵌套边界、普通页面、混合布局、刷新、短／空／长内容指示器及附件栏高恢复。 |
+| [终态 iPhone UI 修正回归](Results/20261022-top-alignment-ui-iphone-recovery/Result.xcresult) | 4 通过、0 失败、0 跳过 | 重新构建后运行首轮失败的四项：组合布局分页／位置恢复、异步替换、自动栏高、旋转／系统返回；`sourceChangedSinceRun=[]`。 |
+| [终态 iPad 系统容器 UI](Results/20261022-top-alignment-ui-ipad-final/Result.xcresult) | 3 通过、0 失败、0 跳过 | 展开／部分折叠／吸顶／最后一行、LTR／RTL、左右横屏与竖屏、系统 Tab 切换、位置恢复及旋转后新触摸；`sourceChangedSinceRun=[]`。 |
+
+库测试使用仓库宿主脚本：官方 MCP 的 Demo scheme 仅含 Demo 与 UI 测试，不支持库测试所需的独立 hosted xctestrun 配置。Demo 测试构建通过官方 Xcode MCP 完成。上述库运行均未发现 observation feedback loop、appearance 不平衡或不兼容内容视图替换诊断；历史聚焦结果与对应源码分别保存，不替代终态完整库结果。修改文件的 SwiftFormat 0.64.0 lint 及 `git diff --check` 通过。
+
+iPhone UI 首轮的四项失败保留：组合布局用例在页面上移后选中了标签栏覆盖区域的卡片中心（触点 y=124.7，标签栏 y=116～160），现从标签栏底部以下选择实际可见触点；异步替换用例的诊断输出读取了不存在的 Toolbar，现按是否存在记录 frame，不改变后续滚动断言；动态栏高与旋转返回用例共用的 `assertPageFrame` 仍要求旧的底部对齐，现改为本次顶部对齐契约。正文起点、Safe Area、完整触摸距离、分页提交和滚动位置断言均保留。修正后的四项均通过，结果单独记录，不将首轮包装为一次全部通过的 UI 运行。首轮通过后的变化仅涉及这两个 UI 测试文件，框架源码未再修改；终态库与 UI 回归均未发现 observation feedback loop、appearance 不平衡或不兼容内容视图替换诊断，当前无未解决的环境阻塞。
+
+iPhone UI 采用官方 Xcode MCP；它运行期间不能切换目标，iPad UI 使用仓库脚本在另一台模拟器执行，每台设备仅有一个输入执行端。未执行完整 59 项 Demo UI 套件、iOS 15 最低版本、真机、iPhone Duo 内外屏、独立 Release 回归、VoiceOver 和性能专项；这些范围不由本轮结果推定通过。
+
+已导出并检查 iPad 的[展开画面](Results/20261022-top-alignment-ui-ipad-final/screenshots/A8F0DE7E-B328-417A-81C4-7AD51FE336FB.png)和[吸顶画面](Results/20261022-top-alignment-ui-ipad-final/screenshots/59F10EBA-20F9-4663-9615-1E74841B4E29.png)：正文位于标签栏下方，未出现重复顶部留白或标签栏遮挡首行；具体几何仍以真实窗口／UI 断言为准。
+
 ## 2026-10-22：页面菜单偶发收起排查与输入观测修正
 
 从干净的 `5056653` 开始。本轮没有修改 `DemoPager` 的原生 `UIBarButtonItem.menu`、框架菜单处理或动画策略；修正的是测试输入观测，**不能据此宣布原偶发故障已修复**。

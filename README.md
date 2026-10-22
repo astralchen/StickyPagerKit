@@ -453,7 +453,11 @@ pager.tabBar.itemSpacing = 8 // 相邻 Item 间距；默认 0
 - 向上先消耗 Header 距离，再滚动内容；向下先回到内容顶部，再展开 Header。
 - 负位移为列表自身回弹，Header 不额外拉伸。
 
-所有内容页的根视图始终紧接当前标签栏底部，底边固定在容器底边。令当前 Header 折叠量为 `c`，根视图在分页视口内下移 `C - c`，框架为主要滚动视图添加 `c` 的顶部 inset；两者合计承担完整折叠距离。更新页面尺寸和 inset 时保留归一化位移 `q`，因此 Header 折叠过程中正文保持在滚动视口顶部，完全折叠后再滚动正文。短内容按当前滚动视口高度加上剩余折叠距离计算底部补齐量，保证 UIKit 的实际可滚动范围足以折叠 Header，不修改业务 contentSize。
+所有内容页的根视图顶部始终与当前 `SPTabBar` 顶部对齐，底边固定在容器底边；标签栏显示在页面上方，并优先接收重叠区域内的触摸。令当前 Header 折叠量为 `c`、标签栏实际高度为 `T`，分页视口从 `S + minimumHeaderHeight` 开始，根视图在其中下移 `C - c`，因此根视图顶部为 `headerHeight - c`。这是真实 frame 布局，不使用 transform 或单独移动滚动内容模拟。
+
+框架为子控制器的 `additionalSafeAreaInsets.top` 叠加 `T`，让使用 Safe Area 的固定控件以及 UIKit 自动调整的滚动内容避让标签栏。主要滚动视图的框架顶部 inset 仍包含折叠量 `c`；若滚动视图与标签栏存在重叠且自动 inset 没有完全避让（例如 `.never`），绑定只补足剩余遮挡高度。位于固定 Label 下方、与标签栏无重叠的滚动视图不额外添加 `T`。更新页面尺寸和 inset 时保留归一化位移 `q`，正文在 Header 折叠期间保持在标签栏下方，完全折叠后再滚动正文。短内容补齐量同时扣除自动及手动避让，保证 UIKit 的实际可滚动范围足以折叠 Header，不修改业务 contentSize。
+
+业务修改 `additionalSafeAreaInsets.top` 时应设置业务需要的顶部值，不把 getter 中已包含的标签栏贡献再算入基准；框架随后叠加当前 `T`。只修改其他方向时，框架保留原业务 top，不重复叠加栏高。其他方向的业务 inset 保留，标签栏隐藏／高度变化时更新贡献，页面移除、缓存淘汰或容器释放时恢复最新业务基准。仅替换或解绑主要滚动视图不会移除页面仍需保留的标签栏安全区域。
 
 根视图为普通 `UIView` 且 `UILabel` 与 `UIScrollView` 同级时，Label 可约束到根视图的 `safeAreaLayoutGuide.topAnchor`，滚动视图可约束在 Label 下方；也支持滚动视图铺满根视图。框架不修改业务子视图约束，不需要业务重复添加 Header 高度或监听折叠进度来移动 Label。页面高度随 Header 折叠连续变化，内部布局应响应 bounds 变化；固定 frame 不随父视图变化的子视图仍由业务负责更新。
 
@@ -463,13 +467,13 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 在导航容器内展示全屏 Header 时，宿主需允许根视图向顶部延伸。iOS 26+ 保留系统导航栏外观即可，避免透明 `UIBarAppearance` 定制干扰原生效果；旧系统可配置当前页面的透明导航外观，并按需求处理 Header 前景内容在导航栏下方的裁剪。Demo 已实现这两条路径，框架不修改业务导航栏外观。
 
-`viewControllerAt` 返回的内容页根视图铺满容器宽度并延伸至容器底边，不扣除左右及底部 Safe Area；容器全屏显示时即与屏幕左右边界和底边对齐，嵌入较窄的父容器时以实际容器宽度为准。Header 展开、折叠及切页时保持这些边界。横向分页步长随容器宽度更新。页面背景可铺满根视图，普通页面的文字和按钮应使用 `safeAreaLayoutGuide` 避让安全区域，滚动内容按 UIKit 的 `adjustedContentInset` 及业务指定的 inset 调整策略避让。框架保留业务配置；使用 `.never` 的页面需自行处理安全区域。
+`viewControllerAt` 返回的内容页根视图铺满容器宽度并延伸至容器底边，不扣除左右及底部 Safe Area；容器全屏显示时即与屏幕左右边界和底边对齐，嵌入较窄的父容器时以实际容器宽度为准。Header 展开、折叠及切页时保持这些边界。横向分页步长随容器宽度更新。页面背景可铺满根视图，普通页面的文字和按钮应使用 `safeAreaLayoutGuide` 避让安全区域，滚动内容按 UIKit 的 `adjustedContentInset` 及业务指定的 inset 调整策略避让。框架保留业务配置；使用 `.never` 的主要滚动视图由框架补足标签栏遮挡，但仍需业务自行处理系统安全区域。直接把固定控件约束到根视图 `topAnchor` 会进入标签栏覆盖区域；需要避让的控件应使用 `safeAreaLayoutGuide.topAnchor`。原先按标签栏底部作为根视图起点手写 frame 的页面，应改为依据新的根视图范围与 Safe Area 布局。
 
 使用 `UICollectionViewFlowLayout` 的网格页还需让 Cell 布局遵循安全区域。Demo 将 `sectionInsetReference` 设为 `.fromSafeArea`，并按同一边界扣除 section 间距和列间距后计算三列宽度；在布局和安全区域变化时更新尺寸。仅保证 Collection View 根视图全宽，或直接用其 `bounds.width` 计算 Cell 宽度，并不能保证 Cell 内容避开横屏安全区域。
 
 框架只持有自己添加的 inset 增量，解绑时移除并恢复原有纵向回弹配置。业务需要更新 inset 时，赋值完整的业务基准值，框架随后重新叠加自身贡献；不要将读取到的、已经含框架贡献的 inset 再作为新基准写回。
 
-纵向滚动指示器随页面视口位于标签栏下方，不再重复添加 Header 避让距离；保留业务 `verticalScrollIndicatorInsets`、横向指示器配置及 UIKit 的自动安全区域调整。短列表、空列表若只有 Header 折叠范围而没有正文滚动范围，则暂时隐藏纵向指示器，避免顶部折叠 inset 与底部补齐 inset 产生误导性的长条。内容或视口尺寸变化后，框架按业务 `showsVerticalScrollIndicator` 设置恢复显示；解绑时恢复最新的业务设置。更新指示器 inset 时同样应赋值完整的业务基准值。
+纵向滚动指示器避让标签栏覆盖区域，不再重复添加 Header 避让距离；启用 UIKit 自动指示器 inset 时利用 Safe Area，关闭自动调整时由绑定补足标签栏遮挡高度。保留业务 `verticalScrollIndicatorInsets`、横向指示器配置及 UIKit 的自动安全区域调整。短列表、空列表若只有 Header 折叠范围而没有正文滚动范围，则暂时隐藏纵向指示器，避免顶部折叠 inset 与底部补齐 inset 产生误导性的长条。内容或视口尺寸变化后，框架按业务 `showsVerticalScrollIndicator` 设置恢复显示；解绑时恢复最新的业务设置。更新指示器 inset 时同样应赋值完整的业务基准值。
 
 横向分页拖动、减速和程序化切页动画期间，子页面的横向、纵向滚动指示器均暂时隐藏，包括途中加载或重新绑定的页面。切页完成或取消后恢复业务设置，短列表和空列表仍遵循上述纵向指示器规则。
 

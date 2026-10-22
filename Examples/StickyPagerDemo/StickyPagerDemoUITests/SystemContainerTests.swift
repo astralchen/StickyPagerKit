@@ -104,7 +104,15 @@ final class SystemContainerTests: XCTestCase {
         let frame = table.frame
         let window = app.windows.firstMatch.frame
         XCTAssertEqual(frame.maxY, window.maxY, accuracy: 1, "背景应延伸至窗口底边")
-        XCTAssertEqual(frame.minY, tabs.frame.maxY, accuracy: 1, "页面根视图应跟随组件标签栏")
+        XCTAssertEqual(frame.minY, tabs.frame.minY, accuracy: 1, "页面根视图应跟随组件标签栏")
+        let safeTop = try XCTUnwrap(values["safeTop"])
+        XCTAssertEqual(frame.minY + safeTop, tabs.frame.maxY, accuracy: 1, "页面安全区域应从标签栏下方开始")
+        XCTAssertEqual(
+            try XCTUnwrap(values["adjustedTop"]) - XCTUnwrap(values["insetTop"]),
+            safeTop,
+            accuracy: 1,
+            "自动顶部 inset 应只包含一次标签栏安全区域"
+        )
         XCTAssertEqual(frame.minX + (try XCTUnwrap(values["safeLeft"])), tabs.frame.minX, accuracy: 1)
         XCTAssertEqual(frame.maxX - (try XCTUnwrap(values["safeRight"])), tabs.frame.maxX, accuracy: 1)
         let safeBottom = try XCTUnwrap(values["safeBottom"])

@@ -93,6 +93,7 @@ final class CompositionalGestureTests: XCTestCase {
 
     private func sectionY(_ section: Int) throws -> CGFloat {
         let viewport = collection.frame.intersection(app.windows.firstMatch.frame)
+        let top = max(viewport.minY, app.collectionViews["sp.tabBar.collection"].frame.maxY)
         print(
             "SECTION VIEWPORT collection=\(collection.frame), window=\(app.windows.firstMatch.frame), toolbar=\(app.toolbars.firstMatch.frame)"
         )
@@ -106,11 +107,11 @@ final class CompositionalGestureTests: XCTestCase {
                 let frame = $0.frame
                 print("SECTION CELL \($0.identifier) frame=\(frame)")
                 // 部分露出的首项中心可能已经位于标签栏后方；输入点必须真正落在可见内容内。
-                return frame.midY > viewport.minY && frame.midY < bottom
+                return frame.midY > top && frame.midY < bottom
                     && frame.midX > viewport.minX && frame.midX < viewport.maxX
             }
         let frame = try XCTUnwrap(cell).frame
-        XCTAssertGreaterThan(frame.midY, collection.frame.minY)
+        XCTAssertGreaterThan(frame.midY, top)
         XCTAssertLessThan(frame.midY, bottom)
         return frame.midY
     }
@@ -240,7 +241,7 @@ final class CompositionalGestureTests: XCTestCase {
         XCTAssertLessThan(collection.frame.minY, initialY - 30)
         collection.swipeUp()
         XCTAssertTrue((status.value as? String)?.contains("progress=1.00") == true)
-        XCTAssertEqual(collection.frame.minY, app.collectionViews["sp.tabBar.collection"].frame.maxY, accuracy: 1)
+        XCTAssertEqual(collection.frame.minY, app.collectionViews["sp.tabBar.collection"].frame.minY, accuracy: 1)
         let before = try XCTUnwrap(geometry()["position"])
         XCTAssertGreaterThan(before, 150)
         // 组合布局位于两个列表页之间，两侧均须用真实拖动越过半页并完整返回。

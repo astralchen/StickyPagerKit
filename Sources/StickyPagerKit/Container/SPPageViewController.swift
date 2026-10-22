@@ -78,6 +78,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     private var suppressPaging = false
     private var previousSize: CGSize = .zero
+    private var previousTabBarHeight: CGFloat = 0
     private var previousBoundsSize: CGSize = .zero
     private var sizeTransitionGeneration: UInt = 0
     private var isTransitioningSize = false
@@ -243,15 +244,16 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         // 页面铺满容器宽度并延伸至底边；安全区域由子页面的布局或自动滚动 inset 处理。
         let pageFrame = CGRect(
             x: 0,
-            y: l.minimumHeaderHeight + l.tabBarHeight,
+            y: l.minimumHeaderHeight,
             width: view.bounds.width,
-            height: max(0, view.bounds.height - l.minimumHeaderHeight - l.tabBarHeight)
+            height: max(0, view.bounds.height - l.minimumHeaderHeight)
         )
-        let sizeChanged = pageFrame.size != previousSize
+        let sizeChanged = pageFrame.size != previousSize || l.tabBarHeight != previousTabBarHeight
         if sizeChanged {
             cancelPaging()
             stopAnimation()
             previousSize = pageFrame.size
+            previousTabBarHeight = l.tabBarHeight
         }
         suppressPaging = true
         pagingView.frame = pageFrame
@@ -297,7 +299,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     isolated deinit {
         displayLink?.invalidate()
-        records.values.forEach { $0.binding?.detach() }
+        records.values.forEach {
+            $0.binding?.detach()
+            $0.safeArea.detach()
+        }
     }
 
     /// 同步更新页面快照。重复标识拒绝整次更新；相同标识复用已有控制器。
@@ -515,10 +520,17 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
                 width: self.pagingView.bounds.width,
                 height: max(0, self.pagingView.bounds.height - inset)
             )
+            record.safeArea.setTopContribution(layout.tabBarHeight)
             record.controller.view.layoutIfNeeded()
         }
         if let binding = record.binding {
-            binding.layoutPage(range: layout.collapseRange, collapse: collapseOffset, updates: updates)
+            binding.layoutPage(
+                range: layout.collapseRange,
+                collapse: collapseOffset,
+                root: record.controller.view,
+                topOcclusion: layout.tabBarHeight,
+                updates: updates
+            )
         } else {
             updates()
         }
@@ -553,7 +565,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         layoutPage(record, at: index, layout: effectiveLayout)
         controller.didMove(toParent: self)
         bind(record)
-        // 首次绑定后同步页面位移和滚动 inset，所有页面均紧接当前标签栏。
+        // 首次绑定后同步页面位移和滚动 inset；根视图与标签栏顶部对齐，内容避让标签栏。
         layoutHeader()
         return record
     }
@@ -646,6 +658,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         record.controller.willMove(toParent: nil)
         record.controller.view.removeFromSuperview()
         record.controller.removeFromParent()
+        record.safeArea.detach()
     }
 
     private func evictPages(limit: Int? = nil) {

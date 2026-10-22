@@ -165,12 +165,12 @@ final class TabBarAccessoryUITests: XCTestCase {
             return collection.frame.height + 0.000001 >= 80
         }
         XCTAssertGreaterThan(collection.frame.height, old)
-        XCTAssertEqual(app.tables["demo.list"].frame.minY, collection.frame.maxY, accuracy: 1)
+        XCTAssertEqual(app.tables["demo.list"].frame.minY, collection.frame.minY, accuracy: 1)
         XCTAssertTrue(more.isHittable)
         capture("附件撑高分页栏")
         changeHeight()
         expect { abs(collection.frame.height - old) < 1 }
-        XCTAssertEqual(app.tables["demo.list"].frame.minY, collection.frame.maxY, accuracy: 1)
+        XCTAssertEqual(app.tables["demo.list"].frame.minY, collection.frame.minY, accuracy: 1)
         XCTAssertTrue(app.buttons["demo.accessory.search"].isHittable)
     }
 }
