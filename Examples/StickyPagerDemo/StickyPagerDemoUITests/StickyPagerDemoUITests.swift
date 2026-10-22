@@ -12,7 +12,8 @@ final class StickyPagerDemoUITests: XCTestCase {
             app.launchArguments.append("--accessories")
         }
         if name.contains("testSystemSplit") || name
-            .contains("testSystemWindowResize") || name.contains("testRotationAndBackGesture") {
+            .contains("testSystemWindowResize") || name.contains("testRotationAndBackGesture") || name
+            .contains("testPagesMenu") || name.contains("testAutomaticCustomTabHeight") {
             app.launchArguments.append("--paging-trace")
         }
         if name.contains("testSiblingLabel") {
@@ -46,6 +47,101 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     private var status: XCUIElement {
         app.staticTexts["demo.status"]
+    }
+
+    /// 单次点击后检查真实输入和菜单响应；不以再次点击补救菜单丢失。
+    @discardableResult
+    private func openPagesMenu() throws -> Int {
+        let before = try pagingTrace()
+        let sequence = try XCTUnwrap(before["sequence"] as? Int)
+        app.buttons["demo.pages"].tap()
+        try assertMenuInput(sequence: sequence + 1)
+        XCTAssertTrue(app.buttons["切换自定义标签"].waitForExistence(timeout: 5), "单次点击后页面菜单未保持展开")
+        try assertMenuInput(sequence: sequence + 1)
+        return sequence + 1
+    }
+
+    private func assertMenuInput(sequence: Int) throws {
+        let trace = try pagingTrace()
+        XCTAssertEqual(try XCTUnwrap(trace["sequence"] as? Int), sequence, "菜单阶段出现非预期触摸")
+        XCTAssertEqual(try XCTUnwrap(trace["pointerScrollEvents"] as? Int), 0, "触摸回归期间收到额外滚轮／触控板输入")
+    }
+
+    func testPagesMenuRemainsPresentedUntilAction() throws {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let initialHeight = tabs.frame.height
+        // 四轮分别验证默认、自定义及往返切换；任一轮失败即停止，没有失败重试。
+        for index in 0 ..< 4 {
+            let sequence = try openPagesMenu()
+            let action = app.buttons["切换自定义标签"]
+            let disappeared = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == false"),
+                object: action
+            )
+            disappeared.isInverted = true
+            // 覆盖历史故障中入口点击返回前约 15 秒的空闲窗口。
+            XCTAssertEqual(XCTWaiter.wait(for: [disappeared], timeout: 15), .completed, "未操作时菜单自行关闭")
+            try assertMenuInput(sequence: sequence)
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "页面菜单保持-\(index + 1)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            action.tap()
+            try assertMenuInput(sequence: sequence + 1)
+            XCTAssertFalse(action.exists)
+            if index.isMultiple(of: 2) {
+                XCTAssertGreaterThan(tabs.frame.height, initialHeight)
+            } else {
+                XCTAssertEqual(tabs.frame.height, initialHeight, accuracy: 1)
+            }
+            XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+            expect("page=grid")
+        }
+    }
+
+    func testPagesMenuCancelsAndReopensWithoutChangingPage() throws {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let initialHeight = tabs.frame.height
+        let sequence = try openPagesMenu()
+        // 入口在右侧，使用窗口左侧的真实触摸取消，避免隐式滚动菜单项。
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.6)).tap()
+        try assertMenuInput(sequence: sequence + 1)
+        XCTAssertFalse(app.buttons["切换自定义标签"].exists)
+        XCTAssertEqual(tabs.frame.height, initialHeight, accuracy: 1)
+        expect("page=grid")
+        try openPagesMenu()
+        app.buttons["留白与附件"].tap()
+        app.buttons["内容留白"].tap()
+        app.buttons["对称留白"].tap()
+        XCTAssertGreaterThan(tabs.frame.height, initialHeight)
+        assertPageFrame(app.collectionViews["demo.grid"])
+        try openPagesMenu()
+        app.buttons["留白与附件"].tap()
+        app.buttons["内容留白"].tap()
+        app.buttons["无留白"].tap()
+        XCTAssertEqual(tabs.frame.height, initialHeight, accuracy: 1)
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        expect("page=grid")
+    }
+
+    func testPagesMenuPointerObservationPreservesTouchSamples() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "XCTest 的 pointer 输入仅在本用例的 iPad 环境受支持")
+        try openPagesMenu()
+        let before = try pagingTrace()
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.7))
+            .scroll(byDeltaX: 0, deltaY: -20)
+        let after = try pagingTrace()
+        // 该用例验证输入观测，不把 pointer 滚动与菜单关闭建立未经证实的契约。
+        XCTAssertGreaterThan(try XCTUnwrap(after["pointerScrollEvents"] as? Int), 0)
+        XCTAssertGreaterThan(try XCTUnwrap(after["lastPointerScrollTimestamp"] as? Double), 0)
+        XCTAssertEqual(try XCTUnwrap(after["sequence"] as? Int), try XCTUnwrap(before["sequence"] as? Int))
+        XCTAssertEqual(try XCTUnwrap(after["sampleCount"] as? Int), try XCTUnwrap(before["sampleCount"] as? Int))
+        XCTAssertEqual(
+            try XCTUnwrap(after["samples"] as? [[String: Double]]),
+            try XCTUnwrap(before["samples"] as? [[String: Double]])
+        )
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        expect("page=grid")
     }
 
     private func expect(_ fragment: String) {
@@ -1110,17 +1206,17 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertEqual(tabs.frame.height, 44, accuracy: 1)
     }
 
-    func testAutomaticCustomTabHeightUpdatesWithoutExplicitSize() {
+    func testAutomaticCustomTabHeightUpdatesWithoutExplicitSize() throws {
         let tabs = app.collectionViews["sp.tabBar.collection"]
-        app.buttons["demo.pages"].tap()
+        try openPagesMenu()
         app.buttons["切换自定义标签"].tap()
         let initialHeight = tabs.frame.height
-        app.buttons["demo.pages"].tap()
+        try openPagesMenu()
         app.buttons["切换多行副标题"].tap()
         XCTAssertGreaterThan(tabs.frame.height, initialHeight)
         assertPageFrame(app.collectionViews["demo.grid"])
         expect("page=grid")
-        app.buttons["demo.pages"].tap()
+        try openPagesMenu()
         app.buttons["切换多行副标题"].tap()
         XCTAssertEqual(tabs.frame.height, initialHeight, accuracy: 1)
         assertPageFrame(app.collectionViews["demo.grid"])

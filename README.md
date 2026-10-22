@@ -525,6 +525,10 @@ UIKit 库测试需要真实 `UIApplication` 生命周期。直接在 Xcode 中�
 
 Demo 的 `--window-regression` 参数让分页页和标签外观页通过无障碍状态值提供当前 `UIWindowScene` 的实际界面方向，仅供测试诊断。iOS 26+ 同时提供 `interfaceOrientationLocked`（`1` 为场景锁定、`0` 为未锁定、`unknown` 为场景尚不可用），旧系统记录 `unavailable`，不改变方向策略。旋转用例必须等待实际界面方向与目标一致；发送 `XCUIDevice.orientation` 请求或转动 Device Hub 外框不代表旋转已完成。系统容器旋转后的滚动检查按当前可见视口高度计算拖动距离，并保留实际位移断言。真实触摸使用窗口与控件的可见交集，并避开覆盖按钮和浮动工具栏内容；系统工具栏的无障碍容器 frame 可能覆盖整个窗口，不能直接将其上边界当作可触摸区域下边界。各设备的实际通过、失败和未覆盖范围见 [验证记录](Validation/README.md)。
 
+“页面”菜单专项使用 `--window-regression --paging-trace` 记录触摸序号、`pointerScrollEvents` 和 `lastPointerScrollTimestamp`。触摸轨迹只接受 `.touches`，不会把 hover／scroll 携带的区域事件混入触摸样本。触摸专项用例每次只点击一次入口，断言菜单出现、无输入时保持、动作生效，以及取消后的再次打开；收到额外滚轮／触控板输入直接失败，不自动重开菜单、不重试用例、不关闭动画。另设 iPad pointer 用例，验证已送达的滚轮事件不会污染触摸样本；该用例不预设滚轮应当关闭菜单。普通 Demo 不启用这些观测，也不拦截任何事件。
+
+UI 自动化运行期间应由一个执行端独占设备输入；电脑操作和设备交互 MCP 在独立诊断阶段使用，结束交互会话后再启动 XCTest。外部旋转是按下述请求协议串行操作的例外，不能在菜单断言期间滚动设备窗口。若菜单丢失，应同时核对录屏、合成输入记录、App 与 `testmanagerd` 的统一日志；末帧没有菜单不代表入口未响应。CoreDevice 输入通道只能说明事件来源通道，不能单凭它判定具体操作者。
+
 旋转后的系统返回手势使用实际窗口作为坐标锚点，并通过 Demo 现有的触摸记录确认边缘输入确实到达；不能把未收到触摸后的页面不变当作取消返回成功。附件栏高回归保留增长、恢复及页面衔接断言；80 pt 的下界比较仅容纳 `0.000001 pt` 浮点坐标误差，不改变框架的尺寸规则。
 
 对于 `XCUIDevice` 方向事件不能驱动界面、但 Device Hub 的 `Device → Orientation` 菜单可用的环境，可显式使用外部旋转模式。先为目标设备执行 `build-for-testing`（也可用官方 Xcode MCP 的 `BuildProject(buildForTesting: true)`），再运行：

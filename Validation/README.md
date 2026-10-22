@@ -2,6 +2,68 @@
 
 验证日期：2026-10-15 至 2026-10-22。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-22：页面菜单偶发收起排查与输入观测修正
+
+从干净的 `5056653` 开始。本轮没有修改 `DemoPager` 的原生 `UIBarButtonItem.menu`、框架菜单处理或动画策略；修正的是测试输入观测，**不能据此宣布原偶发故障已修复**。
+
+### 原失败的直接证据
+
+后续历史记录所称“未见菜单展开”只反映最终截图。逐帧检查原 [UI 失败录屏](Results/content-reuse-demo-ui-20261022/attachments/4D4269F1-2D8F-4843-B89E-0C9FA7AE4F6E.mp4)发现菜单先正常展开，随后在 XCTest 下一条动作之前收起。[展开帧](MenuDiagnostics/original-open.png)与[收起帧](MenuDiagnostics/original-closed.png)分别提取自约 17 秒、30 秒，保留原录屏和提取脚本；使用 `AVAssetImageGenerator` 零时间容差并记录实际返回帧时间，静态区间不能按请求时间冒充新画面。
+
+本机仍保留原失败的统一日志，按明确的模拟器 UUID 和 `2026-10-22 11:01:35～11:01:55` 时段读取，未凭复测通过推断原因：
+
+- [App 日志](Results/pages-menu-baseline-20261022/original-app-unified.log)：11:01:38.656 开始菜单动画；11:01:53.280～53.346 向应用窗口派发 `UIEvent` type 10；53.384 开始另一段菜单动画。SDK `UIEvent.h` 明确 type 10 为 `.scroll`。
+- [系统输入日志](Results/pages-menu-baseline-20261022/original-input-unified.log)：53.047 新增 `eventSource: mouse`、`transport: CoreDevice` 的触控板服务。此记录只标识通道，不足以归因到某个操作者或工具。
+- [testmanagerd 日志](Results/pages-menu-baseline-20261022/original-testmanager-unified.log)：53.417 收到 `_UIContextMenuActionsOnlyViewController` 的 `ViewDidDisappear`。原测试此时仍在等待入口点击后的空闲，下一条菜单项点击记录到 54.79 左右才开始；用例中没有该段滚轮操作。
+
+据此排除“入口从未展开”这一解释，确认故障时段存在用例外的 pointer 输入。**输入与收起的先后关系已证实，完整因果机制及输入发起端仍未闭环。** 用户回复不确定当时是否有其他操作；宿主侧对应时段的限定日志查询没有匹配结果，不能用缺少日志推断无人操作。未将共享 `UIAction`、状态标签布局或菜单条目数量猜测成根因，也未替换原生菜单作为规避。
+
+### 对照实验与实际修正
+
+- 原实现新增四轮单击／保持／动作回归，[初轮 1 项通过](Results/pages-menu-baseline-20261022/Result.xcresult)；延长至每轮无输入保持 15 秒后，与原自动高度用例合跑 [2 项通过](Results/pages-menu-held-20261022/Result.xcresult)。前后触摸序号均为 2、4、6、8，命中 `_UIButtonBarButton`，每次按下至抬起约 0.067 秒。这些通过记录仅证明当次未复现。
+- iPhone 受控 pointer 实验[失败](Results/pages-menu-pointer-control-20261022/Result.xcresult)：XCTest 明确报告 `Pointer events are not supported for this device`，属于实验能力受限。电脑滚轮对照也未在 App 日志中得到已送达的 `.scroll`，不能算有效复现。
+- iPad pointer 实验[失败](Results/pages-menu-ipad-pointer-control-20261022/Result.xcresult)：3 个 `.scroll` 已送达，菜单却仍存在，否定了“任意菜单外滚轮必然收起”的假设。该假设实验未作为产品验收测试保留，没有将失败断言改成成功或跳过来宣称修复。
+- 两次 pointer 实验的 MCP 各报告 1 个用例失败，终态 `.xcresult` 各另含 1 条 runner 退出码 75 记录（摘要为 0 通过、2 条失败记录）；两种报告均保留，不能只引用工具的用例数省略运行器异常。
+- 上述 iPad 实验还证实原触摸观测会把 hover／scroll 的区域样本混入触摸序列（`sampleCount` 从 2 增至 10，最后 phase 为 6）。`PagingTraceWindow` 现仅记录 `.touches`，独立累计 `pointerScrollEvents` 和 `lastPointerScrollTimestamp`，仍无条件调用 `super.sendEvent`，不吞掉输入。
+- 新增菜单单击保持、动作效果、取消再开及嵌套子菜单回归；原自动高度用例增加输入断言，原栏高增长／恢复、页面衔接及选中断言保留。出现额外触摸、滚轮或菜单丢失均失败，不重开、不重试、不放宽原断言。观测仅在 `--paging-trace` 下启用。
+
+首轮严格回归 [4 项通过、1 项失败](Results/pages-menu-final-iphone-20261022/Result.xcresult)：自动高度用例已调用输入断言，但启动条件漏加 `--paging-trace`，因而读取不到轨迹。已修正用例接线，没有放宽输入或布局断言；该失败不归因为 Demo 菜单故障。终态回归结果见下表；历史失败证据保持原样。
+
+针对观测修正另做[反向验证](Results/pages-menu-observation-before-20261022/Result.xcresult)：保持最终用例与滚轮计数，仅把 `let touch` 恢复为旧的 `event.allTouches?.first`。iPad 明确收到 pointer 输入后，`sampleCount` 为 9 而非原来的 2，新回归失败；MCP 报告 1 个失败用例，结果包另含 runner 退出码 75 记录。恢复过滤后逐字节核对 iPhone、iPad 源码哈希相同。该用例独立验证触摸样本不被 pointer 污染，不对 pointer 是否关闭菜单建立未经证实的预期；iPhone 的 XCTest 不支持此输入时显式跳过，不能冒充通过。
+
+### 最终源码验证
+
+| 状态 | 环境与范围 | 证据 |
+| --- | --- | --- |
+| **通过** | iPhone 18 Pro Max / iOS 27.0（24A434）：6 通过、0 失败、0 跳过；菜单保持、取消再开、自动栏高、分页拖动、外观切换、实际旋转后的返回手势 | [摘要](Results/pages-menu-verified-iphone-20261022/summary.json) · [结果包](Results/pages-menu-verified-iphone-20261022/Result.xcresult) · [日志](Results/pages-menu-verified-iphone-20261022/xcodebuild.log) |
+| **通过** | iPad Pro 13-inch (M4) / iOS 26.5（23F77）：4 通过、0 失败、0 跳过；菜单保持、取消再开、自动栏高及 pointer 观测隔离 | [摘要](Results/pages-menu-verified-ipad-20261022/summary.json) · [结果包](Results/pages-menu-verified-ipad-20261022/Result.xcresult) · [日志](Results/pages-menu-verified-ipad-20261022/xcodebuild.log) |
+| **通过（仅构建）** | Demo Release，iPad Simulator：退出码 0、`BUILD SUCCEEDED`；未执行 Release UI 测试 | [日志](Results/pages-menu-release-demo-20261022/xcodebuild.log) · [源码核对](Results/pages-menu-release-demo-20261022/summary.json) |
+
+本轮 UI 通过 Apple 官方 Xcode MCP `RunSomeTests` 执行，测试 target 为 `StickyPagerDemoUITests`，准确标识保存在各运行目录的 `mcp-summary.txt`。iPad 首个请求未返回可核验终态，未计入通过；记录见该目录的 `dispatch-note.txt`。后续请求沿用同一源码和断言，终态单独保存。
+
+iPhone 与 iPad 两轮三类运行时诊断均为 0，`sourceChangedSinceRun` 均为空。已检查[自定义模式下菜单保持](Results/pages-menu-verified-iphone-20261022/attachments/F807FB6E-DF64-4C87-935F-DAD1896A4536.png)，菜单正常呈现，选择动作前后的栏高与页面状态由 UI 断言核对。也已检查 [iPad 菜单保持截图](Results/pages-menu-verified-ipad-20261022/attachments/4CF0D787-6506-48C5-BD2E-63454B987327.png)，系统菜单以可滚动区域显示长列表。
+
+
+官方 MCP `BuildProject` 没有 configuration 参数，Release 补充使用仓库脚本；构建摘要中的测试数为 0，`result: unknown` 不代表 UI 测试通过。构建终态以退出码和 `BUILD SUCCEEDED` 为准，`sourceChangedSinceRun` 为空。
+
+```sh
+SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SP_SIMULATOR_ID=9E4895DA-132A-4BAE-800B-7A322E1A2918 \
+SP_SCOPE=demo SP_CONFIGURATION=Release \
+SP_RUN_NAME=pages-menu-release-demo-20261022 Scripts/validate.sh build
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+python3 Scripts/summarize_validation.py Validation/Results/pages-menu-release-demo-20261022
+```
+
+本轮只主动格式化两个修改的 Swift 文件，[lint](Results/pages-menu-diagnosis-20261022/swiftformat-lint.txt)为 `0/2 files require formatting`；[官方构建日志](Results/pages-menu-diagnosis-20261022/official-build.log)中的 Demo Build Phase 为 `0/46 files formatted, 2 files skipped`，没有额外源码差异。构建仍有 App Intents 元数据跳过和 Xcode XCTest dylib 最低系统版本相关提示，未为消除这些工具链提示提高 iOS 15 部署目标。已恢复 Xcode 原来的物理 `iPhone 13` 运行目标。
+
+- **失败证据保留：** 原菜单收起、两次 pointer 假设实验、首次严格回归的启动参数遗漏，以及观测修正的反向对照均保留，不用后续通过覆盖。
+- **被环境阻塞：** 原 iPhone 环境的受控 pointer 因果复现；XCTest 不支持该设备的 pointer 合成，电脑滚轮未取得 App 送达证据。
+- **未闭环：** 原异常输入的发起端、具体输入组合和菜单收起的完整机制。下一步需要在同一 iPhone 环境取得可确认送达的对应输入，再比较菜单生命周期；当前没有依据改动产品菜单。
+- **未执行：** 本轮完整库／Demo UI、Duo 内外屏、iPad 旋转／分屏、深色／辅助字号、iOS 15 实际运行、真机、VoiceOver 与性能矩阵。前轮库通过记录不移作本轮运行结果；本轮也未修改库实现。
+
+
 ## 2026-10-22：内容配置替换提示与容器复用修复
 
 本轮从干净的 `232e3a0` 开始，针对 UIKit `ContentConfiguration` 提示排查实际视图重建。Apple 对 [`UICollectionViewCell.contentConfiguration`](https://developer.apple.com/documentation/uikit/uicollectionviewcell/contentconfiguration-1lcqh) 的契约是：兼容配置原位应用，不兼容配置更换整个内容视图；将配置先置 nil 还会创建空内容视图，因此本轮没有采用先清空配置或过滤日志的方式隐藏提示。

@@ -11,6 +11,9 @@ final class PagingTraceWindow: UIWindow {
     private var previousVertical: CGFloat = 0
     private var verticalChanges: [[String: Any]] = []
     private var sourceDeceleratingAtTouchBegan = false
+    // 滚轮不一定带有 UITouch；单独计数，避免把输入干扰误判为菜单未响应。
+    private var pointerScrollEvents = 0
+    private var lastPointerScrollTimestamp: TimeInterval = 0
 
     func mark(_ stage: String) {
         guard let sourceScroll else {
@@ -40,7 +43,12 @@ final class PagingTraceWindow: UIWindow {
     }
 
     override func sendEvent(_ event: UIEvent) {
-        let touch = event.allTouches?.first
+        if event.type == .scroll {
+            pointerScrollEvents += 1
+            lastPointerScrollTimestamp = event.timestamp
+        }
+        // hover／scroll 的 allTouches 可能包含区域事件，不能覆盖上一次真实触摸。
+        let touch = event.type == .touches ? event.allTouches?.first : nil
         if touch?.phase == .began {
             sequence += 1
             samples.removeAll(keepingCapacity: true)
@@ -85,6 +93,8 @@ final class PagingTraceWindow: UIWindow {
         }
         let value: [String: Any] = [
             "sequence": sequence,
+            "pointerScrollEvents": pointerScrollEvents,
+            "lastPointerScrollTimestamp": lastPointerScrollTimestamp,
             "hitView": hitView,
             "release": release,
             "sourceDeceleratingAtTouchBegan": sourceDeceleratingAtTouchBegan,
