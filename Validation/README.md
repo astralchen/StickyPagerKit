@@ -2,6 +2,36 @@
 
 验证日期：2026-10-15 至 2026-10-22。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-22：原 iPhone 菜单输入因果对照
+
+在原 iPhone 18 Pro Max／iOS 27.0（24A434），UUID `41AF9CED-9BBB-4B60-B563-73AFB035C2D4` 上继续排查。遵照用户要求使用当前工作区，保留本来已有的安全区域与顶部对齐改动。官方 Xcode MCP 负责构建、测试与 LLDB；输入操作使用电脑工具。没有修改 `DemoPager` 的原生菜单、拦截系统滚轮或加入失败重试。
+
+### 对照结果与因果边界
+
+- **工具滚轮已送达，未触发收起：** 菜单内／外、上下及横向对照均未命中 UIKit 收起断点。App 的 [事件日志](Results/menu-causality-20261022/input-probes-app.log)确认收到 `.scroll`。[一次事件参数](Results/menu-causality-20261022/scroll-parameters.json)为垂直增量 128、phase 2、scrollType 1；按本机 SDK，scrollType 1 是 continuous，不能将其写成离散滚轮。该参数只是单次快照，不代表历史故障的完整事件序列。
+- **触摸展开后再滚轮的假设实验失败：** [向下](Results/menu-causality-20261022/touch-opener-down/Result.xcresult)与[向上](Results/menu-causality-20261022/touch-opener-up/Result.xcresult)分别 0 通过、1 失败；预期菜单关闭，但菜单始终存在。两次没有修改实验断言，改变的是输入方向。[解码轨迹](Results/menu-causality-20261022/touch-opener-traces.json)显示触摸序号仍为 2、触摸样本仍为 2，滚轮计数从 0 增至 2。两个用例是被否定的实验假设，不是产品回归失败，也没有改成成功或跳过；临时测试已移除。实验没有完整的运行前源码哈希，不宣称 `sourceChangedSinceRun=[]`。
+- **人工鼠标滚轮接收未证实：** 用户确认在同一独立窗口使用鼠标滚轮；[操作后画面](Results/menu-causality-20261022/human-scroll-after.png)仍显示菜单，断点未命中。[App 日志](Results/menu-causality-20261022/human-scroll-app.log)及[限定的系统输入日志](Results/menu-causality-20261022/human-scroll-input.log)没有检出对应滚轮事件，因此不能作为已送达的阴性对照，更不能推断用户未操作。
+- **菜单外触摸取消路径已确认：** 14:24 的菜单外点击和 14:44 的菜单外拖动均命中 UIKit 收起断点。[点击栈](Results/menu-causality-20261022/outside-click-stack.json)与[拖动栈](Results/menu-causality-20261022/outside-drag-stack.json)经 `_UIPassthroughScrollInteraction` → `_UIContextMenuContainerView` → `_UIContextMenuPresentation` 请求关闭，实参 reason 为 0。[拖动日志](Results/menu-causality-20261022/outside-drag-app.log)记录的是 `.touches`，不是 `.scroll`；[继续执行后的截图](Results/menu-causality-20261022/outside-drag-after.png)确认菜单关闭、仍为网格页。私有符号仅用于调试观察，未进入源码；不能因调用栈名称包含 Scroll 就判定滚轮是历史根因。
+
+**尚未闭环：** 原故障只有滚轮到达与菜单关闭的时序记录，缺少可重放的完整输入参数及当时的关闭调用栈。本轮确认了触摸取消路径，否定了“这些已送达的滚轮足以关闭菜单”的假设，但仍不能证明原 11:01:53 故障由同一种路径触发。没有依据修补产品菜单；本次提交是诊断证据及取消行为回归，不是原偶发故障修复声明。
+
+### 回归与交付边界
+
+新增 `testPagesMenuOutsideDragCancelsWithoutInvokingAction`：单次、按视口比例的菜单外拖动必须实际产生向上位移；要求只有一个新增触摸且无额外滚轮、菜单关闭、标签高度与选中页不变；随后作为独立交互重新打开菜单，验证动作仍能改变标签高度。前置断言失败立即停止，没有菜单丢失时重开补救或放宽原断言。
+
+| 状态 | 范围 | 证据与限制 |
+| --- | --- | --- |
+| **通过** | 新增拖动取消首轮，1 项 | [结果](Results/menu-causality-final-focus-20261022/summary.json)。此后补充实际位移断言并恢复 scheme 文件原有末尾字节，因此该次不是最终源码验收。 |
+| **通过** | 原 iPhone 最终 4 项 UI，0 失败、0 跳过 | 新增拖动取消、四轮无输入保持／动作、点击取消／子菜单、原自动栏高。[摘要](Results/menu-causality-final-regression-20261022/summary.json)、[日志](Results/menu-causality-final-regression-20261022/xcodebuild.log)、[结果包](Results/menu-causality-final-regression-20261022/Result.xcresult)、[调用参数](Results/menu-causality-final-regression-20261022/command.txt)；`sourceChangedSinceRun=[]`，三类运行时诊断计数均为 0。 |
+| **通过** | SwiftFormat 0.64.0 单文件 lint、`git diff --check` | 本轮源码只新增一个 UI 用例；移除该函数后，该文件与起始快照逐字节相同，其他既有源码哈希未变。 |
+| **失败，保留** | 两次滚轮关闭假设实验 | 上下方向均收到滚轮而菜单未收起，不能包装成产品修复后的通过。 |
+| **被环境／工具能力阻塞** | 原历史输入的精确重放 | 原日志没有完整事件参数，iPhone XCTest pointer 输入不受支持，人工鼠标输入送达未证实；电脑工具已送达的序列未复现故障。 |
+| **未执行** | 完整套件及跨设备矩阵 | 仅对本次测试与诊断范围作聚焦验证，不以其代替完整验收。 |
+
+终态由 Apple 官方 `RunSomeTests` 执行。聚焦首轮的 MCP 导出 `.xcresult` 缺少 `Info.plist`，已保留不完整导出，并从 Xcode DerivedData 取得**同次、同时间戳**的原始结果包；最终四项回归的 MCP 导出完整。最终结果使用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 Scripts/summarize_validation.py Validation/Results/menu-causality-final-regression-20261022` 校验；并非重跑来替代结果。临时 scheme 修改曾使目标回到物理 iPhone 13，造成一次签名构建失败，保留[日志](Results/menu-causality-20261022/destination-reset-build.log)，重新指定原模拟器后完成实验；该签名失败不属于菜单故障。交付时已恢复原物理 iPhone 13 目标。
+
+临时调试启动参数、人工等待测试和 LLDB 断点均移除；本轮公开 API 与接入行为无变化，README 的公开契约不调整。构建产生的格式化已与起始快照比较，既有布局修改保持原样。未运行完整库／完整 Demo 套件、iPad、Duo、独立 Release、最低 iOS、真机或 VoiceOver 专项；这些结果不由本轮聚焦回归推定通过。原失败和本轮假设失败证据均保留。
+
 ## 2026-10-22：页面菜单偶发收起排查与输入观测修正
 
 从干净的 `5056653` 开始。本轮没有修改 `DemoPager` 的原生 `UIBarButtonItem.menu`、框架菜单处理或动画策略；修正的是测试输入观测，**不能据此宣布原偶发故障已修复**。

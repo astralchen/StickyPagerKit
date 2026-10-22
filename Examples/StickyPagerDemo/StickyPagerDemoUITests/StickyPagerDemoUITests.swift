@@ -124,6 +124,38 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("page=grid")
     }
 
+    func testPagesMenuOutsideDragCancelsWithoutInvokingAction() throws {
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let initialHeight = tabs.frame.height
+        let sequence = try openPagesMenu()
+        let action = app.buttons["切换自定义标签"]
+        let window = app.windows.firstMatch
+        // 菜单外的真实触摸拖动是取消操作；不能与没有 UITouch 的滚轮输入混为一谈。
+        // 按窗口比例取左侧路径，避免经过右侧菜单或依赖固定像素距离。
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.7))
+            .press(forDuration: 0.05, thenDragTo: window.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)
+            ))
+        try assertMenuInput(sequence: sequence + 1)
+        let dragTrace = try pagingTrace()
+        let samples = try XCTUnwrap(dragTrace["samples"] as? [[String: Double]])
+        let startY = try XCTUnwrap(samples.first?["y"])
+        let endY = try XCTUnwrap(samples.last?["y"])
+        XCTAssertGreaterThan(startY - endY, window.frame.height * 0.1, "必须实际拖动，不能退化为菜单外点击")
+        XCTAssertFalse(action.exists)
+        XCTAssertEqual(tabs.frame.height, initialHeight, accuracy: 1)
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        expect("page=grid")
+        // 这是取消后的独立交互，不在菜单丢失时重开补救；前面的取消断言必须先通过。
+        let reopenedSequence = try openPagesMenu()
+        action.tap()
+        try assertMenuInput(sequence: reopenedSequence + 1)
+        XCTAssertFalse(action.exists)
+        XCTAssertGreaterThan(tabs.frame.height, initialHeight)
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        expect("page=grid")
+    }
+
     func testPagesMenuPointerObservationPreservesTouchSamples() throws {
         try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "XCTest 的 pointer 输入仅在本用例的 iPad 环境受支持")
         try openPagesMenu()
