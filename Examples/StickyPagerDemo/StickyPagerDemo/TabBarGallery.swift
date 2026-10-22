@@ -7,7 +7,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
     private let bar = SPTabBar()
     private let indicatorProvider = DemoIndicatorProvider()
     private let contentProvider = DemoTabContentProvider()
-    private let status = UILabel()
+    private let status = RegressionStatusLabel()
     private let tabs = [
         SPTabBarItem(title: "推荐"),
         SPTabBarItem(title: "收藏", image: UIImage(systemName: "star"), selectedImage: UIImage(systemName: "star.fill")),
@@ -23,17 +23,32 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         tabs[2].badgeValue = ""
         tabs[2].accessibilityLabel = "通知"
         tabs[3].isEnabled = false
+        if ProcessInfo.processInfo.arguments.contains("--chinese-badges") {
+            tabs[0].badgeValue = "新"
+            tabs[1].badgeValue = "上新"
+            tabs[4].badgeValue = "待更新"
+        }
+        if ProcessInfo.processInfo.arguments.contains("--rtl") {
+            bar.semanticContentAttribute = .forceRightToLeft
+        }
         bar.items = tabs
         bar.selectedItem = tabs[0]
         bar.delegate = self
         bar.contentDelegate = contentProvider
         view.addSubview(bar)
+        if ProcessInfo.processInfo.arguments.contains("--accessories") {
+            bar.items += (1 ... 8).map { SPTabBarItem(title: "专题频道 \($0)") }
+            DemoTabBarAccessories.install(on: bar, owner: self, leading: true, trailing: true)
+            bar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+        }
         status.numberOfLines = 0
+        status.accessibilityIdentifier = "demo.gallery.status"
         status.font = .preferredFont(forTextStyle: .body)
         status.adjustsFontForContentSizeCategory = true
         status.text = "独立使用：点击标签可选择；拖动可浏览更多标签。右上角可切换布局、样式和动态内容。"
         view.addSubview(status)
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "配置", menu: UIMenu(children: [
+            DemoTabBarAccessories.menu(for: bar, owner: self),
             indicatorProvider.menu(for: bar),
             UIMenu(title: "标签间距", children: [0, 8, 16, 24].map { spacing in
                 UIAction(title: "项间距 \(spacing)") { [weak self] _ in
@@ -72,11 +87,13 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let safe = view.safeAreaInsets
+        let barWidth = ProcessInfo.processInfo.arguments.contains("--narrow-tabs") ? min(240, view.bounds.width) : view
+            .bounds.width
         bar.frame = CGRect(
             x: 0,
             y: safe.top + 20,
-            width: view.bounds.width,
-            height: bar.sizeThatFits(view.bounds.size).height
+            width: barWidth,
+            height: bar.sizeThatFits(CGSize(width: barWidth, height: view.bounds.height)).height
         )
         let width = max(0, view.bounds.width - safe.left - safe.right - 40)
         status.frame = CGRect(

@@ -94,7 +94,7 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 
 首页提供两个纵向排列的入口：「打开演示」继续使用原有导航栈；「系统容器演示」全屏打开 `UITabBarController → UINavigationController → DemoPager`，其中 `DemoPager` 是 `SPPageViewController` 的子类。系统标签分为「联动演示」和「布局说明」，两个标签各自持有导航控制器，均可通过「关闭」回到首页。实现见 [DemoSystemContainer.swift](Examples/StickyPagerDemo/StickyPagerDemo/DemoSystemContainer.swift)。
 
-系统容器场景把状态移到导航栏并隐藏原有底部工具栏，便于观察系统 Tab Bar 的安全区域贡献。Header 背景及子页面根视图仍延伸到容器边界，组件标签栏在顶部安全区域下缘吸顶；列表保留 UIKit 自动 `adjustedContentInset` 和滚动指示器安全区域处理，不手动叠加系统栏高度。iPad 的系统 Tab Bar 可按系统规则位于顶部，布局以实际安全区域为准。「页面」菜单仍可切换 Header 类型、高度和页面配置。
+系统容器场景把状态移到导航栏并隐藏原有底部工具栏，便于观察系统 Tab Bar 的安全区域贡献。Header 背景及子页面根视图仍延伸到容器边界，组件标签栏在顶部安全区域下缘吸顶；列表保留 UIKit 自动 `adjustedContentInset` 和滚动指示器安全区域处理，不手动叠加系统栏高度。系统标签控件可位于底部、iPad 顶部或 Duo 侧边，布局与验证以实际安全区域和控件 frame 为准，不仅凭设备方向推断其位置。「页面」菜单仍可切换 Header 类型、高度和页面配置。
 
 - 网格、长列表、短列表、空列表、普通页面和可动态创建滚动视图的异步页面。
 - “收藏”与“更多专题与活动”之间的“组合布局”标签使用 `UICollectionViewCompositionalLayout`：包含 `.continuous`、`.groupPaging` 横向 Section 和 30 项纵向内容；也可从“页面 → 组合布局 · 嵌套滚动”直接进入。
@@ -160,6 +160,8 @@ tabs.selectedItem = favorites
 favorites.title = "我的收藏" // 自动更新标题和布局
 ```
 
+默认角标采用顶部尾端悬浮布局：上下图文以图标为定位基准，纯文字与横向图文以整体内容为基准；LTR 显示在右上角，阿拉伯文等 RTL 界面镜像到左上角，方向由布局环境决定，与角标字符串的语言无关。数字、`99+` 和“上新”等中文短文本按实际字体测量并居中显示，宽度至少等于高度，多字符自然扩展为胶囊。框架优先使用标签原有留白，空间不足时对称扩展理想宽度，保持图文居中；角标不计入指示器的内容区域。`nil` 隐藏、空字符串显示圆点的语义不变。自定义 `UIContentConfiguration` 仍自行绘制角标，框架仅提供 Item 的无障碍值回退，不额外叠加默认角标。
+
 `items` 可以直接设置，也可调用 `setItems(_:)`；重复对象导致整次更新被拒绝。重排按对象身份保留选择，选中对象被移除则清空。`selectedItem` 可以设为 nil；不属于 items 的对象会被拒绝并保留原选择。`selectedIndex` 是只读索引映射；索引选择方法仍作为便利入口保留。分页容器的 `setSelectedIndex(_:animated:)` 和稳定页面 ID 规则不变。
 
 `delegate` 是弱引用，必须由业务方持有。`tabBar(_:shouldSelect:)` 可以否决标签点击；`tabBar(_:didSelect:)` 只在标签点击成功提交后调用，重复点击当前项也通知一次。程序化选择不会发送标签栏代理事件。独立标签栏自行提交选择；嵌入 `SPPageViewController` 后由容器在切页完成时提交，取消、中断、重载或替换栏会废弃旧点击请求。页面手势和程序化切页由 `SPPageViewControllerDelegate` 报告。`isEnabled = false` 仅禁止点击和无障碍激活，不阻止滑动或程序化进入对应页面。
@@ -178,6 +180,57 @@ tabs.tintColor = .systemBlue // 默认选中文字和模板图标跟随 tintColo
 tabs.standardAppearance.itemAppearance.selected.titleColor = .systemPurple
 tabs.indicatorStyle = .capsule
 ```
+
+### 内容留白与固定附件
+
+`contentInsets: NSDirectionalEdgeInsets` 默认 `.zero`；`leadingAccessoryView` 和 `trailingAccessoryView` 默认 nil。三者都属于标签栏布局配置，不属于 Appearance，不参与其复制或归档。没有配置附件或留白时，布局和选择行为保持原样。
+
+```swift
+let tabs = pager.tabBar
+// 水平首尾留白随标签内容滚动，上下留白参与建议栏高。
+tabs.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+
+let more = UIButton(type: .system)
+more.setImage(UIImage(systemName: "line.3.horizontal"), for: .normal)
+more.accessibilityLabel = "更多频道"
+NSLayoutConstraint.activate([
+    more.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
+    more.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+])
+more.addAction(UIAction { _ in
+    // 展示业务频道菜单；可通过 tabs.requestSelection(of:) 请求频道选择。
+}, for: .touchUpInside)
+tabs.trailingAccessoryView = more
+
+// leadingAccessoryView 同样支持搜索按钮、UILabel 或完整约束的自定义容器。
+// 修改已有附件的文字、约束或 isHidden 后，请求重新测量和更新宿主栏高。
+more.setTitle("频道", for: .normal)
+tabs.invalidateAccessoryLayout()
+```
+
+布局先从栏的 bounds 扣除左右 Safe Area，再为两端附件预留空间，其余部分作为标签视口。背景、材质及底部分隔线仍铺满整栏。`contentInsets` 仅作用于标签内容，附件内边距由附件自己配置。水平留白和项间距共同计入滚动宽度；到开头／结尾时显示对应留白，滚动到中间后留白随内容移出视口。上下留白内缩 Item，内置指示器跟随内缩后的 Item／内容区域。负数及非有限 inset 分量归零，每个分量最多 1,000,000 pt。空列表不会因水平留白单独产生滚动或渐隐。
+
+附件通过普通 UIView 承载视图使用 `systemLayoutSizeFitting(UIView.layoutFittingCompressedSize, withHorizontalFittingPriority: .fittingSizeLevel, verticalFittingPriority: .fittingSizeLevel)` 测量。提供固有尺寸、完整的内部约束或显式宽高约束即可；不读取 frame，也不调用 `sizeThatFits(_:)` 回退。没有尺寸依据、测量结果非法（非有限、非正或超过 1,000,000 pt）以及 `isHidden` 的附件按零占位。框架用极低优先级的零尺寸测量约束避免无约束 UIView 返回旧 bounds，业务约束与固有尺寸均优先。测量时临时连接附件与承载视图四边，由承载视图求解，避免配置式 UIButton 的 fitting 重写忽略外加尺寸约束；实际布局解除四边连接以支持裁切。业务自行提供足够的点击区域；示例的 44 pt 是业务最小尺寸，不是库的强制下限。
+
+附件由标签栏强持有，框架管理 frame、承载区域和裁切，不应与其他宿主共享，也不要添加连接附件与标签栏的外部定位约束。同一对象不能同时用于两端，跨端重复赋值会忽略该次操作并保留原状态；替换或移除后旧附件从框架层级移除。正常情况下附件保持理想尺寸并垂直居中；两端理想宽度总和超过安全宽度时，按宽度比例分配不重叠的区域，分别朝逻辑外侧对齐并裁切，标签视口可以缩为零。恢复宽度后恢复正常显示；固定栏高不足时也在栏内裁切，不扩大栏外点击范围。
+
+建议高度为 `max(标签内容高度 + top + bottom, leading 附件高度, trailing 附件高度)`。内容高度使用扣除附件和水平留白后的宽度测量。容器仍将 `SPPageLayout.tabBarHeight` 作为最小栏高，0 隐藏整个标签栏及附件。候选 `sizeThatFits(_:)` 不修改当前附件 frame、Cell、偏移或指示器。附件内容、内部约束或可见性变化后调用 `invalidateAccessoryLayout()`；替换附件、修改留白、旋转、安全区域和相关 traits 变化由框架安排更新。
+
+#### UI／UX 行为
+
+- 附件固定、标签独立滚动。RTL 下 leading 位于右侧、trailing 位于左侧；逻辑频道索引不变。选中项围绕剩余标签视口的中心对齐，首尾受实际滚动范围限制。
+- 标签视口的某一侧还有隐藏内容时，该侧显示透明度渐隐，接近端点连续减弱，到端点消失。附件始终清晰；渐隐适配浅色、深色、透明及材质背景。
+- 附件按钮独立处理动作、菜单和无障碍说明，不占用标签索引。点击留白和项间距不会选择标签；附件点击不会自动触发选择或分页回调。业务菜单若要切页，显式调用 `requestSelection(of:)`，保留禁用项和选择代理语义。
+- 内容几何变化保留选中 Item：手动偏移限制到新范围，程序选择动画落到选中项，分页按原端点与进度重新定位。无几何变化的刷新不打断动画或手动滚动。旋转、布局方向变化沿用原有对齐策略。
+- 附件承载视图不额外成为无障碍元素；按钮名称、动作及 Dynamic Type 适配由业务设置。窄窗口中的裁切不会扩大可点击区域，业务应避免使用过宽附件。
+
+#### Demo 操作
+
+“标签外观”→“配置”和分页 Demo 的“页面”菜单均提供“留白与附件”：可选择无／对称／非对称留白、无／仅搜索／仅更多频道／两端附件，并切换附件文字、高附件和布局方向。“搜索频道”展示本地演示提示；“更多频道”按当前 Item 生成菜单，标题为空时使用无障碍名称（例如纯图标频道“通知”），两者均为空时显示“未命名”。禁用频道不可选，选择可用频道后通过既有 API 切换。没有网络搜索或频道管理持久化。
+
+在 Duo 外屏或较小窗口中，“页面”菜单可能不能一次显示所有操作；在菜单内部上滑即可找到下方的“重排页面”“删除当前页”“清空页面”等选项。返回控件的位置由系统导航容器决定，Duo 上可能出现在侧边；附件按钮和页面菜单不替代系统返回操作。
+
+`--open-gallery --accessories` 直接进入带两端按钮和较多频道的独立示例；`--open-demo --accessories` 进入分页示例。可附加 `--rtl` 或 `--dark`；深色模式应用到整个窗口，让导航栏、菜单与内容保持一致。独立示例还支持 `--narrow-tabs`（将栏宽限制为 240 pt，用于复现内容裁切，不等同于系统分屏）。原有自定义内容、长标题、栏高及隐藏菜单继续可用。UI 验证截图与执行范围见 [Validation/README.md](Validation/README.md)。
 
 ### 选中指示器
 
@@ -266,7 +319,7 @@ tabs.indicatorView = customIndicatorView
 
 自定义视图继承 `SPTabBarIndicatorView`，在 `update(_:)` 中读取来源/目标索引、连续进度、当前 frame、颜色和圆角；索引为 nil 表示对应端点没有选中项。框架强持有视图并管理 frame、隐藏、层级与交互；业务只布局内部子视图，不修改根视图 frame/transform。替换或设为 nil 会移除旧视图；不能把同一视图交给多个标签栏。代理和视图不进入 Appearance 的复制与归档；布局值和颜色可以复制与安全归档。
 
-指示器是装饰，不参与标签宽度、栏高或点击区域测量；需要预留空间时，在标签内容中提供留白，并用 `SPPageLayout.tabBarHeight` 或独立宿主栏高保证空间。允许超出单项，但始终随内容滚动并裁剪到标签栏安全视口，不能跨到 Header 或页面上。前景/背景层都不拦截触摸，也不增加无障碍焦点。
+指示器是装饰，不参与标签宽度、栏高或点击区域测量；需要预留空间时，在标签内容中提供留白，并用 `SPPageLayout.tabBarHeight` 或独立宿主栏高保证空间。允许超出单项，但始终随内容滚动并裁剪到扣除附件后的标签视口，不能跨到附件、Header 或页面上。前景/背景层都不拦截触摸，也不增加无障碍焦点。
 
 点击、程序化切换和分页共享位置与宽高插值。标签栏的滚动动画独立于指示器是否存在，`.none` 或零尺寸指示器不会关闭标签栏的滚动动画。自定义指示器在程序动画开始时先接收 `progress = 0` 和起始 frame，再按动画进度更新；连续点击从当前 frame 接续，不提前发送目标完成态。取消返回选中项；分页期间修改指示器配置或栏尺寸会保留进度并重新计算端点，程序动画期间修改配置则落到当前选中项，保留已有滚动偏移。每项几何使用该 Item 的 Appearance 或栏级回退；颜色、层级和圆角使用当前已选 Item 的外观，提交选择时更新；Item 外观不会改变标签栏的 `indicatorStyle`。交互分页按手势进度更新，减少动态效果时程序化选择直接完成。
 
@@ -285,11 +338,11 @@ tabs.itemSpacing = 16 // 相邻 Item 之间留出 16 pt
 tabs.minimumItemWidth = 44 // 单个 Item 的最小布局宽度，不含间距
 ```
 
-有 n 个 Item 时，总间距为 `max(0, n - 1) × itemSpacing`。先从视口扣除总间距，再按现有策略分配 Item 宽度；超出视口时，滚动内容宽度为 Item 宽度之和加总间距。自动内容按扣除间距后实际分配的宽度计算高度；空列表和单项不产生额外间距。间隙不属于任意 Item 的点击区域，也不增加无障碍元素。
+有 n 个 Item 时，总间距为 `max(0, n - 1) × itemSpacing`。先从扣除附件后的标签视口中减去水平内容留白和总间距，再按现有策略分配 Item 宽度；超出视口时，滚动内容宽度为 Item 宽度之和、总间距及水平首尾留白之和。自动内容按扣除间距后实际分配的宽度计算高度；空列表和单项不产生额外间距。间隙不属于任意 Item 的点击区域，也不增加无障碍元素。
 
 运行时修改间距无需重设 Items，保留对象身份、当前选择和选择回调语义。几何变化时，手动偏移限制到新滚动范围，程序动画落到当前选中项，分页交互保持进度并重算端点；归一化后的间距未变化时不触发刷新。居中、边缘渐隐和指示器均跟随最终布局，`.none` 下滚动动画照常工作。Demo 的“页面”及“标签外观 → 配置”中均可通过“标签间距”选择 0、8、16、24 pt。
 
-背景铺满容器，内部 Collection View、点击区域和指示器共用左右安全视口。超出视口的内容在仍有隐藏项的一侧使用 16 pt 渐隐；材质背景不参与渐隐。`tabBarHeight` 是最小高度（0 隐藏），实际高度由图文和 Dynamic Type 字体测量；变化后容器更新页面边界并保留滚动位置。独立宿主应在布局时使用 `sizeThatFits(_:)`。降低透明度时改用不透明系统背景，减少动态效果时关闭程序化选中动画。角标、选中和禁用状态同步无障碍信息。
+背景铺满容器，内部 Collection View 和指示器共用扣除左右安全区域及固定附件后的标签视口；附件在各自区域独立接收点击。超出视口的内容在仍有隐藏项的一侧使用 16 pt 渐隐；材质背景不参与渐隐。`tabBarHeight` 是最小高度（0 隐藏），实际高度综合内容测量、上下内容留白和附件理想高度；变化后容器更新页面边界并保留滚动位置。独立宿主应在布局时使用 `sizeThatFits(_:)`。降低透明度时改用不透明系统背景，减少动态效果时关闭程序化选中动画。角标、选中和禁用状态同步无障碍信息。
 
 分页和非相邻选择继续共享选中标识与居中偏移的连续进度；连续点击从当前位置接续。按住标签按钮后横向拖动时允许 Collection View 接管手势。自定义栏可重写 `setItems(_:)`、`setSelectedItem(_:animated:)` 和 `setTransitionProgress(from:to:progress:)`，调用 super 保持模型同步，使用 `requestSelection(of:)` 发送用户请求。通过 `pager.tabBar = CustomTabBar()` 替换。
 
@@ -359,11 +412,11 @@ pager.tabBar.reloadContent()
 
 配置与测量遵循以下约定：
 
-- `context` 提供当前 `UICellConfigurationState`、tintColor、视觉方向、扣除左右安全区域后的视口宽度，以及当前生效 Appearance 的独立副本。尚未布局时宽度可能为 0。业务决定如何使用 Item 和 Appearance；框架不会把默认样式强加给自定义内容。
+- `context` 提供当前 `UICellConfigurationState`、tintColor、视觉方向、扣除左右安全区域、固定附件和水平内容留白后的可用宽度，以及当前生效 Appearance 的独立副本。尚未布局时宽度可能为 0。业务决定如何使用 Item 和 Appearance；框架不会把默认样式强加给自定义内容。
 - `SPTabBarContent(configuration:)` 默认自动测量，`size == nil`。框架用独立的内容视图调用 `systemLayoutSizeFitting`：先以压缩目标求首选宽度，再由普通 Auto Layout 测量宿主以水平优先级 999 尝试视口内的首选宽度（未知视口时使用内容首选宽度）；业务 required 最小宽度可以超出视口。然后由布局应用 `minimumItemWidth`，先满足较宽项、再让较窄项尽量等宽，以水平 `.required`、垂直 `.fittingSizeLevel` 定宽求高度。所有 Cell 高度取各项所需高度的最大值，并受容器最低栏高约束；`tabBarHeight == 0` 仍隐藏标签栏。
 - 自定义视图需要完整的内部 Auto Layout 约束或能参与求解的 `intrinsicContentSize`。例如多行 UILabel 应连接内容视图四边，框架不额外添加业务内边距。`targetSize` 本身不是最大尺寸；普通 UIView 只重写 `sizeThatFits` 也不代表它一定参与 Auto Layout 测量。手动布局视图可继续提供显式尺寸，或自行实现 `systemLayoutSizeFitting`。
 - 仍可使用 `SPTabBarContent(configuration: configuration, size: CGSize(width: 160, height: 76))` 跳过自动测量；它是理想尺寸覆盖，最终宽度可能由标签栏扩展。`size` 现在为 `CGSize?`，旧的显式尺寸初始化调用保持可用，读取属性的代码需要处理 nil；赋值 nil 可恢复自动测量。显式尺寸和自动测量结果必须为有限正数且不超过 1,000,000 pt，否则该项回退到默认内容；理想尺寸不再混入 Cell 最小宽度，高度不额外设下限（自动测量尺寸向上取整到 pt）。显式尺寸不限制到视口；自动测量可能压缩可换行内容。
-- `SPPageLayout.tabBarHeight` 是最小栏高，默认 44，设为 0 时隐藏。正值时实际栏高为 `max(tabBarHeight, 内容所需高度)`，不是固定高度。例如自定义内容需要 28 pt 时，配置 32 / 60 / 44，实际栏高分别为 32 / 60 / 44；内容需要 80 pt 时，这三个配置都得到 80。默认图文及回退项保留自身至少 44 pt 的规则，因此混用时仍可能把整栏撑高。宽度由标签栏自身的 `minimumItemWidth`、`itemSpacing` 和分配规则控制，不由 `SPPageLayout` 控制。
+- `SPPageLayout.tabBarHeight` 是最小栏高，默认 44，设为 0 时隐藏。正值时实际栏高为 `max(tabBarHeight, 内容所需高度 + 上下内容留白, 两端附件理想高度)`，不是固定高度。例如自定义内容需要 28 pt 时，配置 32 / 60 / 44，实际栏高分别为 32 / 60 / 44；内容需要 80 pt 时，这三个配置都得到 80。默认图文及回退项保留自身至少 44 pt 的规则，因此混用时仍可能把整栏撑高。宽度由标签栏自身的 `minimumItemWidth`、`itemSpacing` 和分配规则控制，不由 `SPPageLayout` 控制。
 - `SPTabBar.minimumItemWidth` 默认 44 pt，同时作用于默认、自定义及回退项。0 表示不额外设下限，负数归零，非有限值恢复为 44，超过 1,000,000 pt 截到该上限。它是 Cell 最小布局宽度，不改变业务返回的理想尺寸，也不扩大 Cell 外的命中区域。较小的宽度或栏高属于业务主动选择的紧凑交互，不能据此认为仍有 44 × 44 pt 点击区域。
 - 宽度分配连续：320 pt 视口中，理想宽度 `[160, 44]` 得到 `[160, 160]`，变成 `[161, 44]` 后得到 `[161, 159]`，不会再跳到 `[218.5, 101.5]`。这是对原“固有宽度加平均剩余空间”策略的行为调整。减少最小宽度不会关闭剩余空间分配，两个短标签仍可能等宽填满整栏。
 - 内容根视图须允许随实际分配宽度扩展。内部可设置 required 的最小宽度，超出视口时横向滚动；根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
@@ -376,7 +429,7 @@ pager.tabBar.reloadContent()
 - 每个标签保留一个由框架管理的整项点击和无障碍入口。自定义视图内部控件不参与命中测试或独立无障碍导航；如需标签内的独立按钮，当前接口不提供该交互模型。点击否决、禁用、程序化选择和分页手势的回调语义均沿用原规则。
 - `SPTabBarContent.accessibilityLabel`、`accessibilityHint`、`accessibilityValue` 可覆盖描述；nil 沿用 Item 标题／描述与角标值。选中和禁用 traits 由框架维护，避免重复暴露内部标签。
 
-完整自定义视图示例见 [CustomTabContent.swift](Examples/StickyPagerDemo/StickyPagerDemo/CustomTabContent.swift)：编号、标题、副标题组成卡片，演示按压、选中、禁用、Dynamic Type 与 RTL。Demo 首页“标签外观”→“配置”→“自定义卡片”，或分页 Demo“页面”→“切换自定义标签”即可查看；`--open-demo --custom-tabs` 可直接启动。Demo 的卡片内部使用 Auto Layout 和 UILabel 固有尺寸，不再手算文字宽高。“页面”→“切换多行副标题”演示内容自动换行、栏高增长与恢复；“刷新自定义内容”演示同尺寸更新后保持手动滚动位置。“切换紧凑标签”使用仅含 UILabel 的 `UIContentView`，通过字体固有尺寸和内边距约束自动测量；“标签栏最小高度”菜单可选择 32、60、隐藏或默认 44，演示紧凑内容低于 44 和隐藏后恢复。该菜单不限制大字号所需高度。“页面”→“标签宽度”提供紧凑编号内容、24／44／120 最小项宽，以及首项内部 required 最小宽度 480 pt 的示例；后者可以超出视口并横向滚动。
+完整自定义视图示例见 [CustomTabContent.swift](Examples/StickyPagerDemo/StickyPagerDemo/CustomTabContent.swift)：编号、标题、副标题组成卡片，演示按压、选中、禁用、Dynamic Type 与 RTL。Demo 首页“标签外观”→“配置”→“自定义卡片”，或分页 Demo“页面”→“切换自定义标签”即可查看；`--open-demo --custom-tabs` 可直接启动。Demo 的卡片内部使用 Auto Layout 和 UILabel 固有尺寸，不再手算文字宽高。“页面”→“切换多行副标题”使用包含换行的两段文字，确保宽屏也能演示多行测量、栏高增长与恢复；“刷新自定义内容”演示同尺寸更新后保持手动滚动位置。“切换紧凑标签”使用仅含 UILabel 的 `UIContentView`，通过字体固有尺寸和内边距约束自动测量；“标签栏最小高度”菜单可选择 32、60、隐藏或默认 44，演示紧凑内容低于 44 和隐藏后恢复。该菜单不限制大字号所需高度。“页面”→“标签宽度”提供紧凑编号内容、24／44／120 最小项宽，以及首项内部 required 最小宽度为 `max(480, availableWidth + 80)` pt 的示例；后者在内屏与宽窗口也能超出视口并横向滚动。最小项宽是下限，内容较少时余量仍会均分。
 
 容器中设置最小栏高，无需业务计算内容高度：
 
@@ -461,6 +514,27 @@ SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer Scripts/validate.sh 
 ```
 
 `SP_SCOPE=library` 在仓库根目录运行 Swift Package 的 `StickyPagerKit` scheme；`SP_SCOPE=demo`（默认）运行 Demo 的应用及 UI 测试 scheme。在 Xcode 中单独打开根目录 `Package.swift`，选择 `StickyPagerKit` scheme 和 iOS 模拟器，也可运行库测试。库依赖 UIKit，不能以 macOS 为目标直接执行 `swift test`。
+
+Demo 的 `--window-regression` 参数让分页页和标签外观页通过无障碍状态值提供当前 `UIWindowScene` 的实际界面方向，仅供测试诊断。iOS 26+ 同时提供 `interfaceOrientationLocked`（`1` 为场景锁定、`0` 为未锁定、`unknown` 为场景尚不可用），旧系统记录 `unavailable`，不改变方向策略。旋转用例必须等待实际界面方向与目标一致；发送 `XCUIDevice.orientation` 请求或转动 Device Hub 外框不代表旋转已完成。系统容器旋转后的滚动检查按当前可见视口高度计算拖动距离，并保留实际位移断言。真实触摸使用窗口与控件的可见交集，并避开覆盖按钮和浮动工具栏内容；系统工具栏的无障碍容器 frame 可能覆盖整个窗口，不能直接将其上边界当作可触摸区域下边界。各设备的实际通过、失败和未覆盖范围见 [验证记录](Validation/README.md)。
+
+旋转后的系统返回手势使用实际窗口作为坐标锚点，并通过 Demo 现有的触摸记录确认边缘输入确实到达；不能把未收到触摸后的页面不变当作取消返回成功。附件栏高回归保留增长、恢复及页面衔接断言；80 pt 的下界比较仅容纳 `0.000001 pt` 浮点坐标误差，不改变框架的尺寸规则。
+
+对于 `XCUIDevice` 方向事件不能驱动界面、但 Device Hub 的 `Device → Orientation` 菜单可用的环境，可显式使用外部旋转模式。先为目标设备执行 `build-for-testing`（也可用官方 Xcode MCP 的 `BuildProject(buildForTesting: true)`），再运行：
+
+```sh
+DEVELOPER_DIR="<实际 Xcode.app 路径>/Contents/Developer" \
+python3 Scripts/run_external_rotation.py \
+  --xctestrun "<同次构建生成的 .xctestrun 绝对路径>" \
+  --device "<模拟器 UUID>" --run-name "<新的验证目录名>"
+```
+
+脚本复制 `.xctestrun`，仅在副本的 UI 测试运行器中设置 `SP_UI_EXTERNAL_ROTATION=1`，不修改 scheme 或应用方向策略；可重复传入 `--only-testing Target/Class/testMethod` 缩小范围。电脑操作者须持续读取运行目录的 `rotation-request.json`，根据其中 `orientation`（`1` 竖屏、`2` 倒置竖屏、`3` 左横向、`4` 右横向）操作 **Device → Orientation**，随后将同一请求 JSON 原子写入 `rotation-response.json`。唯一 `id` 防止复用旧确认；120 秒没有确认即失败。脚本只桥接文件，不自行合成系统输入。 使用电脑插件驱动时，Mac 须在整轮测试期间保持解锁；锁屏导致控件无法操作时，不得写入确认，应保留失败／中断证据，解锁后另起运行目录复测。
+
+折叠设备需先按当前屏幕姿态核对菜单与实际场景方向的对应关系，不能直接沿用外屏菜单名称。本机 `24A94232` 运行时的 Duo Open 内屏中，菜单 Landscape Left 对应 App Portrait，Portrait Upside Down 对应 App Landscape Right，Portrait 对应 App Landscape Left；这是该运行时下的同进程实测结果，切换运行时或重启后应重新核实。外部驱动应按请求所需的实际场景方向选择已核验的菜单，并另外记录实际菜单与姿态，原样回写请求，不改动用例的方向预期。
+
+外部确认表示菜单操作完成，或新鲜的 Demo 状态明确显示当前实际场景方向已满足请求；后一种情况须单独记录为无需转向，不能冒充一次实际旋转。Home 画面、历史缓存方向和单纯的窗口宽高不足以走该分支。各旋转用例仍按原超时等待实际场景方向并检查布局、滚动与触摸。外部驱动结果与默认 `XCUIDevice` 路径分别报告，不能将前者通过描述为后者已修复。运行目录保留命令、源码哈希、`rotation-events.jsonl`、日志及 `.xcresult`，结束后仍需执行 `Scripts/summarize_validation.py` 核对终态与 `sourceChangedSinceRun`。
+
+若 Device Hub 的电脑控制读取超时，可先在设备侧栏搜索目标设备名称，选中目标后收起侧栏，再核对方向菜单和实际 App 状态。本机完整设备列表的一次读取耗时约 34.5 秒，筛选 Duo 并收起侧栏后多次读取降到约 0.2～2.8 秒；这是本机诊断观察，不保证适用于其他环境。旋转过渡期间若暂时没有窗口层级，应重新读取确认，不能直接回写完成。正常退出 Device Hub 也可能一并关闭模拟器，应避免在回归中途用退出应用代替读取重试；重启后须重新核对运行时、屏幕姿态和方向映射。具体终态和未覆盖范围以验证记录为准。
 
 脚本默认使用本机 Xcode 26.6 和 iPhone 17 Pro / iOS 26.5 的已知 UDID；其他机器请通过 `SP_DEVELOPER_DIR`、`SP_SIMULATOR_ID` 指定自己的环境。`SP_RUN_NAME` 可指定独立运行目录，每次测试保留工具链、源码 SHA-256、完整日志和 `.xcresult`。生成目录不进入 Git。
 

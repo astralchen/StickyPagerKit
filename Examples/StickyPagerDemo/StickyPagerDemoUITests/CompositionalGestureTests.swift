@@ -13,7 +13,7 @@ final class CompositionalGestureTests: XCTestCase {
 
     override func setUp() async throws {
         continueAfterFailure = false
-        XCUIDevice.shared.orientation = .portrait
+        UITestOrientation.set(.portrait)
         app = XCUIApplication()
         app.launchArguments = ["--open-demo", "--compositional", "--window-regression", "--paging-trace"]
         if name.contains("RTL") {
@@ -57,6 +57,7 @@ final class CompositionalGestureTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    @discardableResult
     private func drag(
         y: CGFloat,
         from start: CGFloat,
@@ -64,38 +65,53 @@ final class CompositionalGestureTests: XCTestCase {
         dy: CGFloat = 0,
         velocity: XCUIGestureVelocity = .slow,
         hold: TimeInterval = 0.2
-    ) {
+    ) -> CGFloat {
         let window = app.windows.firstMatch
         let frame = window.frame
+        let fields = (status.value as? String ?? "").split(separator: ";")
+        func inset(_ name: String) -> CGFloat {
+            let value = fields.first { $0.hasPrefix("\(name)=") }?.split(separator: "=").last.flatMap { Double($0) }
+            XCTAssertNotNil(value, "缺少窗口安全区域：\(name)")
+            return CGFloat(value ?? 0)
+        }
+        let left = inset("safeLeft") + 4, right = frame.width - inset("safeRight") - 4
+        let startX = min(right, max(left, frame.width * start))
+        let endX = min(right, max(left, frame.width * end))
         let origin = window.coordinate(withNormalizedOffset: .zero)
-        origin.withOffset(CGVector(dx: frame.width * start, dy: y - frame.minY)).press(
+        origin.withOffset(CGVector(dx: startX, dy: y - frame.minY)).press(
             forDuration: 0.05,
             thenDragTo: origin
                 .withOffset(CGVector(
-                    dx: frame.width * end,
+                    dx: endX,
                     dy: y - frame.minY + dy
                 )),
             withVelocity: velocity,
             thenHoldForDuration: hold
         )
+        return abs(endX - startX)
     }
 
     private func sectionY(_ section: Int) throws -> CGFloat {
         let viewport = collection.frame.intersection(app.windows.firstMatch.frame)
-        let bottom = min(viewport.maxY, app.toolbars.firstMatch.frame.minY)
+        print(
+            "SECTION VIEWPORT collection=\(collection.frame), window=\(app.windows.firstMatch.frame), toolbar=\(app.toolbars.firstMatch.frame)"
+        )
+        // 浮动工具栏的 AX 容器可能覆盖整个窗口；状态标签才是实际可见的工具栏内容。
+        let bottom = min(viewport.maxY, status.frame.minY - 12)
         let cell = collection.cells.matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
             "demo.compositional.\(section)."
         )).allElementsBoundByIndex
             .first {
                 let frame = $0.frame
+                print("SECTION CELL \($0.identifier) frame=\(frame)")
                 // 部分露出的首项中心可能已经位于标签栏后方；输入点必须真正落在可见内容内。
                 return frame.midY > viewport.minY && frame.midY < bottom
                     && frame.midX > viewport.minX && frame.midX < viewport.maxX
             }
         let frame = try XCTUnwrap(cell).frame
         XCTAssertGreaterThan(frame.midY, collection.frame.minY)
-        XCTAssertLessThan(frame.midY, app.toolbars.firstMatch.frame.minY)
+        XCTAssertLessThan(frame.midY, bottom)
         return frame.midY
     }
 
@@ -133,13 +149,18 @@ final class CompositionalGestureTests: XCTestCase {
     private func assertPageDrag(y: CGFloat, movesLeft: Bool, expectedPage: String) throws {
         let before = try trace()
         let width = app.windows.firstMatch.frame.width
-        drag(y: y, from: movesLeft ? 0.85 : 0.15, to: movesLeft ? 0.15 : 0.85)
+        let distance = drag(y: y, from: movesLeft ? 0.85 : 0.15, to: movesLeft ? 0.15 : 0.85)
+        XCTAssertGreaterThan(distance, width * 0.5, "安全区域内仍须真实拖过半页")
         expectPage(expectedPage)
         let after = try trace()
         let samples = try XCTUnwrap(after["samples"] as? [[String: Double]])
         XCTAssertEqual(samples.first?["phase"], 0)
         XCTAssertEqual(samples.last?["phase"], 3)
-        XCTAssertGreaterThan(abs(try XCTUnwrap(samples.last?["x"]) - XCTUnwrap(samples.first?["x"])), width * 0.65)
+        XCTAssertEqual(
+            abs(try XCTUnwrap(samples.last?["x"]) - XCTUnwrap(samples.first?["x"])),
+            Double(distance),
+            accuracy: 1
+        )
         XCTAssertGreaterThan(
             try XCTUnwrap(after["maxOffset"] as? Double) - XCTUnwrap(after["minOffset"] as? Double),
             width * 0.5

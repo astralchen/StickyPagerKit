@@ -18,11 +18,16 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if ProcessInfo.processInfo.arguments.contains("--rtl") {
             window.semanticContentAttribute = .forceRightToLeft
         }
+        if ProcessInfo.processInfo.arguments.contains("--dark") {
+            window.overrideUserInterfaceStyle = .dark
+        }
         let navigation = UINavigationController(rootViewController: DemoLauncher())
         window.rootViewController = navigation
         self.window = window
         window.makeKeyAndVisible()
-        if ProcessInfo.processInfo.arguments.contains("--open-demo") {
+        if ProcessInfo.processInfo.arguments.contains("--open-gallery") {
+            navigation.pushViewController(TabBarGallery(), animated: false)
+        } else if ProcessInfo.processInfo.arguments.contains("--open-demo") {
             navigation.pushViewController(DemoPager(), animated: false)
         }
     }

@@ -97,7 +97,9 @@ final class SPTabBarModelTests: XCTestCase {
         XCTAssertFalse(tab.isEnabled)
         XCTAssertTrue(tab.accessibilityTraits.contains(.selected))
         XCTAssertFalse(badge.isHidden)
-        XCTAssertGreaterThan(tab.configuration!.contentInsets.trailing, 16)
+        // 角标悬浮在内容顶部尾端，不能通过单侧内边距挤偏图文。
+        XCTAssertEqual(tab.configuration!.contentInsets.leading, 16)
+        XCTAssertEqual(tab.configuration!.contentInsets.trailing, 16)
         cell.prepareForReuse()
         cell.contentConfiguration = nextConfiguration
         cell.layoutIfNeeded()

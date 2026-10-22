@@ -132,6 +132,45 @@ final class StickyPagerKitTests: XCTestCase {
         }
     }
 
+    func testAccessoryHeightInsetsPreserveContainerScrollAndHiddenBar() {
+        for short in [false, true] {
+            let pager = mount(height: short ? 40 : 1800)
+            pager.view.layoutIfNeeded()
+            let scroll = pager.currentScrollView!
+            scroll.contentOffset.y = (short ? 100 : 310) - scroll.adjustedContentInset.top
+            let position = pager.records[0]!.binding!.position
+            let accessory = UIView()
+            let height = accessory.heightAnchor.constraint(equalToConstant: 100)
+            NSLayoutConstraint.activate([accessory.widthAnchor.constraint(equalToConstant: 60), height])
+            pager.tabBar.trailingAccessoryView = accessory
+            pager.tabBar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 10, trailing: 16)
+            for expected: CGFloat in [100, 130, 0, 130] {
+                pager.layout.tabBarHeight = expected == 0 ? 0 : 44
+                if expected > 0 {
+                    height.constant = expected
+                }
+                pager.tabBar.invalidateAccessoryLayout()
+                pager.view.layoutIfNeeded()
+                XCTAssertEqual(pager.tabBar.bounds.height, expected, accuracy: 0.01)
+                XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+                pager.setSelectedIndex(1, animated: false)
+                pager.setSelectedIndex(0, animated: false)
+                pager.view.layoutIfNeeded()
+                for index in [0, 1] {
+                    let root = pager.records[index]!.controller.view!
+                    let frame = root.convert(root.bounds, to: pager.view)
+                    XCTAssertEqual(frame.minY, pager.tabBar.frame.maxY, accuracy: 0.01)
+                    XCTAssertEqual(frame.maxY, pager.view.bounds.maxY, accuracy: 0.01)
+                }
+            }
+            pager.tabBar.trailingAccessoryView = nil
+            pager.tabBar.contentInsets = .zero
+            pager.view.layoutIfNeeded()
+            XCTAssertEqual(pager.tabBar.bounds.height, 44, accuracy: 0.01)
+            XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+        }
+    }
+
     func testAutomaticTabHeightUpdatesContainerAndCachedPages() {
         let pager = mount()
         let provider = AutomaticTabSource()

@@ -122,6 +122,10 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         }
         dataSource = self
         delegate = self
+        if ProcessInfo.processInfo.arguments.contains("--accessories") {
+            DemoTabBarAccessories.install(on: tabBar, owner: self, leading: true, trailing: true)
+            tabBar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+        }
         tabBar.contentDelegate = customTabProvider
         if ProcessInfo.processInfo.arguments.contains("--custom-tabs") {
             tabBar.contentStyle = .custom
@@ -141,6 +145,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         let height = UIBarButtonItem(title: "高度", primaryAction: heightAction)
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
+            DemoTabBarAccessories.menu(for: tabBar, owner: self),
             indicatorProvider.menu(for: tabBar),
             headerAction,
             heightAction,
@@ -200,7 +205,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                 guard let self else {
                     return
                 }
-                self.customTabProvider.subtitle = self.customTabProvider.subtitle.count > 4 ? "浏览专题" : "这段副标题通过内部约束自动换行，标签栏随内容更新高度，无需业务计算宽高。"
+                self.customTabProvider.subtitle = self.customTabProvider.subtitle.count > 4 ? "浏览专题" : "这段副标题通过内部约束自动换行，\n标签栏随内容更新高度，无需业务计算宽高。"
                 self.tabBar.reloadContent()
             },
             UIAction(title: "刷新自定义内容") { [weak self] _ in
@@ -455,20 +460,25 @@ final class DemoHeaderController: UIViewController {
 
 /// UI 回归直接读取窗口场景方向，避免将设备旋转请求误认为界面已旋转。
 @MainActor
-private final class RegressionStatusLabel: UILabel {
+final class RegressionStatusLabel: UILabel {
     override var accessibilityValue: String? {
         get {
             guard ProcessInfo.processInfo.arguments.contains("--window-regression") else {
                 return super.accessibilityValue
             }
             let orientation: UIInterfaceOrientation
+            let orientationLock: String
             if #available(iOS 26.0, *) {
-                orientation = window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .unknown
+                let geometry = window?.windowScene?.effectiveGeometry
+                orientation = geometry?.interfaceOrientation ?? .unknown
+                orientationLock = geometry.map { $0.isInterfaceOrientationLocked ? "1" : "0" } ?? "unknown"
             } else {
                 orientation = window?.windowScene?.interfaceOrientation ?? .unknown
+                orientationLock = "unavailable"
             }
             let trace = (window as? PagingTraceWindow).map { "gesture=\($0.pagingTrace);" } ?? ""
-            return "\(trace)interfaceOrientation=\(orientation.rawValue);\(super.accessibilityValue ?? "")"
+            let safe = window?.safeAreaInsets ?? .zero
+            return "\(trace)interfaceOrientation=\(orientation.rawValue);interfaceOrientationLocked=\(orientationLock);safeLeft=\(safe.left);safeRight=\(safe.right);\(super.accessibilityValue ?? "")"
         }
         set { super.accessibilityValue = newValue }
     }

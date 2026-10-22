@@ -79,6 +79,68 @@ open class SPTabBar: UIView {
 
     private var storedItemSpacing: CGFloat = 0
 
+    /// 标签内容四周的留白，默认零；水平首尾留白随内容滚动，上下留白参与建议栏高。
+    /// 不作用于固定附件。负数及非有限分量归零，每个分量最多 1,000,000 pt。
+    public var contentInsets: NSDirectionalEdgeInsets {
+        get { storedContentInsets }
+        set {
+            func normalized(_ value: CGFloat) -> CGFloat {
+                value.isFinite ? min(1_000_000, max(0, value)) : 0
+            }
+            let value = NSDirectionalEdgeInsets(
+                top: normalized(newValue.top),
+                leading: normalized(newValue.leading),
+                bottom: normalized(newValue.bottom),
+                trailing: normalized(newValue.trailing)
+            )
+            guard value != storedContentInsets else {
+                return
+            }
+            storedContentInsets = value
+            refreshContentLayout()
+        }
+    }
+
+    private var storedContentInsets: NSDirectionalEdgeInsets = .zero
+    private let leadingAccessoryHost = SPTabBarAccessoryHost()
+    private let trailingAccessoryHost = SPTabBarAccessoryHost()
+    private var appliedAccessoryGeometry: AccessoryGeometry?
+
+    /// 固定在逻辑起始端的附件，默认 nil；RTL 下位于右侧，不参与分页索引。
+    /// 通过 systemLayoutSizeFitting 获取理想尺寸，需提供固有尺寸或完整约束。
+    /// 强持有；同一视图不能同时用于两端，也不能与其他宿主共享。
+    public var leadingAccessoryView: UIView? {
+        get { leadingAccessoryHost.accessory }
+        set { setAccessory(newValue, host: leadingAccessoryHost, other: trailingAccessoryHost) }
+    }
+
+    /// 固定在逻辑末尾端的附件，默认 nil；RTL 下位于左侧，不受标签渐隐影响。
+    /// 测量、所有权与 leadingAccessoryView 相同；宽度不足时按比例裁切附件区域。
+    public var trailingAccessoryView: UIView? {
+        get { trailingAccessoryHost.accessory }
+        set { setAccessory(newValue, host: trailingAccessoryHost, other: leadingAccessoryHost) }
+    }
+
+    private func setAccessory(_ view: UIView?, host: SPTabBarAccessoryHost, other: SPTabBarAccessoryHost) {
+        guard view !== host.accessory else {
+            return
+        }
+        if let view {
+            guard view !== other.accessory, view !== self, !isDescendant(of: view), !view.isDescendant(of: self),
+                  view !== leadingAccessoryHost, view !== trailingAccessoryHost else {
+                return
+            }
+        }
+        host.replace(with: view)
+        invalidateAccessoryLayout()
+    }
+
+    /// 附件标题、内部约束或 isHidden 变化后调用；重新测量并请求宿主更新栏高。
+    /// 同尺寸刷新保留滚动和动画；有效几何变化不发送标签选择回调。
+    public func invalidateAccessoryLayout() {
+        refreshContentLayout()
+    }
+
     /// 仅在 `.custom` 模式下使用，业务方需自行持有代理。
     /// 赋值会刷新自定义内容；`.default` 下不影响当前显示或交互。
     /// 弱引用释放不会主动安排布局，在下一次标签栏布局时回退到默认内容。
@@ -156,6 +218,7 @@ open class SPTabBar: UIView {
         let contents: [SPTabBarContent?]
         let itemWidths: [CGFloat]
         let itemSpacing: CGFloat
+        let insets: NSDirectionalEdgeInsets
         let height: CGFloat
     }
 
@@ -399,6 +462,10 @@ open class SPTabBar: UIView {
         shadowView.isUserInteractionEnabled = false
         addSubview(backgroundImageView)
         addSubview(collectionView)
+        leadingAccessoryHost.accessibilityIdentifier = "sp.tabBar.leadingAccessory"
+        trailingAccessoryHost.accessibilityIdentifier = "sp.tabBar.trailingAccessory"
+        addSubview(leadingAccessoryHost)
+        addSubview(trailingAccessoryHost)
         addSubview(shadowView)
         contentMeasurementHost.isHidden = true
         contentMeasurementHost.isUserInteractionEnabled = false
@@ -432,16 +499,68 @@ open class SPTabBar: UIView {
 
     isolated deinit { displayLink?.invalidate(); NotificationCenter.default.removeObserver(self) }
 
-    /// 背景可延伸至屏幕边缘，文字、指示器和触摸使用同一安全视口。
-    private var contentViewport: CGRect {
-        let left = min(bounds.width, max(0, safeAreaInsets.left))
-        let right = min(bounds.width - left, max(0, safeAreaInsets.right))
-        return CGRect(
-            x: bounds.minX + left,
-            y: bounds.minY,
-            width: max(0, bounds.width - left - right),
-            height: bounds.height
+    private struct AccessoryGeometry: Equatable {
+        let leadingSize: CGSize
+        let trailingSize: CGSize
+        let leadingFrame: CGRect
+        let trailingFrame: CGRect
+        let viewport: CGRect
+    }
+
+    /// 候选宽度只计算几何，不设置附件或滚动视图的 frame。
+    private func accessoryGeometry(in rect: CGRect) -> AccessoryGeometry {
+        let width = max(0, rect.width)
+        let left = min(width, max(0, safeAreaInsets.left))
+        let right = min(width - left, max(0, safeAreaInsets.right))
+        let safeWidth = max(0, width - left - right)
+        let leading = leadingAccessoryHost.measuredSize()
+        let trailing = trailingAccessoryHost.measuredSize()
+        let sum = leading.width + trailing.width
+        let scale = sum > safeWidth && sum > 0 ? safeWidth / sum : 1
+        let leadingWidth = leading.width * scale
+        let trailingWidth = min(max(0, safeWidth - leadingWidth), trailing.width * scale)
+        let rtl = contentDirection == .rightToLeft
+        let start = rect.minX + left
+        let leftWidth = rtl ? trailingWidth : leadingWidth
+        let rightWidth = rtl ? leadingWidth : trailingWidth
+        let leftFrame = CGRect(x: start, y: rect.minY, width: leftWidth, height: max(0, rect.height))
+        let rightFrame = CGRect(
+            x: start + safeWidth - rightWidth,
+            y: rect.minY,
+            width: rightWidth,
+            height: max(0, rect.height)
         )
+        return AccessoryGeometry(
+            leadingSize: leading,
+            trailingSize: trailing,
+            leadingFrame: rtl ? rightFrame : leftFrame,
+            trailingFrame: rtl ? leftFrame : rightFrame,
+            viewport: CGRect(
+                x: start + leftWidth,
+                y: rect.minY,
+                width: max(0, safeWidth - leftWidth - rightWidth),
+                height: max(0, rect.height)
+            )
+        )
+    }
+
+    /// 背景铺满；文字和指示器使用扣除附件后的安全视口。
+    private var contentViewport: CGRect {
+        accessoryGeometry(in: bounds).viewport
+    }
+
+    private func applyAccessories(_ geometry: AccessoryGeometry) {
+        for (host, frame, size, right) in [
+            (leadingAccessoryHost, geometry.leadingFrame, geometry.leadingSize, contentDirection == .rightToLeft),
+            (trailingAccessoryHost, geometry.trailingFrame, geometry.trailingSize, contentDirection != .rightToLeft)
+        ] {
+            host.frame = frame
+            host.idealSize = size
+            host.alignsRight = right
+            host.isHidden = size == .zero
+            host.setNeedsLayout()
+            host.layoutIfNeeded()
+        }
     }
 
     open override func safeAreaInsetsDidChange() {
@@ -450,20 +569,43 @@ open class SPTabBar: UIView {
     }
 
     open override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        super.point(inside: point, with: event) && contentViewport.contains(point)
+        guard super.point(inside: point, with: event) else {
+            return false
+        }
+        if collectionView.bounds.width > 0, collectionView.bounds.height > 0,
+           collectionView.frame.contains(point) {
+            return true
+        }
+        return [leadingAccessoryHost, trailingAccessoryHost].contains {
+            !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0 && $0.frame.contains(point)
+        }
     }
 
     /// 测量建议宽度对应的高度，不改变当前配置、Cell 布局、滚动偏移或指示器。
-    /// 正宽度扣除左右安全区域后用于测量；非正宽度使用当前视口。
+    /// 正宽度扣除左右安全区域、附件及水平留白后用于内容测量；非正宽度使用当前栏宽。
+    /// 上下留白加入内容高度，再与附件理想高度取最大值。
     /// 默认图文上下各留 11 pt、至少 44 pt 高；自定义内容使用其理想高度，不额外设高度下限。
     /// 容器通过 SPPageLayout.tabBarHeight 设置最小栏高；独立使用时由宿主设置最终高度。
     open override func sizeThatFits(_ size: CGSize) -> CGSize {
-        let width = size.width > 0 ? max(0, size.width - safeAreaInsets.left - safeAreaInsets.right) : contentViewport
-            .width
-        let measurement = measureContents(width: width)
+        let proposedWidth = size.width.isFinite && size.width > 0 ? size.width : bounds.width
+        let geometry = accessoryGeometry(in: CGRect(
+            x: bounds.minX,
+            y: bounds.minY,
+            width: proposedWidth,
+            height: bounds.height
+        ))
+        let measurement = measureContents(width: geometry.viewport.width)
+        let contentHeight = measurement?.height ?? appliedContentMeasurement?.height ?? max(
+            44,
+            ceil(titleFont.lineHeight) + 22
+        )
         return CGSize(
             width: size.width,
-            height: measurement?.height ?? appliedContentMeasurement?.height ?? max(44, ceil(titleFont.lineHeight) + 22)
+            height: max(
+                contentHeight + contentInsets.top + contentInsets.bottom,
+                geometry.leadingSize.height,
+                geometry.trailingSize.height
+            )
         )
     }
 
@@ -569,7 +711,15 @@ open class SPTabBar: UIView {
             for: semanticContentAttribute,
             relativeTo: superview?.effectiveUserInterfaceLayoutDirection ?? effectiveUserInterfaceLayoutDirection
         )
-        let viewport = contentViewport
+        let accessories = accessoryGeometry(in: bounds)
+        let viewport = accessories.viewport
+        // 附件变化采用内容刷新策略；旋转、布局方向变化继续使用原有选中对齐策略。
+        let accessoryChanged = appliedAccessoryGeometry.map {
+            $0.leadingSize != accessories.leadingSize || $0.trailingSize != accessories.trailingSize
+        } ?? false
+        contentGeometryChanged = contentGeometryChanged || accessoryChanged
+        appliedAccessoryGeometry = accessories
+        applyAccessories(accessories)
         let geometryChanged = previousViewport != viewport || previousDirection != direction
         if geometryChanged {
             indicatorContentFrames.removeAll()
@@ -592,7 +742,7 @@ open class SPTabBar: UIView {
         if resolveCustomContents(width: viewport.width), !geometryChanged {
             contentGeometryChanged = contentGeometryChanged || metricsDiffer(from: previousMeasurement)
         }
-        if customViewsNeedUpdate {
+        if customViewsNeedUpdate || accessoryChanged {
             updateVisibleCells()
             invalidateIntrinsicContentSize()
             superview?.setNeedsLayout()
@@ -601,6 +751,7 @@ open class SPTabBar: UIView {
         if contentGeometryChanged {
             contentGeometryChanged = false
             let wasAnimating = selectionAnimation != nil
+            let shouldAlign = needsSelectionAlignment
             stopSelectionAnimation()
             transitionOrigin = nil
             needsSelectionAlignment = false
@@ -611,7 +762,7 @@ open class SPTabBar: UIView {
                     CGPoint(x: from + (to - from) * transition.progress, y: 0),
                     animated: false
                 )
-            } else if wasAnimating {
+            } else if wasAnimating || shouldAlign {
                 alignSelection()
             } else {
                 let maximum = max(0, tabLayout.collectionViewContentSize.width - viewport.width)
@@ -637,6 +788,7 @@ open class SPTabBar: UIView {
 
     open override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
+        setNeedsLayout()
         if contentStyle == .custom {
             // 菜单等临时系统 UI 也会改变环境；同尺寸刷新不应重新定位标签或清空转场。
             reloadContent()
@@ -689,22 +841,14 @@ open class SPTabBar: UIView {
         let gap: CGFloat = icon > 0 && !(item.title ?? "").isEmpty ? 4 : 0
         let width = stacked ? max(title.width, icon) : title.width + icon + gap
         let height = stacked ? title.height + icon + gap : max(title.height, icon)
-        let badgeWidth: CGFloat = item.badgeValue.map { $0.isEmpty ? 8 : max(
-            18,
-            ceil(($0 as NSString).size(withAttributes: [.font: UIFont.preferredFont(
-                forTextStyle: .caption2,
-                compatibleWith: traitCollection
-            )]).width) + 10
-        ) } ?? 0
+        let badgeSize = SPTabBadgeMetrics.size(
+            for: item.badgeValue,
+            font: .preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
+        )
         return CGSize(
-            width: width + (badgeWidth > 0 ? badgeWidth + 4 : 0),
-            height: max(
-                height,
-                badgeWidth > 0 ?
-                    ceil(UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection).lineHeight) +
-                    2 :
-                    0
-            )
+            width: width + SPTabBadgeMetrics.additionalWidth(for: badgeSize),
+            // 默认栏高另有 22 pt 上下留白；大字号角标需要对称扩展，避免顶部裁剪。
+            height: max(height + max(0, badgeSize.height - 22), badgeSize.height - 22)
         )
     }
 
@@ -719,7 +863,7 @@ open class SPTabBar: UIView {
         guard !resolvingCustomContents else {
             return nil
         }
-        let width = width.isFinite ? max(0, width) : 0
+        let width = width.isFinite ? max(0, width - contentInsets.leading - contentInsets.trailing) : 0
         let identity = contentDelegate.map(ObjectIdentifier.init)
         let direction = contentDirection
         for snapshot in [appliedContentMeasurement, candidateContentMeasurement] {
@@ -848,6 +992,7 @@ open class SPTabBar: UIView {
             contents: result,
             itemWidths: widths,
             itemSpacing: itemSpacing,
+            insets: contentInsets,
             // 只对默认图文保留原有高度规则；自定义内容不承担容器的最小栏高策略。
             height: result.indices.map { result[$0]?.size?.height ?? max(44, defaultSizes[$0].height + 22) }
                 .max() ?? max(44, ceil(titleFont.lineHeight) + 22)
@@ -875,6 +1020,7 @@ open class SPTabBar: UIView {
         customContents = measurement.contents
         tabLayout.itemWidths = measurement.itemWidths
         tabLayout.itemSpacing = measurement.itemSpacing
+        tabLayout.contentInsets = measurement.insets
         customViewsNeedUpdate = true
         return true
     }
@@ -883,7 +1029,8 @@ open class SPTabBar: UIView {
         guard let previous, let current = appliedContentMeasurement else {
             return false
         }
-        return (current.itemWidths.count > 1 && previous.itemSpacing != current.itemSpacing) ||
+        return previous.insets != current
+            .insets || (current.itemWidths.count > 1 && previous.itemSpacing != current.itemSpacing) ||
             SPTabBarLayout.resolvedWidths(
                 previous.itemWidths,
                 viewportWidth: previous.width,
@@ -984,6 +1131,7 @@ open class SPTabBar: UIView {
         }
         cell.contentConfiguration = SPTabContentConfiguration(
             buttonConfiguration: configuration,
+            layoutDirection: contentDirection,
             iconColor: iconColor,
             isEnabled: item.isEnabled,
             accessibilityIdentifier: "sp.tab.\(index)",
@@ -1028,7 +1176,7 @@ open class SPTabBar: UIView {
     private func updateEdgeMask() {
         let viewport = collectionView.bounds
         let overflow = max(0, collectionView.contentSize.width - viewport.width)
-        guard viewport.width > 0, overflow > 0.5 else {
+        guard viewport.width > 0, viewport.height > 0, !items.isEmpty, overflow > 0.5 else {
             collectionView.layer.mask = nil
             return
         }

@@ -19,6 +19,14 @@ final class SPTabBarLayout: UICollectionViewLayout {
         }
     }
 
+    var contentInsets: NSDirectionalEdgeInsets = .zero {
+        didSet {
+            if oldValue != contentInsets {
+                invalidateLayout()
+            }
+        }
+    }
+
     var isRightToLeft = false {
         didSet {
             if oldValue != isRightToLeft {
@@ -43,15 +51,23 @@ final class SPTabBarLayout: UICollectionViewLayout {
             let width = itemWidths.indices.contains(index) ? itemWidths[index] : 32
             return width.isFinite ? max(0, width) : 32
         }
-        let resolved = Self.resolvedWidths(widths, viewportWidth: size.width, itemSpacing: itemSpacing)
-        var x: CGFloat = 0
+        let resolved = Self.resolvedWidths(
+            widths,
+            viewportWidth: max(0, size.width - contentInsets.leading - contentInsets.trailing),
+            itemSpacing: itemSpacing
+        )
+        let left = isRightToLeft ? contentInsets.trailing : contentInsets.leading
+        let right = isRightToLeft ? contentInsets.leading : contentInsets.trailing
+        let top = min(size.height, contentInsets.top)
+        let height = max(0, size.height - top - contentInsets.bottom)
+        var x: CGFloat = itemCount == 0 ? 0 : left
         frames = (0 ..< itemCount).map { visualIndex in
             let index = isRightToLeft ? itemCount - 1 - visualIndex : visualIndex
             let width = resolved[index]
             defer { x += width + (visualIndex < itemCount - 1 ? itemSpacing : 0) }
-            return CGRect(x: x, y: 0, width: width, height: size.height)
+            return CGRect(x: x, y: top, width: width, height: height)
         }
-        contentSize = CGSize(width: max(size.width, x), height: size.height)
+        contentSize = CGSize(width: max(size.width, itemCount == 0 ? 0 : x + right), height: size.height)
     }
 
     /// 测量和实际布局共用宽度分配规则，保证多行内容按最终宽度计算高度。

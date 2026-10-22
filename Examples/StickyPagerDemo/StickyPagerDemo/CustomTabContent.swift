@@ -21,7 +21,7 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
                 title: usesNumberContent ? "\(index + 1)" : (item.title ?? "未命名"),
                 font: UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: context.state.traitCollection),
                 tintColor: context.tintColor,
-                minimumWidth: usesWideContent && index == 0 ? 480 : 0
+                minimumWidth: usesWideContent && index == 0 ? max(480, context.availableWidth + 80) : 0
             ))
         }
         let traits = context.state.traitCollection

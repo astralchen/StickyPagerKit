@@ -1,6 +1,208 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-20。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-10-22。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+
+## 2026-10-22：全部待提交改动审查与补测
+
+审查覆盖全部已跟踪差异及新增文件：标签栏留白、附件测量与裁切、角标、Demo 配置与启动参数、真实方向／窗口触摸测试、外部旋转脚本、公开说明和截图证据。保留已有工程 Debug／Release 的空签名 Team 配置，不改变 iOS 15 部署目标。未发现需要修改生产实现的新增阻塞缺陷；本轮补上两项此前没有直接断言的边界：候选宽度测量不终止选择动画、零尺寸及超上限附件恢复后保留业务约束。
+
+| 状态 | 审查或验证范围 | 证据与边界 |
+| --- | --- | --- |
+| **通过** | 附件聚焦 14 项，0 失败、0 跳过 | [摘要](Results/review-accessory-focused-20261022/summary.json) · [结果包](Results/review-accessory-focused-20261022/Result.xcresult)；包含新增的两个真实 UIWindow 用例 |
+| **通过** | 完整库 192 项，0 失败、0 跳过 | [摘要](Results/review-library-full-20261022/summary.json) · [结果包](Results/review-library-full-20261022/Result.xcresult)；Xcode 27.1、iPhone 18 Pro Max / iOS 27.0（24A434），`sourceChangedSinceRun` 为空 |
+| **通过** | iPad 带附件的系统窗口缩放专项 1 项，0 失败、0 跳过 | 官方 MCP `RunSomeTests`；iPad Pro 13-inch (M4) / iOS 26.5（23F77）；[摘要](Results/review-ipad-accessory-window-20261022/summary.json) · [结果包](Results/review-ipad-accessory-window-20261022/Result.xcresult)，`sourceChangedSinceRun` 为空 |
+| **通过** | Duo 双屏历史逐项结果与当前测试清单核对 | [原始 xcresult 核对](Results/review-audit-20261022/xcresult-mapping-check.json)：每屏 56 个唯一标识，49 通过、7 项 iPad 专属跳过；外屏五项补测及两项最终复测覆盖旧证据，没有漏项或误记通过 |
+| **通过** | 当前源码与最终 Duo／Release 证据范围核对 | [源码核对](Results/review-audit-20261022/source-evidence-audit.json)：Duo 最后两项复测快照仅与本轮新增库测试不同，库实现、Demo 和 UI 测试未改变；Release 生产输入未变，不将源码核对表述为重新执行构建 |
+| **通过** | 格式、脚本语法、文档链接和差异检查 | [SwiftFormat 0.64.0 lint](Results/review-audit-20261022/swiftformat-lint.txt) 为 `0/21 files require formatting`；Python AST 语法检查、README 与验证文档本地链接检查、`git diff --check` 通过 |
+
+官方 MCP 当前工作区只有 Demo scheme，根 Package 的库测试通过仓库 `Scripts/validate.sh` 执行，显式指定 Xcode 27.1 与上述 Pro Max UUID；完整命令在各轮 `xcodebuild.log` 开头。只主动格式化本轮补充的 `SPTabBarAccessoryTests.swift`。库日志仍有历史已有的 UIKit observation tracking feedback loop 诊断（此前 190 项通过日志也存在），没有把 XCTest 通过解读为无运行时诊断。
+
+iPad 专项通过真实窗口拖动检查多次缩放、正文位置保存、分页、Header 展开／部分折叠／吸顶以及恢复全屏后的附件点击。已核对[浮动小窗口](TabBarAccessories/ipad-review-small-window-20261022.png)和[恢复全屏](TabBarAccessories/ipad-review-restored-20261022.png)：两端附件、标签内容边界和页面衔接正常，搜索按钮确实弹出演示提示；全部 17 个附件及终态日志保存在同轮结果目录。官方构建成功，Build Phase 为 `0/43 files formatted, 2 files skipped`，未引入额外格式化差异；日志仍有 XCTest 依赖最低版本与测试 target 的 iOS 15 设置不一致、无 AppIntents 元数据等工具链提示，没有提高部署版本来隐藏提示。测试结束后恢复 Xcode 原来的 iPhone 13 运行目标；此次专项不等同于本轮完整 iPad 分屏、RTL 或全套 UI 回归。
+
+本轮未改动框架和 Demo 生产行为，Duo 的适用 UI 验收继续采用下文已核实的分段证据，不声称本轮重跑双屏或取得一次不中断全量成功。iOS 15 实际运行、真机、完整 VoiceOver 人工流程及性能压力测试仍未执行；默认 MCP／`XCUIDevice` 无法驱动 Duo 实际旋转的环境限制仍保留。审查不修改历史失败、取消和复测记录。
+
+## 当前 Duo 验证结论（2026-10-21 收尾）
+
+| 范围 | 最终结果 | 证据边界 |
+| --- | --- | --- |
+| 外屏剩余安全区域 5 项 | **5 通过、0 失败** | 实际竖屏、两侧横屏及恢复；[摘要](Results/duo-outer-filtered-hub-five-20261021/summary.json) |
+| 内屏全部适用 UI 项 | **49 通过、7 项 iPad 专属跳过** | 源码范围核验后的分段覆盖；[逐项映射](Results/duo-inner-two-failures-fixed-20261021/inner-segmented-coverage.json) |
+| 外屏全部适用 UI 项 | **49 通过、7 项 iPad 专属跳过** | 包含本轮 5 项补测及修正后两项复测；[逐项映射](Results/duo-outer-two-failures-fixed-20261021/outer-final-segmented-coverage.json) |
+| 本轮发现的两项 UI 测试问题 | **内屏 2/2、外屏 2/2 修复复测通过** | 窗口锚点修正边缘输入；1e-6 pt 容差处理 80 pt 浮点边界，同时加强触摸与页面几何断言 |
+| Device Hub 电脑控制 | **本轮恢复并完成回归** | 筛选 Duo、收起侧栏；不宣称工具根因永久修复 |
+| 默认 MCP／XCUIDevice 旋转 | **仍未修复** | 实际旋转通过电脑菜单完成，App 方向断言保留 |
+
+以上不是一次不中断的完整套件成功；失败、取消、复测、截图、录屏与源码差异均在下文独立保留。未覆盖的 iPad、最低系统、真机和 VoiceOver 范围见本轮收尾边界。
+
+## 2026-10-21：Duo 实际旋转与设备环境排查
+
+本轮保持已有实际方向断言，没有以设备方向命令成功或窗口呈横向代替界面旋转成功。对现有 Duo（`049C3F56-87CB-4D53-8B0A-7537DDE19222`）使用官方设备会话核查外屏：系统“设置”（PID `18527`）和 Demo（PID `18712`）的设备方向均依次变为 Portrait、Landscape Left、Landscape Right，但两者实际 App 方向一直为 Portrait，窗口一直为 `466 × 678 pt`。见[观察摘要](Results/duo-rotation-diagnosis-20261021/after-boot-observations.json)、[设置左旋层级](Results/duo-rotation-diagnosis-20261021/settingsLeft-hierarchy.txt)和[Demo 右旋层级](Results/duo-rotation-diagnosis-20261021/demoRight-hierarchy.txt)。该现象不只出现在 Demo；尚未确定根因，不能据此断言系统应用与 Demo 的方向策略相同。
+
+电脑操作确认本机同时运行 Xcode 26.6 的 Simulator 与 Xcode 27.1 的 Device Hub。通过活动监视器正常退出旧 Simulator，并正常重启 Device Hub；未清空 Duo、删除运行时或修改运行时匹配。Device Hub 在设备关机时曾恢复可读，点击 Start 后及后续重试仍出现 `-10005: timeoutReached`／60 秒超时。用户看到的两个显示窗口中哪个黑屏，尚未取得足够的窗口证据确认。进程采样显示主线程处于 AppKit 事件等待，不能将超时直接解释为主线程卡死。
+
+`simctl bootstatus` 两次报告 `Status=3, isTerminal=YES, Data Migration Failed`，尽管命令退出码为 0，随后设备列表又显示 Booted；因此退出码和 Booted 状态不足以证明启动环境正常。只读查询数据迁移服务显示 `last exit code = 0`，未得到迁移失败的具体原因。机器上有 `24A94232`、`24A94425` 两个 iOS 27.1 运行时，但 `simctl runtime match list -j` 明确选择与 SDK 相同的 `24A94232`，服务路径也属于该版本；没有证据认定双运行时就是旋转失败原因。见[环境观察](Results/duo-rotation-diagnosis-20261021/environment-observations.json)、[匹配规则](Results/duo-rotation-diagnosis-20261021/runtime-match.json)、[运行时清单](Results/duo-rotation-diagnosis-20261021/runtime-images.json)和[进程采样](Results/duo-rotation-diagnosis-20261021/devicehub-start-sample.txt)。
+
+另一次独占官方设备会话取得有效外屏截图，并依层级位置打开 Control Center，但画面只显示“添加控制”“电源”等内容，没有方向锁控件，未修改任何开关，方向锁状态仍未核实。结束时设备恢复 Portrait，Control Center 仍可见；已释放会话，见[方向锁检查](Results/duo-rotation-diagnosis-20261021/lock-check/observations.json)。
+
+上述初始阶段仅为诊断证据：当时的**失败**为自动方向事件未使实际界面旋转；**被环境阻塞**为 Device Hub 控件操作及方向锁核对；**未执行**为旋转修复后的双屏完整 UI 回归。后续独立窗口控制恢复及外屏运行结果见下文。前述与后续各轮完整、聚焦、库测试结果分别保留，不合并为双屏通过；本轮未修改框架方向策略或放宽测试断言。
+
+用户随后确认：手动点击 Device Hub 底部旋转按钮时，Demo 内容会转向。这是人工观察，表明不能将自动方向事件失败表述为设备完全不能旋转；需要分别验证 Device Hub 按钮与 `XCUIDevice`／MCP 方向事件两条路径。本节前述“实际旋转未生效”限定为已记录的自动方向事件，不代表人工按钮路径失败，也尚不等于双屏方向矩阵已验收。
+
+随后电脑插件通过 `Window` 菜单中的第二个 Duo 项进入可读的独立窗口（`deviceWindow-AppWindow-1`），主控制窗口仍曾超时。独立窗口提供完整的 `Device → Orientation` 菜单及 Closed／Partially Open／Open 控件。需要区分 `Controls → Rotate Left/Right` 的外框显示与 `Device → Orientation` 的方向设置，不能仅看外框判断实际转场。用户手动旋转后的首轮捕获激活了新 PID，只证明横屏启动；后续对同一 PID `27870` 串行对照才确认运行中转场：菜单 Portrait 让实际场景从 Landscape Left、`678 × 466` 变为 Portrait、`466 × 678`，菜单 Landscape Left 又让场景变为 Landscape Right、`678 × 466`；此后 MCP `orientation portrait` 仍未改变实际场景。见[同进程对照](Results/duo-rotation-diagnosis-20261021/cu-menu-comparison/observations.json)。电脑方向控制阻塞已通过独立窗口解除，MCP 方向事件路径仍未修复。
+
+为按用户要求继续实际旋转回归，新增仅供 UI 测试使用的 `UITestOrientation` 和 `Scripts/run_external_rotation.py`。默认仍使用 `XCUIDevice`；显式外部模式通过唯一请求编号等待电脑菜单操作，各用例原有的实际方向、布局和触摸断言保持不变。Demo 回归状态新增 iOS 26+ 场景方向锁定值，不修改任何控制器方向偏好。官方 `BuildProject(buildForTesting: true)` 构建通过；因官方测试调用没有运行器环境参数，本轮外部模式使用该次 `.xctestrun` 副本及 `xcodebuild test-without-building`，未改 scheme。一次调试启动误用了后台工作区当时的 iPhone 18 Pro Max 目标，已停止并重新选择 Duo，该次运行不计入 Duo 证据；后续命令与结果包均使用明确的 Duo UUID。调试器在 dyld 加载阶段未取得有效场景数据，因此未采用其作为方向锁结论。
+
+外屏外部驱动首轮在启动 Demo 时运行器被 SIGKILL 终止，未进入旋转断言：结果包报告 **0 通过、2 失败记录**（目标用例崩溃和运行器启动错误），`sourceChangedSinceRun` 为空，见[首轮摘要](Results/duo-outer-external-rotation-focused-20261021/summary.json)。同一构建复测 **1 通过、0 失败**，见[复测摘要](Results/duo-outer-external-rotation-retry-20261021/summary.json)与[方向操作记录](Results/duo-outer-external-rotation-retry-20261021/rotation-events.jsonl)：实际横屏方向为 `3`、窗口 `678 × 466`，恢复竖屏方向 `1`、窗口 `466 × 678`，两次 `interfaceOrientationLocked=0`；辅助字号、窄栏附件点击及搜索反馈均通过。复测结束后桥接脚本补充过滤上次运行遗留请求，摘要因此列出 `Scripts/run_external_rotation.py` 差异；不将该轮称为脚本最终版本验证，完整回归另起快照。
+
+本轮再次核对 `duo-inner-library-final-20261021/source-hashes.json` 时，当前 `SPTabBar.swift`、`SPTabContentConfiguration.swift`、`TabBarGallery.swift` 已与该轮快照不同，工作区还出现角标相关新测试文件；这些现有修改均保留。下节所述“最终源码一致”仅描述当次检查时点，不能推定当前工作区仍被该次 185 项结果覆盖。本轮另存[诊断源码快照](Results/duo-rotation-diagnosis-20261021/diagnostic-source-hashes.json)，没有将本轮文档检查计作源码回归。
+
+### 外屏实际旋转回归与锁屏中断
+
+使用 `Scripts/run_external_rotation.py`、同次官方 `build-for-testing` 生成的 `.xctestrun` 和明确 Duo UUID 执行完整 56 项 UI 套件，运行目录为 `duo-outer-external-ui-full-20261021`。测试过程中通过电脑插件操作独立 Duo 窗口的 `Device → Orientation`；真实触摸由 XCTest 执行，没有同时通过其他设备会话注入输入。
+
+| 状态 | 本轮结果与证据 |
+| --- | --- |
+| **通过** | 33 项取得通过终态，包含 5 项嵌套横滑、网格 LTR／RTL 四方向、辅助字号 LTR／RTL、自定义大字号 RTL、普通字号 LTR、安全区域、旋转后返回手势、Header、宽度溢出及页面状态恢复。见[结果摘要](Results/duo-outer-external-ui-full-20261021/summary.json)、[结果包](Results/duo-outer-external-ui-full-20261021/Result.xcresult)和[实际方向记录](Results/duo-outer-external-ui-full-20261021/actual-orientation-coverage.json)。 |
+| **失败（环境原因）** | `testSafeAreaTabsRTL` 等待左横屏请求 `E3813B21-0FCD-423F-8738-A6743EFE7431` 120 秒超时。此时电脑插件明确报告 Mac 已锁屏且自动解锁失败，未写入确认；不能归为实际完成旋转后的布局失败。见[电脑锁屏观察](Results/duo-outer-external-ui-full-20261021/computer-lock-observation.json)。 |
+| **被环境阻塞** | 已请求用户手动解锁；为避免继续制造无效失败，向该轮 `xcodebuild` 发送 SIGINT。终态为 `TEST EXECUTE INTERRUPTED`、退出码 75；保存[中断记录](Results/duo-outer-external-ui-full-20261021/environment-interruption.json)及[完整日志](Results/duo-outer-external-ui-full-20261021/xcodebuild.log)。 |
+| **未执行** | 原计划 56 项中另有 22 项未执行，不能将其中的 iPad 专属用例记成已经跳过。本轮后续系统容器、附件及角标用例未执行；修复后内屏全量、外屏完整成功重跑尚未完成。 |
+
+同轮实际方向分别记录为 `1 / 3 / 4`，窗口对应 `466 × 678 / 678 × 466 / 678 × 466 pt`，恢复竖屏后尺寸恢复。已核对[左横屏独立窗口](TabBarAccessories/duo-outer-rotation-left.png)及[右横屏独立窗口](TabBarAccessories/duo-outer-rotation-right.png)：前者为折叠 Header 的列表，后者为辅助字号 RTL 自定义标签；两图用于证明实际转向及相应布局，不代表全部主题、附件或 VoiceOver 已验收。首次横屏截图与方向请求 id 的对应关系保存在[视觉记录](Results/duo-outer-external-ui-full-20261021/computer-rotation-visuals.jsonl)。XCTest 导出的部分横屏截图有黑边／裁切异常，未将这些异常截图单独作为视觉通过证据。
+
+本轮 `.xcresult` 确认实际设备为 Duo、iOS 27.1（24A94232），`sourceChangedSinceRun` 为空；[构建与源码核验](Results/duo-outer-external-ui-full-20261021/source-coverage-check.json)确认所有 Swift 文件与构建快照一致。复现命令见运行目录的 [command.json](Results/duo-outer-external-ui-full-20261021/command.json)；汇总使用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 Scripts/summarize_validation.py Validation/Results/duo-outer-external-ui-full-20261021`。外部旋转路径已在上述通过项中生效；默认 MCP／`XCUIDevice` 方向事件问题仍未修复，双屏完整验收仍未完成。后续必须使用新运行目录，不能补写本轮旧请求的确认或把分段结果称为一次完整通过。
+
+### 解锁续跑与系统容器触摸距离修正
+
+用户确认解锁后，电脑插件重新核实独立 Duo 窗口可读、`hingeSlider=0`（Closed），恢复 Portrait。将原成功构建复制到 `Validation/Products/DuoRotationFrozen-20261021/`，只执行锁屏中断及未执行的 23 项，得到 **15 通过、1 失败、7 跳过**；7 项均为 iPad 分屏／窗口专属用例。见[续跑摘要](Results/duo-outer-external-ui-resume-20261021/summary.json)、[结果包](Results/duo-outer-external-ui-resume-20261021/Result.xcresult)和[日志](Results/duo-outer-external-ui-resume-20261021/xcodebuild.log)。当次终态核验 `sourceChangedSinceRun` 为空；此前锁屏失败的 `testSafeAreaTabsRTL` 本次四方向完整通过。电脑驱动完成 62 个唯一请求，没有锁屏、超时或切错窗口，见[操作记录](Results/duo-outer-external-ui-resume-20261021/computer-rotation-actions.jsonl)。测试期间使用进程范围的 `caffeinate -di` 临时防止闲置休眠，不修改系统持久锁屏设置。
+
+唯一失败为 `SystemContainerTests/testPagingRotationAndSystemTabRestore`：左右横屏实际方向、几何及滚动均通过，恢复 Portrait 后固定 `60 pt` 拖动仅令 `position` 从 `328` 变为 `335.333`，未超过 `338` 的原要求。触摸 x=191 位于列表安全区域，未落入右侧系统按钮；[846.735 秒录屏](Results/duo-outer-external-ui-resume-20261021/system-and-accessories.mp4)的失败前后帧确认列表只发生小幅移动，不能将其误报成未旋转。RTL 同类用例本轮通过。随后仅修改测试：旋转后滚动使用既有辅助函数按当前可见高度的 60% 拖动，保留“位移超过 10 pt”、方向、几何和位置恢复断言，并打印可见高度与实际请求距离；没有调整框架滚动行为。原失败证据保留，修复后单独复测整个 `SystemContainerTests`。
+
+修复后官方 `BuildProject(buildForTesting: true)` **构建通过**，见[构建摘要](Results/duo-viewport-rotation-build-20261021/summary.json)；源码与构建前快照一致。前后冻结产物中 Demo `.app` 所有文件哈希一致，测试源码仅 `SystemContainerTests.swift` 改变，见[首次运行范围核对](Results/duo-outer-external-ui-full-20261021/post-fix-source-check.json)及[续跑范围核对](Results/duo-outer-external-ui-resume-20261021/post-fix-source-check.json)。因此其他用例结果按未变源码范围保留，不能将这些分段结果描述为一次全量成功。
+
+外屏附件 4 项及角标 2 项均通过。已逐帧核对[首端](TabBarAccessories/duo-outer-resume-start.png)、[中间](TabBarAccessories/duo-outer-resume-middle.png)、[尾端](TabBarAccessories/duo-outer-resume-end.png)：附件固定，渐隐仅位于仍有隐藏内容的标签视口边缘；[搜索反馈](TabBarAccessories/duo-outer-resume-search.png)、[浅色频道菜单](TabBarAccessories/duo-outer-resume-channels.png)、[RTL 深色频道菜单](TabBarAccessories/duo-outer-resume-rtl-channels.png)、[选择反馈](TabBarAccessories/duo-outer-resume-selected.png)及[附件撑高](TabBarAccessories/duo-outer-resume-height.png)均取得有效画面。录屏中应用重启空白帧及选择动画中的过渡帧不作最终外观证据；原始录屏保留。
+
+外屏修复后整个 `SystemContainerTests` 聚焦复测 **3 通过、0 失败、0 跳过**，终态为 `TEST EXECUTE SUCCEEDED`、退出码 0，`sourceChangedSinceRun` 为空，冻结产物哈希无变化。见[复测摘要](Results/duo-outer-viewport-rotation-focused-20261021/summary.json)、[结果包](Results/duo-outer-viewport-rotation-focused-20261021/Result.xcresult)。LTR 原失败项与 RTL 同类项均通过左右横屏、恢复 Portrait、位置保存及旋转后真实滚动；电脑驱动 12 次请求均取得确认。
+
+按测试标识去重后，外屏三轮分段证据覆盖 **49 项通过、7 项 iPad 专属跳过**，见[逐项运行对应](Results/duo-outer-viewport-rotation-focused-20261021/outer-segmented-coverage.json)。这是源码范围核验后的分段覆盖，不是一次完整成功运行；原锁屏中断及固定距离触摸失败均保留。内屏完整回归另起运行目录。
+
+### 内屏电脑菜单映射差异
+
+外屏聚焦结束后，电脑操作将铰链滑块真实拖到 `180`，取得有效 Open 内屏画面；方向菜单在短暂界面过渡后恢复可用，没有重启设备。见[姿态 AX 记录](Results/duo-inner-external-preflight-20261021/open-portrait-ax.txt)和[展开窗口](Results/duo-inner-external-preflight-20261021/open-portrait-device-hub.png)。
+
+使用同一冻结产物执行内屏完整套件时，前 7 项通过；`testCollapsedTabBarStaysAtNavigationBarBottom` 首次旋转失败：电脑已操作 Landscape Left，但 App 实际方向为 Portrait（`1`）、窗口 `669 × 951 pt`、`interfaceOrientationLocked=0`，原断言期望 Landscape Right（`3`）。这说明界面确实发生转向，但内屏菜单与实际场景的对应关系尚未核实，不能沿用外屏映射。随后主动中止测试，避免继续产生相同原因的失败；下一项被取消。结果包为 **7 通过、2 失败记录**（其中 1 项为取消）、47 项未执行，退出码 75，`sourceChangedSinceRun` 为空。见[摘要](Results/duo-inner-external-ui-full-20261021/summary.json)、[结果包](Results/duo-inner-external-ui-full-20261021/Result.xcresult)及[日志](Results/duo-inner-external-ui-full-20261021/xcodebuild.log)。实际方向断言未放宽，后续先核对同进程菜单映射，再单独复测。
+
+后续在同一 App PID `58322` 下，电脑菜单串行操作、官方会话仅空输入抓取，确认如下完整映射。见[同进程汇总](Results/duo-inner-menu-mapping-20261021/mapping-observations.json)。官方 `Device orientation` 在这些抓取中始终为 Portrait，不能代替实际 App 方向；会话中途两次失效并重建，未重启 App、未注入 MCP 方向事件，最终已结束会话。
+
+| Open 内屏 Device Hub 菜单 | 实际 App 场景方向 | 窗口 pt |
+| --- | --- | --- |
+| Landscape Left | Portrait（1） | 669 × 951 |
+| Portrait Upside Down | Landscape Right（3） | 951 × 669 |
+| Landscape Right | Portrait Upside Down（2） | 669 × 951 |
+| Portrait | Landscape Left（4） | 951 × 669 |
+
+因此内屏外部驱动按目标场景方向选择对应菜单，并在操作记录中同时保留原请求、实际菜单和铰链姿态；不修改请求 id、测试方向预期或 App 方向策略。前述失败属于沿用外屏菜单映射导致的目标方向不符，不是 App 完全不能旋转。修正后的聚焦与完整回归另起目录，不覆盖原失败。
+
+映射修正后的聚焦 **2 通过、0 失败、0 跳过**，包含原失败的折叠栏对齐用例和网格 LTR／RTL 的 Portrait → Landscape Right → Landscape Left → Portrait 实际方向矩阵。终态 `TEST EXECUTE SUCCEEDED`、退出码 0，`sourceChangedSinceRun` 为空；见[聚焦摘要](Results/duo-inner-mapped-rotation-focused-20261021/summary.json)和[结果包](Results/duo-inner-mapped-rotation-focused-20261021/Result.xcresult)。14 个电脑方向请求全部完成，动作记录同时保留原请求与实际菜单。两种横向窗口为 `951 × 669 pt`，竖向为 `669 × 951 pt`，方向值分别为 3／4／1；未将宽高相同的两种横向混为一种方向。
+
+### 内屏连续回归的触摸坐标与系统等待
+
+`duo-inner-mapped-ui-full-20261021` 使用校准后的菜单映射启动完整 56 项。前段 **20 项通过**，包含 5 项嵌套横滑、原折叠栏旋转失败项、自动高度、指示器、按住拖动、宽度溢出、网格 LTR／RTL 方向矩阵及 Header／页面几何。`testCustomTabSafeAreaLargeTextRTL` 失败于竖屏 Header 折叠：实际方向为 1、窗口 `669 × 951 pt`，从 SpringBoard 坐标 `(334.5, 294.5)` 拖到 `(334.5, 86)` 后 `progress` 仍为 0。方向已正确，不能将这项归为旋转失败。
+
+随后 XCTest 连续出现 `App animations complete notification not received, will attempt to continue`，每次触摸前等待 SpringBoard 约 60 秒。旁路[内屏画面](Results/duo-inner-mapped-ui-full-20261021/animation-wait-observation.png)正常，无遮挡；电脑只读检查相关菜单未发现 Slow Animations 项，未修改设置。Header 拖动、替换和页面几何用例仍分别通过，最后一项耗时 525.742 秒。在该项通过、下一项尚未触摸的 setup 边界主动中止，准备正常重启本次 Duo 恢复环境；未清空设备、删除运行时或操作其他模拟器。
+
+本段终态为 **20 通过、2 失败记录**（1 项折叠触摸失败，1 项因中止取消）、34 项未执行，退出码 75。见[摘要](Results/duo-inner-mapped-ui-full-20261021/summary.json)及[结果包](Results/duo-inner-mapped-ui-full-20261021/Result.xcresult)。终态 `sourceChangedSinceRun` 列出工程 `project.pbxproj`：运行期间外部修改新增了 Debug／Release 的签名 Team，当前 Xcode 目标也改为 iPhone 13；这些修改保留，不能将本轮描述为整个工作区零差异。运行使用独立冻结的 Duo 产物，不随 Xcode 当前目标切换。
+
+结束后仅修正 `verifySafeAreaTabs` 的触摸坐标：起点锚定当前标签视口，终点锚定当前 App 窗口，并扣除浮动窗口原点；不再借用可能属于另一显示面的 SpringBoard 坐标。折叠／展开距离、进度、方向、安全区域及位置断言不变。该辅助函数覆盖普通／辅助字号 LTR／RTL 及自定义辅助字号 RTL 共 5 项；修复后须单独复测，不将构建成功当作触摸问题已解决。
+
+正常重启后，Device Hub 能显示外屏 Home；切 Open 后其独立窗口持续显示 busy indicator，但 `simctl io --display=3` 已取得有效的 `2007 × 2853` 内屏 Home，见[重启后旁路截图](Results/duo-inner-environment-recovery-20261021/display-3-after-restart.png)。运行时构建号发生变化：此前结果为 `24A94232`，重启后的 SpringBoard 实际路径与结果包均为 `24A94425`，SDK 匹配规则仍选择 `24A94232`。本轮未删除运行时、修改匹配规则或清空设备；见[运行时观察](Results/duo-inner-environment-recovery-20261021/runtime-observation.json)。两种运行时结果必须分别报告。
+
+窗口坐标修正后 Debug `build-for-testing` 成功，见[构建结果](Results/duo-window-touch-build-20261021/build-result.json)。自动格式化阶段为 `0/43 files formatted`；所有 Swift 文件与构建快照一致，见[源码范围核验](Results/duo-window-touch-build-20261021/swift-source-check.json)。构建期间外部又将签名 Team 改为空，故整体 `sourceChangedSinceRun` 列出工程文件，保留该修改。随后冻结新产物，并在 `24A94425` 上聚焦原失败项：竖屏标签拖动已通过折叠和展开断言，但下一次横屏失败——XCTest 收到 Landscape Right 系统通知，App 场景仍为 Portrait、窗口 `669 × 951 pt`。用例终态 **0 通过、1 失败**，不是完整触摸修复通过；`sourceChangedSinceRun` 为空，见[聚焦摘要](Results/duo-inner-window-touch-focused-20261021/summary.json)及[日志](Results/duo-inner-window-touch-focused-20261021/xcodebuild.log)。
+
+该次运行时也发生变化，不能仅根据那一轮的竖屏步骤改善认定坐标修正有效；后文补充了恢复 `24A94232` 后的部分步骤复测，完整往返仍未完成。上述外屏 49 项分段通过对应窗口坐标修正前版本；其中 44 项的相关源码未受最后一次辅助函数修改影响，另 5 项外屏安全区域用例尚待重新验证。逐项边界见[最终源码 UI 覆盖核对](Results/duo-final-release-build-20261021/final-ui-coverage-boundary.json)。当前内屏完整矩阵也未完成，不将此前 `24A94232` 的方向聚焦通过替代 `24A94425` 上尚失败的方向验收。
+
+### 最终构建与指定 Xcode 启动核查
+
+当前源码的 Release Demo 构建 **通过，0 错误、0 警告**；终态 `BUILD SUCCEEDED`、退出码 0，`sourceChangedSinceRun` 为空。见[构建结果](Results/duo-final-release-build-20261021/build-result.json)及[源码摘要](Results/duo-final-release-build-20261021/summary.json)。Build Phase 为 `0/43 files formatted, 2 files skipped`，未产生额外格式化改动。 当前库范围 `Package.swift`、`Sources/`、`Tests/` 共 27 个文件与此前 190 项通过的库测试快照一致，见[库源码范围核验](Results/duo-final-release-build-20261021/library-source-scope-check.json)；此范围核验不覆盖 Demo UI 测试。这是构建验收，不计为 UI 测试执行；该构建启动时的目标设备元数据为 `24A94425`。
+
+随后用显式 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` 执行同一 Duo 的正常 `simctl shutdown`／`boot`，两条命令退出码均为 0。新 SpringBoard PID `76449` 的实际路径恢复为 `24A94232`，说明本次两个启动入口产生了不同的实际运行时；没有修改 runtime matching 规则。`bootstatus` 仍报告 `Status=3, isTerminal=YES, Data Migration Failed`（自身退出码 0），因此不能仅凭版本恢复宣称环境健康。见[指定 Xcode 启动观察](Results/duo-inner-environment-recovery-20261021/explicit-xcode-boot-observation.json)。后续通过 Xcode 菜单重新打开 Device Hub 后，AX 能读取 Home，窗口截图仍超时。改用 AX 控件点击 Open，再通过 `simctl io --display=3` 得到并检查了有效的 `2853 × 2007` 内屏 Home，见[恢复后的内屏](Results/duo-inner-environment-recovery-20261021/display-3-after-ax-open.png)；因此可继续一次聚焦验证，但不能仅凭 Home 画面认定 App 旋转已经恢复。
+
+恢复 `24A94232` 后，首次单项复测仍未进入 App 验证：setup 的外部方向确认在约 133 秒才到达，超过原有 120 秒阈值。电脑多步 AX 合并调用触发 60 秒工具超时；后续分步操作虽成功，不能追认过期请求通过。XCTest 在失败处理进入 async teardown 后持续等待，已采样并主动中止该轮，终态 **0 通过、1 失败，退出码 75**，`sourceChangedSinceRun` 为空。见[握手失败摘要](Results/duo-inner-recovered-window-touch-focused-20261021/summary.json)、[动作记录](Results/duo-inner-recovered-window-touch-focused-20261021/computer-rotation-actions.jsonl)及[运行器采样](Results/duo-inner-recovered-window-touch-focused-20261021/runner-after-setup-failure.txt)。该失败属于电脑驱动握手，不能归因于标签布局或将系统方向通知作为实际 App 方向通过。
+
+随后保留同一冻结产物，改用短分步 AX 调用运行 `duo-inner-stepwise-window-touch-focused-20261021`。该轮实际场景 Portrait（1，`669 × 951 pt`）及 Landscape Right（3，`951 × 669 pt`）均通过方向、安全区域和 Header 折叠／展开步骤；[右横屏大字号 RTL 实际画面](TabBarAccessories/duo-inner-custom-large-rtl-right.png)已核对。下一次目标 Landscape Left 的系统通知虽已到达，电脑动作确认仍超过 120 秒，失败于外部握手，未进入该方向的 App 几何断言。分步控制仍无法稳定完成完整矩阵，因此保留部分步骤证据，不将单项或整套判为通过；最后一次窗口坐标修正后的内屏完整回归及 5 项外屏安全区域复测仍受环境阻塞。收尾读取 Device Hub 的单步操作再次 60 秒超时，未确认恢复竖屏，随后中止仅本轮测试。终态结果包为 **0 通过、2 条失败记录**（1 条外部握手失败、1 条运行器取消），退出码 75，`sourceChangedSinceRun` 为空；见[最终聚焦摘要](Results/duo-inner-stepwise-window-touch-focused-20261021/summary.json)、[结果包](Results/duo-inner-stepwise-window-touch-focused-20261021/Result.xcresult)及[动作日志](Results/duo-inner-stepwise-window-touch-focused-20261021/computer-rotation-actions.jsonl)。没有把超时请求补记成功，没有修改握手阈值或实际方向断言。
+
+### Device Hub 侧栏开销与官方控制路径复核
+
+本轮首先复核官方 Xcode MCP。替换失效的设备会话后，空输入抓取、激活及方向事件均能在约 2.6～8.1 秒内返回；同一 Demo PID `87484` 的实际界面却始终为 Landscape Left、`951 × 669 pt`，即使设备方向字段已经变为 Portrait，实际场景也未改变。官方截图持续为 `678 × 466` 黑图，因此没有用其证明内屏视觉通过。见[官方调用摘要](Results/duo-control-repair-20261021/official-summary.json)。结束会话后才改用电脑操作，未并行注入输入。
+
+Device Hub 旧进程 `22338` 的一次采样显示主线程大量时间位于 AppKit／SwiftUI 布局路径，见[采样](Results/duo-control-repair-20261021/device-hub-before-repair.sample.txt)。通过电脑正常退出并重新打开 Device Hub 后，完整设备侧栏读取仍耗时 34.504 秒；在搜索框筛选 `Duo`、选中目标并收起侧栏后，连续读取降为 0.198～2.794 秒，打开方向菜单约 0.757 秒、选择 Portrait 后读取约 0.899 秒。运行测试期间补充的[恢复后采样](Results/duo-control-repair-20261021/device-hub-after-filter.sample.txt)中，主线程 140 个样本有 134 个处于 Mach 事件等待。两次采样与读取耗时共同支持本机响应改善，但未构成严格对照实验，不能据此证明唯一根因或保证长时间运行不再超时。见[控制恢复观察](Results/duo-control-repair-20261021/control-repair-observation.json)及[有效外屏窗口](Results/duo-control-repair-20261021/hub-after-sidebar-hidden.jpeg)。
+
+该次正常退出 Device Hub 同时关闭了 Duo，不能描述为“模拟器进程未受影响”。随后通过官方 `StartSession` 恢复启动；首次 `EndSession` 等待 71.117 秒后超时，单次清理复查返回会话已不存在，确认释放控制权。新 SpringBoard PID `88333` 的实际路径为 `24A94232`；没有清空设备、删除运行时或修改匹配规则。恢复后再检查实际画面和方向，不以 StartSession 成功推定运行环境已完全健康。
+
+外屏剩余 5 项使用 `DuoWindowTouchFrozen-20261021` 产物另起 `duo-outer-filtered-hub-five-20261021`；启动前核对 11 项冻结产物哈希无变化、全部 Swift 文件与 `duo-window-touch-build-20261021` 构建快照一致。实际测试仍使用原有 120 秒外部握手阈值及场景方向断言，电脑驱动只在短暂窗口过渡时追加一次读取，不改动测试预期。运行终态和后续内屏矩阵分别记录，未完成的运行不计为通过。
+
+外屏这次聚焦回归终态为 **5 通过、0 失败、0 跳过**，退出码 0、`TEST EXECUTE SUCCEEDED`，`sourceChangedSinceRun` 为空。结果包确认 Duo / iOS 27.1 / `24A94232`；见[摘要](Results/duo-outer-filtered-hub-five-20261021/summary.json)、[结果包](Results/duo-outer-filtered-hub-five-20261021/Result.xcresult)、[命令](Results/duo-outer-filtered-hub-five-20261021/command.json)及[完整日志](Results/duo-outer-filtered-hub-five-20261021/xcodebuild.log)。通过项为 `testCustomTabSafeAreaLargeTextRTL`、`testSafeAreaTabsLTR`、`testSafeAreaTabsRTL`、`testSafeAreaTabsLargeTextLTR`、`testSafeAreaTabsLargeTextRTL`，均覆盖实际竖屏、两侧横屏、恢复竖屏，以及 Header 折叠／展开和页面安全区域。
+
+本轮 30 个唯一外部请求全部确认，未出现握手超时；最长请求等待约 94 秒发生于操作者接管期间，不等于单次电脑动作耗时。后续通常约 3～6 秒完成菜单动作与状态读取；见[握手汇总](Results/duo-outer-filtered-hub-five-20261021/rotation-handshake-summary.json)、[原始握手](Results/duo-outer-filtered-hub-five-20261021/rotation-events.jsonl)及[电脑动作](Results/duo-outer-filtered-hub-five-20261021/computer-driver.jsonl)。[外屏横向 3](TabBarAccessories/duo-outer-filtered-large-rtl-ui3.jpeg)与[外屏横向 4](TabBarAccessories/duo-outer-filtered-large-rtl-ui4.jpeg)均取得有效画面，已核对辅助字号 RTL 标签、安全区域换边、Header 和标签栏背景连续性；不据此推定所有附件或完整 VoiceOver 已验收。
+
+此前最后一次触摸坐标修正影响的 5 项现已补测通过，与未受该修正影响的 44 项原通过证据及 7 项 iPad 专属跳过合并，最终源码范围的外屏分段覆盖恢复为 **49 通过、7 跳过**。见[逐项对应](Results/duo-outer-filtered-hub-five-20261021/outer-final-segmented-coverage.json)。这是核对源码范围后的分段覆盖，不是一次 56 项全量成功；保留前述初次失败、中断及修复过程。
+
+外屏结束后通过电脑控件切到 Open，取得[有效内屏画面](Results/duo-inner-filtered-hub-full-20261021/open-stable.jpeg)。随后首次内屏全量启动因验证驱动错误而失败：临时 JavaScript 处理函数仍捕获外屏旧运行目录，首个内屏请求未得到处理。没有向过期请求写确认，亦未进入 App 几何或触摸断言；终态为 **0 通过、1 失败、55 项未执行**，主动中止退出码 75，`sourceChangedSinceRun` 为空。见[摘要](Results/duo-inner-filtered-hub-full-20261021/summary.json)、[结果包](Results/duo-inner-filtered-hub-full-20261021/Result.xcresult)及[日志](Results/duo-inner-filtered-hub-full-20261021/xcodebuild.log)。这属于本次验证驱动实现错误，不归因于产品或 Device Hub 超时；修正为显式传入运行目录、姿态和已处理请求编号后，另起完整回归。
+
+修正驱动后的内屏无过滤全量运行 `duo-inner-filtered-hub-full-retry-20261021` 前 13 项通过，包含全部 5 项嵌套手势、自动内容高度、折叠栏旋转对齐、紧凑标签隐藏恢复、自定义指示器及标签交互。随后 `testCustomTabSafeAreaLargeTextRTL` 已完成实际两侧横屏并恢复竖屏，但连续出现 `App animations complete notification not received, will attempt to continue`，每次触摸前后额外等待约 60 秒。电脑控制仍在数秒内响应，没有待确认的旋转请求；不能将其写成 Device Hub 再次超时。
+
+只读[运行器采样](Results/duo-inner-filtered-hub-full-retry-20261021/runner-idle-wait.sample.txt)显示等待链为 `select(_:)` → `XCUIApplicationProcess.waitForQuiescenceIncludingAnimationsIdle`；同次[App 采样](Results/duo-inner-filtered-hub-full-retry-20261021/app-idle-wait.sample.txt)的主线程 183 个样本均处于 Mach 事件等待，没有证据支持布局死循环。标签滚动仍会在等待后继续。为避免该等待阻塞其他项目，在无方向请求的空闲边界中止仅本轮测试，未重启设备、关闭动画或修改断言。
+
+该轮终态为 **13 通过、1 条取消记录、42 项未执行**，退出码 75，`sourceChangedSinceRun` 为空。见[摘要](Results/duo-inner-filtered-hub-full-retry-20261021/summary.json)、[结果包](Results/duo-inner-filtered-hub-full-retry-20261021/Result.xcresult)及[日志](Results/duo-inner-filtered-hub-full-retry-20261021/xcodebuild.log)。[稳定内屏截图](TabBarAccessories/duo-inner-filtered-custom-large-rtl-portrait.png)已核对选中标签和页面布局；截图不代替被取消项的完整通过。后续按[未完成标识清单](Results/duo-inner-filtered-hub-full-retry-20261021/continuation-candidates.json)复测，分段结果与这次未完成的全量运行分别报告。
+
+保持同一设备、运行时与冻结产物，仅换用新测试运行器单独复测上述取消项，`duo-inner-custom-safearea-focus-20261021` 取得 **1 通过、0 失败、0 跳过**，退出码 0，`sourceChangedSinceRun` 为空。该项完成竖屏 → 实际方向 3 → 实际方向 4 → 竖屏，以及每个方向的安全区域、标签选择和 Header 折叠／展开；没有关闭动画或放宽断言。见[聚焦摘要](Results/duo-inner-custom-safearea-focus-20261021/summary.json)、[结果包](Results/duo-inner-custom-safearea-focus-20261021/Result.xcresult)及[日志](Results/duo-inner-custom-safearea-focus-20261021/xcodebuild.log)。已核对稳定 `display 3` 的[横向 3](TabBarAccessories/duo-inner-filtered-custom-large-rtl-ui3.png)和[横向 4](TabBarAccessories/duo-inner-filtered-custom-large-rtl-ui4.png)画面；截图中的标签位于用例主动滚动位置，不将截图自身作为选中项居中的断言。此聚焦恢复不代表 XCTest 通知问题已根治，其余 42 项继续独立运行。
+
+其余 42 项续跑 `duo-inner-remaining42-20261021` 取得终态 **33 通过、2 失败、7 跳过**，退出码 65、`TEST EXECUTE FAILED`，`sourceChangedSinceRun` 为空。见[摘要](Results/duo-inner-remaining42-20261021/summary.json)、[结果包](Results/duo-inner-remaining42-20261021/Result.xcresult)和[日志](Results/duo-inner-remaining42-20261021/xcodebuild.log)。7 项为 iPad 专属分屏／窗口用例，不能计为 Duo 通过。合并前两段按标识去重后，内屏首次完成覆盖为 **47 通过、2 失败、7 跳过**，不是一次完整成功运行。
+
+两项失败分别为 `testRotationAndBackGesture` 在实际旋转成功后完成边缘返回，未出现首页按钮，以及 `testPagerAccessoryMenuAndHeightRecovery` 在首次“切换高附件”后等待标签视口高度 `>= 80` 超时。原始失败附件分别保存在[返回手势附件](Results/duo-inner-remaining42-20261021/back-attachments/manifest.json)和[附件栏高附件](Results/duo-inner-remaining42-20261021/height-attachments/manifest.json)。有效内屏 [279.605 秒录屏](Results/duo-inner-remaining42-20261021/inner-accessory-tests.mp4)覆盖系统容器末段、附件和角标；已观察到高附件菜单关闭后栏高增长，但这一视觉观察不能代替精确 frame 和恢复断言。后续复现与修复另起运行目录，不覆盖本轮失败。
+
+相同冻结产物的原样聚焦 `duo-inner-two-failures-focus-20261021` 为 **0 通过、2 失败**，退出码 65，`sourceChangedSinceRun` 为空，两处均再次出现；见[聚焦摘要](Results/duo-inner-two-failures-focus-20261021/summary.json)、[原样复现录屏](Results/duo-inner-two-failures-focus-20261021/inner-two-failures.mp4)及[附件清单](Results/duo-inner-two-failures-focus-20261021/attachments/manifest.json)。随后仅在对应 UI 测试增加精确 frame 日志，并对返回用例启用 Demo 已有、不会改变事件分发的 `PagingTraceWindow`，原触摸坐标与成功断言暂时不变。
+
+诊断构建先使用官方 `BuildProject(buildForTesting: true)`，但后台 workspace 沿用当前真机目标，因两个 target 没有签名 Team 失败；[官方构建日志](Results/duo-inner-two-failures-diagnostic-build-20261021/official-first-build.log)保留。没有修改用户的签名 Team 或当前 Xcode 目标，改用显式 Duo UUID 的 `Scripts/validate.sh build-for-testing`，终态 **TEST BUILD SUCCEEDED**、退出码 0，源码快照无变化。Build Phase 为 `0/43 files formatted, 2 files skipped`；保留 XCTest 动态库最低版本为 iOS 17 与本测试 target 的 iOS 15 部署目标不一致的 3 条链接警告，以及未依赖 AppIntents 的元数据提示，未提高框架最低系统版本。见[诊断构建日志](Results/duo-inner-two-failures-diagnostic-build-20261021/xcodebuild.log)及[构建核对](Results/duo-inner-two-failures-diagnostic-build-20261021/build-check.json)。
+
+增加日志后的诊断 `duo-inner-two-failures-diagnostic-20261021` 仍为 **0 通过、2 失败**，退出码 65，`sourceChangedSinceRun` 为空；见[摘要](Results/duo-inner-two-failures-diagnostic-20261021/summary.json)与[触摸解码](Results/duo-inner-two-failures-diagnostic-20261021/back-gesture-decoded.json)。精确高度从 `55.99999999999997` 变为 `79.99999999999997`，与 80 的差仅为浮点坐标变换误差。返回手势起点报告为 `(1, 475.5)`，但取消拖动后的 trace 仍为之前纵向滑动的 `sequence=3`，最终返回拖动后仍为中间分页的 `sequence=4`，两次边缘触摸均未进入 Demo 的窗口事件记录；实际方向断言仍通过。
+
+针对高度比较，测试只增加 `0.000001 pt` 浮点容差，同时要求高度大于原值，并在增长、恢复两个阶段检查页面顶部与标签视口底部贴合。返回用例改用实际窗口锚点，保持 1 pt 边缘起点及原返回距离，并新增取消手势确实产生新触摸、起点位于边缘的检查。框架与 Demo 生产实现未修改；后续修复验证另列，不把诊断失败追记为通过。
+
+修正后的内屏聚焦 `duo-inner-two-failures-fixed-20261021` **2 通过、0 失败**，退出码 0、`TEST EXECUTE SUCCEEDED`，`sourceChangedSinceRun` 为空；见[摘要](Results/duo-inner-two-failures-fixed-20261021/summary.json)、[结果包](Results/duo-inner-two-failures-fixed-20261021/Result.xcresult)及[录屏](Results/duo-inner-two-failures-fixed-20261021/inner-fixed.mp4)。窗口锚点下，取消手势 trace 从 `sequence=3` 增至 `4`，实际起终点 `x=1 → 81`，分页偏移不变；完整返回首页、重新进入及后续分页也通过。高度增长仍为同一 `79.99999999999997`，恢复及页面衔接断言均通过，未修改生产布局以迎合测试。
+
+内屏最终按标识去重覆盖 **49 通过、0 待修复失败、7 项 iPad 专属跳过**，见[逐项运行映射](Results/duo-inner-two-failures-fixed-20261021/inner-segmented-coverage.json)。这是分段覆盖，不是单次完整成功运行；原失败、驱动错误和取消仍保留。最终源码核验发现此前几段与当前只差两个 UI 测试文件，函数级差异仅为返回用例、其专属 trace 启动条件及高附件用例；其余函数与框架／Demo 源码一致。见[源码范围核验](Results/duo-inner-two-failures-fixed-20261021/final-source-scope-check.json)。此前摘要中的 `sourceChangedSinceRun=[]` 表示当次封存时点，不表示修改测试后整个旧快照仍相同；只按未变范围保留其他测试结果。
+
+已核对本轮有效录屏提取的[首端](TabBarAccessories/duo-inner-filtered-start.png)、[中间](TabBarAccessories/duo-inner-filtered-middle.png)、[尾端](TabBarAccessories/duo-inner-filtered-end.png)、[RTL 首端](TabBarAccessories/duo-inner-filtered-rtl-start.png)、[RTL 中间](TabBarAccessories/duo-inner-filtered-rtl-middle.png)、[RTL 尾端](TabBarAccessories/duo-inner-filtered-rtl-end.png)和[深色频道菜单](TabBarAccessories/duo-inner-filtered-rtl-channels.png)：两端附件固定、渐隐局限于有隐藏内容的标签边缘，菜单包含“频道 3：通知”。原视频跨方向录制，固定视频轨道变换会把后续竖屏帧横置；这里提取原始编码帧，未修改 UI 像素，原视频保留。见[视觉核对说明](Results/duo-inner-remaining42-20261021/visual-review.json)。
+
+同一修复产物切换 Closed 外屏后，`duo-outer-two-failures-fixed-20261021` **2 通过、0 失败**，退出码 0、`TEST EXECUTE SUCCEEDED`，`sourceChangedSinceRun` 为空；设备确认 Duo / iOS 27.1 / `24A94232`。见[外屏修复复测摘要](Results/duo-outer-two-failures-fixed-20261021/summary.json)、[结果包](Results/duo-outer-two-failures-fixed-20261021/Result.xcresult)和[录屏](Results/duo-outer-two-failures-fixed-20261021/outer-fixed.mp4)。外屏实际窗口 `466 × 678 pt`，返回手势起点 `(1, 339)`；栏高 `56 → 80 → 56`，增长、恢复及页面顶部衔接均通过。外屏最终同样为 **49 通过、7 项 iPad 专属跳过**的分段覆盖，见[最终外屏逐项映射](Results/duo-outer-two-failures-fixed-20261021/outer-final-segmented-coverage.json)。两轮最终聚焦重新核对源码均无差异，见[最终快照核对](Results/duo-outer-two-failures-fixed-20261021/final-source-recheck.json)。
+
+已核对修复后的内屏[返回首页](TabBarAccessories/duo-inner-filtered-back-home.png)、[附件撑高](TabBarAccessories/duo-inner-filtered-height-grown.png)和[栏高恢复](TabBarAccessories/duo-inner-filtered-height-restored.png)，见[最终视觉说明](Results/duo-inner-two-failures-fixed-20261021/final-visual-review.json)。两份修改的 Swift 测试文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。本轮生产源码未修改；最终核对库范围与此前 190 项通过的快照相同，Release 生产范围也与此前成功构建一致，见[生产与库范围核验](Results/duo-outer-two-failures-fixed-20261021/unchanged-production-library-check.json)。该核验不代表本轮重新执行了库测试或 Release 构建。
+
+最终通过电脑恢复 Open 内屏并打开 Demo，已核对[最终内屏画面](Results/duo-outer-two-failures-fixed-20261021/final-inner-display3.png)为正常竖向内容；测试、录屏和官方设备会话均已结束。普通启动后的 AX 未提供 App 子树，因此[最终状态记录](Results/duo-outer-two-failures-fixed-20261021/final-state.json)没有把截图尺寸当作精确 window frame 或 raw 方向值；实际方向的数值验收来自前述 XCTest 终态。
+
+当前边界：**通过**为双屏全部适用 UI 项的分段回归、真实菜单旋转与上述视觉核对；**失败历史**包括原始返回与浮点高度两项、驱动错误及取消，均保留并由新轮次复测覆盖；**未执行**为单次不中断完整套件、iPad 专属窗口矩阵、iOS 15 实机／模拟器运行、真机及完整 VoiceOver 人工验收；**被环境阻塞／未修复**为官方 MCP／默认 `XCUIDevice` 方向事件不能带动实际 App 方向的路径，电脑菜单替代路径已完成验证。Device Hub 侧栏处理在本轮持续有效，但不宣称 Apple 工具根因已彻底修复。未提交或推送。
+
+## 2026-10-21：角标顶部尾端定位与中文尺寸
+
+修复默认角标原先按 Cell 边缘垂直居中、单侧挤压图文的问题。测量和显示共用包含中文回退字体行高的尺寸；默认内容保持居中，长角标按需要对称增加理想宽度。上下图文跟随图标，纯文字及横向图文跟随整体内容；LTR 为右上角，RTL 镜像到左上角。自定义内容继续由业务配置绘制角标。
+
+- **修复前失败证据：** [原始回归](Results/20261021-badge-before/Result.xcresult)共 3 项，2 通过、1 失败；失败项包含标题偏移、角标未位于内容顶部的几何断言。保留原结果，不计入修复后验收。
+- **中间验证通过：** [首次聚焦](Results/20261021-badge-focused/summary.json)为 3 通过、0 失败；随后补充系统 RTL 对照并修正镜像规则，因此该轮不代表最终源码。
+- **系统参照：** 用户指定 iPhone 18 Pro Max，使用 Xcode 27.1 / iOS 27.0 的真实 `UITabBar`，分别设置 LTR 与 RTL，包含数字、阿拉伯文和中文角标。[系统对照结果](Results/20261021-badge-system-rtl-promax/Result.xcresult)与图层渲染附件确认尾端位置随布局方向镜像。图层截图不完整呈现系统材质与图标，不作为整栏视觉验收。
+- **过程环境记录：** Duo 的 `drawHierarchy` 对照附件为黑图；后续一次运行出现测试运行器通信断开，均保留在 `20261021-badge-system-rtl*` 结果目录。最初全量库测试未取得终态结果，切换设备后另跑最终验证，不将其计入通过。Pro Max 运行器在 IDE 握手阶段等待较长后成功完成，未将该等待误判为角标布局死锁。
+
+- **中间全量失败及修复：** [Pro Max 首轮全量](Results/20261021-badge-library-promax-final/summary.json)共 190 项，188 通过、2 失败。新增 RTL 几何断言发现默认内容视图未可靠继承宿主方向，已将布局方向写入内部配置，并同步到内容与按钮的语义方向；另一项为旧测试仍要求角标挤占 trailing 内边距，已更新为对称内边距契约，保留复用、清理及点击断言。失败结果保留，不把旧轮次作为最终通过证据。
+- **UI 启动阻塞：** 官方 MCP 两轮均完成构建，但运行器被 SpringBoard 以 `Busy / Application failed preflight checks` 拒绝启动；第二轮为 2 项未运行，见[官方结果](Results/20261021-badge-ui-final/official-result.json)及[日志](Results/20261021-badge-ui-final/console.log)。仅重启本次新启动的 Pro Max，启动状态最终为 `Finished`，保留设备数据及 Duo 状态。
+
+- **最终库回归通过：** iPhone 18 Pro Max / iOS 27.0 / Xcode 27.1 / Debug，共 **190 通过、0 失败、0 跳过**，包含 5 项新增角标与系统参照测试。见[终态摘要](Results/20261021-badge-library-promax-repaired/summary.json)与[结果包](Results/20261021-badge-library-promax-repaired/Result.xcresult)。期间其他工作更新了 Demo UI 测试方向辅助代码，整体 `sourceChangedSinceRun` 非空；另对本次库测试的 `Package.swift`、`Sources/`、`Tests/` 共 27 个文件核验，全部与测试时一致，见[库范围源码核验](Results/20261021-badge-library-promax-repaired/library-source-check.json)。不将这次库结果表述为整个工作区的 UI 验收。
+- **视觉与方向证据：** [中文角标图层对照](TabBarBadges/chinese-system-reference.png)上方为 StickyPagerKit、下方为系统角标；[系统 LTR／RTL 对照](TabBarBadges/system-ltr-rtl.png)及[实际坐标](TabBarBadges/system-ltr-rtl-geometry.txt)显示，中间阿拉伯文角标在 LTR 的中心 x 约为 220.33 pt，RTL 约为 169.67 pt，分别位于中间标签中心 195 pt 的两侧。图层截图未完整绘制系统图标与材质，完整 Demo 外观另以 UI 截图为准。
+
+- **官方 UI 设备核对：** 后续官方 MCP 返回 2 通过，但结果包的实际 `deviceId` 为 Duo `049C3F56-87CB-4D53-8B0A-7537DDE19222`，与此前请求切换的 Pro Max 不一致。目录 `20261021-badge-ui-promax-repaired` 的名字不代表实际设备，该轮只能作为 Duo 聚焦结果，不能计为 Pro Max UI 验收。库回归和系统对照由命令行明确指定 Pro Max UUID，不受此问题影响。最终改用 `SP_SCOPE=demo` 与明确 Pro Max UUID `41AF9CED-9BBB-4B60-B563-73AFB035C2D4` 执行角标 UI 测试。
+
+- **最终 Pro Max UI 通过：** 复用官方已构建、运行前源码一致的产物，复制 App、测试 Runner 和 `.xctestrun` 到独立的 `Validation/Products/BadgeProMaxFrozen/` 后，以 `xcodebuild test-without-building` 和明确的 Pro Max UUID `41AF9CED-9BBB-4B60-B563-73AFB035C2D4` 执行，**2 通过、0 失败、0 跳过**。命令行重新构建的中间轮次因再次触发 SwiftFormat 全量 Release 编译而主动中止，未计为运行通过；正式测试复用的是此前成功构建的独立产物副本。见[最终 UI 摘要](Results/20261021-badge-ui-promax-frozen/summary.json)、[结果包](Results/20261021-badge-ui-promax-frozen/Result.xcresult)及[完整执行命令与日志](Results/20261021-badge-ui-promax-frozen/xcodebuild.log)。结果包明确记录设备名 iPhone 18 Pro Max、iOS 27.0 和上述 UUID；`sourceChangedSinceRun` 为空，[构建产物哈希核验](Results/20261021-badge-ui-promax-frozen/product-check.json)也无变化。
+- **截图核对通过：** [Pro Max LTR](TabBarBadges/iphone-18-pro-max-ltr.png)中“新／上新”完整居中、定位在右上角；[Pro Max RTL 深色](TabBarBadges/iphone-18-pro-max-rtl-dark.png)中对应角标镜像到左上角，选中状态和真实点击反馈正常。横向滚动视口边缘仍按已有规则渐隐部分可见的标签内容，不将其当作角标测量裁剪。
+- **静态检查通过：** 本次涉及的 6 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。未提交或推送，保留其他进行中工作的方向辅助代码与既有修改。
+- **未执行：** 本轮未重跑完整 Demo UI suite、Release、iOS 15、iPad、真机及完整 VoiceOver 人工验收。库测试中的大字号、窄视口、几何和 hit-test 验证不替代这些矩阵；系统 RTL 对照使用明确的语义方向和阿拉伯文字符串，没有将它表述为完整阿拉伯语系统本地化验收。
 
 ## 2026-10-21：指示器自动圆角统一
 
@@ -12,6 +214,186 @@
 
 官方 Xcode MCP 当前打开的工程仅列出 Demo scheme，未提供独立 Package 库测试，因此使用 `Scripts/validate.sh` 执行。CoreSimulator 访问和 `.xcresult` 摘要缓存首次受沙盒限制，经授权执行环境完成，最终测试及摘要均成功。
 
+## 2026-10-21：iPhone Duo 内屏验证
+
+用户在 Device Hub 手动切换到内屏后，Apple 官方 MCP 独占预检确认 App 窗口为 `951 × 669 pt`，区别于外屏的 `466 × 678 pt`。预检时源码与外屏前序运行 `duo-official-ui-full-20261020` 的快照一致；本节按新运行记录内屏结果，不覆盖外屏失败。
+
+预检中设备方向依次为 Portrait、Landscape Left、Landscape Right、Portrait，但 App 始终为 Landscape Left、窗口始终为 `951 × 669 pt`。App PID 全程为 `60843`，没有观察到退出。方向命令已执行，实际旋转仍未通过；结束时恢复设备 Portrait，`DeviceInteractionEndSession` 返回 `Session stopped`。见[预检记录](Results/duo-inner-preflight-20261021/observations.json)。
+
+本次官方截图全部为 `678 × 466` 黑图，hierarchy 的 hitPoint 也疑似按该范围裁切，因此没有依据这些坐标执行触摸，不能用其作为内屏视觉证据。后续 XCTest 使用 `app.screenshot()` 和实际窗口几何另行验证。新会话先通过 `XcodeOpenWorkspace` 打开 Demo，再将后台工程目标从默认 iPhone 18 Pro 切换到 iPhone Duo；内屏测试使用正式加载的官方 MCP，不复用旧进程的临时桥接。
+
+内屏聚焦调用 `RunSomeTests` 完成 6 项：**4 通过、2 失败、0 跳过、0 未运行**，`sourceChangedSinceRun` 为空。通过项为 Header／分页位置恢复、附件固定与频道菜单、RTL 深色附件交互、分页附件高度增长与恢复；两项失败分别为系统容器 RTL 旋转、窄栏辅助字号旋转，均期望实际方向 `3` 而仍为 `4`。后者窗口为 `951 × 669 pt`，没有将横向尺寸本身当作方向请求生效。见[摘要](Results/duo-inner-ui-focused-20261021/summary.json)、[结果包](Results/duo-inner-ui-focused-20261021/Result.xcresult)、[日志](Results/duo-inner-ui-focused-20261021/console.log)。
+
+聚焦 `.xcresult` 导出的 `app.screenshot()` 同样为黑图（`2006 × 2852 px`），不能承担内屏视觉验收；[原始附件清单](Results/duo-inner-ui-focused-20261021/attachments/manifest.json)保留。导出首次因 TestReport 缓存写入权限失败，使用授权执行环境后导出成功。通过电脑插件再次读取完整路径的 Device Hub 仍返回 `-10005: timeoutReached`，因此当前视觉核对被环境阻塞，触摸／状态断言与视觉结论分开记录。
+
+用户提出录屏／画中画替代后，读取 Xcode 27.1 官方 `simctl io` 帮助及显示源枚举，发现 Duo 内屏为 `Screen ID 3`（`LCD-1`／`primary-1`，物理尺寸 `2007 × 2853`），外屏为 `Screen ID 1`（`LCD`／`primary`，`1398 × 2034`）。显式执行 `xcrun simctl io 049C3F56-87CB-4D53-8B0A-7537DDE19222 screenshot --display=3 <输出路径>` 已取得正常的 `2853 × 2007` 横向内屏画面，见[原始截图](Results/duo-inner-preflight-20261021/inner-display-3.png)。这解除了内屏图像采集阻塞；此前官方 MCP／XCTest 黑图仍保留，不能替换成通过证据。显示源枚举仅用于选择捕获源，没有修改屏幕尺寸、折叠姿态或 App 方向。
+
+使用同一显示源执行 `xcrun simctl io 049C3F56-87CB-4D53-8B0A-7537DDE19222 recordVideo --display=3 --codec=h264 <输出路径>`，收到 `Recording started` 后记录、以 SIGINT 正常结束并取得 `Recording completed`。保存的[内屏视频](Results/duo-inner-preflight-20261021/inner-display-3-recording.mp4)时长 `56.37 s`，编码尺寸为 `2006 × 2852`，应用轨道方向后抽帧为 `2852 × 2006`；已查看[第 10 秒帧](Results/duo-inner-preflight-20261021/inner-display-3-recording.10.png)，正常显示横向卡片滚动。AVFoundation 首次在沙盒内因系统解码服务权限失败，使用授权执行环境后正常解码。此次视频对应完整回归中的嵌套横滑场景，仅证明该显示源取证可用，不代表尚未录制的附件矩阵或旋转验收通过。
+
+已另存[内屏录屏代表帧](TabBarAccessories/duo-inner-compositional-recording.png)和[内屏自定义指示器](TabBarAccessories/duo-inner-custom-indicator.png)。后者为完整回归期间以 `--display=3` 旁路采集，画面显示“收藏”选中边框与内容，右侧系统区域独立；没有为截图注入额外触摸。
+
+随后官方 `RunAllTests` 完成全部 54 项：**29 通过、18 失败、7 跳过、0 未运行**，与 `.xcresult` 摘要一致，运行结束时 `sourceChangedSinceRun` 为空。14 项失败为实际方向断言；其余 4 项分别为普通页用 App 旧方向 frame 比较底边（669 与 951）、紧凑编号错误期待固定 44 pt（实际均分 66.69 pt）、宽屏副标题未换行导致高度仍为 76 pt，以及按住标签后以 App 坐标固定拖动未产生位移。7 项跳过为 iPad 专属窗口／分屏用例。见[完整摘要](Results/duo-inner-ui-full-20261021/summary.json)、[结果包](Results/duo-inner-ui-full-20261021/Result.xcresult)和[日志](Results/duo-inner-ui-full-20261021/console.log)。
+
+针对 4 项宽屏问题，普通页底边改用真实 window，按住标签的手势改为标签视口坐标及相对距离；宽度断言遵守 13 项余量均分和最小项宽下限。Demo“不可压缩宽内容”使用 `max(480, availableWidth + 80)`，保证宽屏也演示超视口内容；“切换多行副标题”加入明确换行，保证宽屏演示栏高增长与恢复。仅修改 Demo 和 UI 测试，未修改框架实现；README 同步这两项 Demo 行为。上述完整回归是修复前结果，不可当作修复后全量通过。
+
+4 项宽屏聚焦复测均通过，见[摘要](Results/duo-inner-adaptive-focused-20261021/summary.json)。运行期间另有并行工作修改 `SPTabBar.swift`、`SPTabBarIndicator.swift` 和 `SPTabBarIndicatorTests.swift` 的圆角实现及测试，故该轮 `sourceChangedSinceRun` 明确列出这 3 个文件，不能视为最终源码验证；这些修改被保留，另见本页圆角验证记录。
+
+完整回归末段的[系统容器与附件录屏](Results/duo-inner-ui-full-20261021/system-and-accessories.mp4)长 `440.65 s`，已正常解码并按测试日志抽帧。可核对[滚动](TabBarAccessories/duo-inner-scroll.png)、[尾端](TabBarAccessories/duo-inner-end.png)、[搜索反馈](TabBarAccessories/duo-inner-search.png)、[频道菜单](TabBarAccessories/duo-inner-channels.png)、[RTL 选中状态](TabBarAccessories/duo-inner-rtl-selected.png)及[附件撑高后的页面](TabBarAccessories/duo-inner-height.png)。录屏发现深色导航区域样式不一致、纯图标频道菜单名称为空：后续将 `--dark` 从内容控制器移到整个 window，菜单标题为空时回退到 `accessibilityLabel`，并加入“频道 3：通知”的 UI 断言。以上旧截图保留为修复前证据。
+
+随后对最终源码重新执行 4 项宽屏修复及 3 项附件交互，共 **7 通过、0 失败、0 跳过、0 未运行**；`.xcresult` 与官方 MCP 终态一致，`sourceChangedSinceRun` 为空。该轮包含已保留的圆角变更，以及窗口深色模式、频道名称回退的 Demo 修复，见[最终聚焦摘要](Results/duo-inner-ui-final-focused-20261021/summary.json)、[结果包](Results/duo-inner-ui-final-focused-20261021/Result.xcresult)和[日志](Results/duo-inner-ui-final-focused-20261021/console.log)。这轮未包含旋转用例，不将 7 项通过折算成修复后的完整 54 项结果。
+
+为补齐修复后画面，另以官方 `RunSomeTests` 运行 2 项附件外观用例并全程录制内屏：**2 通过、0 失败**，`sourceChangedSinceRun` 为空，见[摘要](Results/duo-inner-visual-final-20261021/summary.json)和[130.78 秒原始录屏](Results/duo-inner-visual-final-20261021/accessories.mp4)。已核对[首端](TabBarAccessories/duo-inner-final-start.png)、[滚动途中](TabBarAccessories/duo-inner-final-middle.png)、[尾端](TabBarAccessories/duo-inner-final-end.png)，两端附件保持固定、渐隐位于标签视口边缘；[浅色频道菜单](TabBarAccessories/duo-inner-final-channels.png)和[RTL 深色频道菜单](TabBarAccessories/duo-inner-final-rtl-channels.png)均显示“频道 3：通知”，[选择后的深色界面](TabBarAccessories/duo-inner-final-rtl-selected.png)导航标题与内容可辨识。录制期间没有额外注入触摸，操作由同次 XCTest 完成；自动化可点击性与名称检查不替代完整 VoiceOver 人工验收。
+
+最终独立 Package 的 Debug 全量库回归 **185 通过、0 失败、0 跳过**，`.xcresult` 与终态 `TEST SUCCEEDED` 一致，`sourceChangedSinceRun` 为空，见[摘要](Results/duo-inner-library-final-20261021/summary.json)、[结果包](Results/duo-inner-library-final-20261021/Result.xcresult)和[命令日志](Results/duo-inner-library-final-20261021/xcodebuild.log)。执行参数为 `SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer SP_SIMULATOR_ID=049C3F56-87CB-4D53-8B0A-7537DDE19222 SP_SCOPE=library SP_RUN_NAME=duo-inner-library-final-20261021 Scripts/validate.sh test`；官方 MCP 当前 Demo scheme 无法承担独立 Package 测试，因此回退到仓库脚本，随后用同一工具链执行 `Scripts/summarize_validation.py`。
+
+验收边界：**失败**仍包括前述 14 项实际旋转断言，不能从内屏的横向形状推定旋转成功；**被环境阻塞**的是电脑插件对 Device Hub 的读取及由此缺失的控件操作验证，内屏图像采集阻塞已解除；**未执行**包括最终修复后双屏完整 UI 重跑、双屏成功旋转矩阵、iPad 窗口矩阵、iOS 15 实际运行及完整 VoiceOver 人工检查。本轮完成了内屏修复前全量、修复后聚焦与当前源码全量库回归，尚未达到双屏全部 UI／UX 验收通过。
+
+最终 Release Demo **构建通过**，终态日志为 `BUILD SUCCEEDED`，`sourceChangedSinceRun` 为空；见[摘要](Results/duo-inner-demo-release-20261021/summary.json)和[日志](Results/duo-inner-demo-release-20261021/xcodebuild.log)。使用上述工具链与 Duo UUID，指定 `SP_SCOPE=demo SP_CONFIGURATION=Release SP_RUN_NAME=duo-inner-demo-release-20261021 Scripts/validate.sh build`。既有 SwiftFormat Build Phase 正常完成，报告 `0/40 files formatted, 2 files skipped`，没有引入额外源码改动；构建保留了未依赖 AppIntents.framework 因而跳过元数据提取的工具提示。该结果包仅构建、测试数为 0，测试摘要的 `unknown` 不作运行通过解释。最终 UI 聚焦、录屏复测、全量库测试及 Release 构建均再次核对与当前源码一致，`git diff --check` 通过；未提交或推送。
+
+## 2026-10-20：iPhone Duo 外屏 UI 输入与方向断言修复
+
+延续下节同一 Xcode 27.1／iOS 27.1／Duo Closed 环境，保留原始失败结果。此次修改集中在 Demo 诊断及 UI 测试，没有修改框架实现或公开 API：
+
+- **Section 可见区域：** 实测 collection 为 `(0, 264, 466, 414)`，而 `UIToolbar` 的无障碍 frame 为整个窗口 `(0, 0, 466, 678)`。旧测试用工具栏 `minY == 0` 排除了全部可见卡片。改为依据真实工具栏状态内容避让，保持 Section 输入、边界交接和偏移恢复断言。
+- **异步页触摸：** 原始事件起点 `(233, 571)` 落在覆盖滚动视图的替换按钮区域。新测试从按钮上方的可见滚动区域发起真实拖动，验证 Header 完全折叠，并再次替换滚动视图。
+- **外屏右侧系统区域：** 纵向滚动后返回原页的拖动原先从窗口宽度 85% 处开始，进入横向 Safe Area 外侧。Demo 的回归状态值增加窗口 `safeLeft`／`safeRight`，测试据此限制输入位置；仍要求拖过半页、实际触摸轨迹与计划距离一致、分页位移等于一页，并检查返回后位置恢复。
+- **实际旋转断言：** 标签外观页复用 `RegressionStatusLabel`；仅 `--window-regression` 下暴露场景实际方向和横向安全区域。附件 UI 测试等待真实方向并在失败信息中输出窗口 frame，截图改用 `app.screenshot()`，裁切附件点击使用窗口坐标及可见交集。
+
+| 阶段 | 结果 | 证据 |
+| --- | --- | --- |
+| 增加诊断及方向断言后的复现 | 0 通过、3 失败；Section、异步拖动和实际未旋转均复现 | [摘要](Results/duo-closed-diagnostic-20261020/summary.json) |
+| 首轮输入修复 | 5 通过、2 失败；剩余为纵向滚动后返回原页、实际未旋转 | [摘要](Results/duo-closed-input-fixed-20261020/summary.json) |
+| 横向 Safe Area 输入修复聚焦复测 | 1 通过、0 失败，包含双向切页和原位置恢复 | [摘要](Results/duo-closed-safe-input-20261020/summary.json) · [截图清单](Results/duo-closed-safe-input-20261020/attachments/manifest.json) |
+| Release Demo | 构建通过；非 Release 运行验收 | [日志](Results/duo-ui-fixes-release-20261020/xcodebuild.log) |
+| 外屏完整 UI 回归 | 26 通过、21 失败、7 跳过；54 项全部取得终态，7 项为 iPad 专属用例 | [摘要](Results/duo-closed-ui-regression-20261020/summary.json) · [结果包](Results/duo-closed-ui-regression-20261020/Result.xcresult) · [截图清单](Results/duo-closed-ui-regression-20261020/all-attachments/manifest.json) |
+| Apple 官方 MCP 修复聚焦复测 | 6 通过、2 失败、0 跳过；两项失败均已到实际横屏方向断言，非先前的输入或安全区域断言 | [摘要](Results/duo-official-ui-focused-20261020/summary.json) · [结果包](Results/duo-official-ui-focused-20261020/Result.xcresult) · [截图清单](Results/duo-official-ui-focused-20261020/attachments/manifest.json) |
+| Apple 官方 MCP 外屏完整复测 | 33 通过、14 失败、7 跳过、0 未运行；14 项失败全部发生在实际横屏方向断言 | [摘要](Results/duo-official-ui-full-20261020/summary.json) · [结果包](Results/duo-official-ui-full-20261020/Result.xcresult) · [控制台日志](Results/duo-official-ui-full-20261020/console.log) |
+
+诊断首轮由既有 Demo Build Phase 对两处新增长日志语句排版，`sourceChangedSinceRun` 列出 `CompositionalGestureTests.swift` 和 `StickyPagerDemoUITests.swift`，该轮只作复现证据。后续先用 SwiftFormat 0.64.0 格式化修改文件，再启动验证；首轮输入修复、Safe Area 聚焦复测和 Release 构建的摘要均为空变化列表。
+
+方向断言实际捕捉到目标 `UIInterfaceOrientation` 为 `3`、实际为 `1`、窗口仍为 `466 × 678 pt`。构建产物已声明支持左右横屏，未通过修改应用方向契约或移除断言绕过失败；该阶段的旋转验收仍为失败。
+
+完整回归在修改后续测试之前生成摘要，`sourceChangedSinceRun` 为空；这是该阶段的完整失败结果，不能作为后续修复通过的证据。失败分布为：4 项用序号误点顶部按钮而未返回外观入口，5 项错误假设竖屏没有横向 Safe Area，3 项将右侧系统标签按钮误判为底栏，3 项拖动未达到 Header 折叠状态，1 项直接查找尚未滚入菜单的“重排页面”，5 项实际方向断言未满足。系统标签按钮实际 frame 为 `(396, 544, 44, 108)`，内容右边界为 `382`；侧边按钮不应强制内容从其上方结束。混合页面失败事件为 `(233, 595) → (233, 395)`，后续改用浮动状态控件上方的可见列表区域；Header 两项则避开窗口宽度 85% 处的右侧系统区域。
+
+额外只读核查确认本机 `/Applications/Xcode.app/Contents/Developer/usr/bin/mcpbridge` 可连接 Apple 官方 `xcode-tools`（版本 `25320`）；返回的 `DeviceInteractionSynthesize` 定义包含方向操作。工具清单保存在 `Results/duo-environment-20261020/official-mcp-tools.json`。读取清单没有修改 MCP 配置或设备姿态，不能作为旋转或内外屏切换通过的证据。
+
+用户授权配置后，检查发现 `~/.codex/config.toml` 已有启用的 `mcp_servers.xcode`，命令为 `/usr/bin/xcrun`、参数为 `["mcpbridge"]`，故未重复添加或覆盖。全局工具链当前指向 Xcode 27.1。指定前台 Xcode 进程的临时连接中，官方 `XcodeListWindows`、`XcodeListSchemes`、`XcodeListRunDestinations` 和 `GetTestList` 均返回成功，确认当前工程为 `StickyPagerDemo.xcodeproj`、scheme 为 `StickyPagerDemo`、运行目标为 iPhone Duo／iOS 27.1，并识别全部 54 个 UI 测试。本轮官方测试调用使用该前台工程；完整 UI 回归期间未通过 MCP 并发操作设备。
+
+另按持久配置的原始命令、不指定进程重新连接，桥接转向后台 `XcodeService`，首次读取因代理尚未批准工程访问而返回错误。按其指示调用 `XcodeOpenWorkspace` 打开同一 Demo 工程后，`XcodeListWorkspaces` 成功返回后台及前台两个工程标识，保留[首次错误](Results/duo-environment-20261020/official-mcp-configured-connection.json)、[打开结果](Results/duo-environment-20261020/official-mcp-open-workspace.json)及[读取结果](Results/duo-environment-20261020/official-mcp-configured-workspaces.json)。后台工程初始目标为 iPhone 18 Pro，与前台 Duo 不同；不能假设两者共享运行目标。此项证明当前验证客户端的后台连接可用，不代表其他代理身份已预先获批，也不代表 Codex 当前会话已自动加载新增工具。
+
+为支持耗时超过默认 60 秒的构建与完整 UI 测试，在既有 `mcp_servers.xcode` 中补充 `tool_timeout_sec = 3600`；`codex mcp get xcode --json` 已确认启用状态、原连接命令和新超时值。此项是用户授权的本机配置变更，不属于仓库源码，也没有将临时 Xcode PID 写入持久配置。
+
+后台工程随后通过 `XcodeListRunDestinations` 确认 iPhone Duo／iOS 27.1 为有效目标，并调用 `XcodeSwitchRunDestination` 选中该目标，[返回状态](Results/duo-environment-20261020/official-mcp-configured-duo-target.json)确认 scheme 仍为 StickyPagerDemo；没有从后台另行启动测试。
+
+完整回归结束后，以独占设备会话执行 Apple 官方 MCP 方向对照。`orientation landscapeLeft`／`landscapeRight` 的 hierarchy 分别确认设备为 Landscape Left／Landscape Right，但 App UI orientation 始终为 Portrait、窗口始终 `466 × 678 pt`，截图也保持竖向；恢复 portrait 后设备与 App 均为 Portrait，并成功结束会话。因此“设备方向命令通过”和“App 横屏验收失败”分别记录，未修改方向断言来消除失败。证据见 [结构化记录](Results/duo-official-device-20261020/observations.json)、[左横向层级](Results/duo-official-device-20261020/landscapeLeft-reactivate-hierarchy.txt)、[右横向层级](Results/duo-official-device-20261020/landscapeRight-hierarchy.txt)及[右横向截图](Results/duo-official-device-20261020/landscapeRight-screenshot.png)。
+
+该独占会话的 `DeviceInteractionInstallAndRun` 返回 `Launch session has not been found`，随后通过 `activationBundleId` 激活已安装 App 完成设备验证；[原始错误](Results/duo-official-device-20261020/install-run.json)保留。首次采集后的 App PID 消失、重新激活时 PID 改变，原因未确定，不据此判断框架崩溃，也不把 MCP 的 `applicationState=NotRun` 等同于屏幕上没有 App。官方菜单验证在实际父裁切区域 `(132, 24, 250, 520)` 内执行一次上滑，成功显示“重排页面”；内部 CollectionView 报告高度 `678`，不能直接作为菜单可见高度。前后[截图](Results/duo-official-device-20261020/pages-menu-scrolled-screenshot.png)与[层级](Results/duo-official-device-20261020/pages-menu-scrolled-hierarchy.txt)保留。再次读取 Device Hub 仍遇到电脑插件 `-10005: timeoutReached`，官方工具未提供折叠姿态命令，内外屏切换仍未完成。
+
+后续聚焦复测实际调用官方 `RunSomeTests`，8 项均有终态，`sourceChangedSinceRun` 为空；请求参数、原始响应、控制台日志、Xcode 测试摘要与复制的结果包均在同一运行目录。通过项覆盖 Header 拖动、普通页恢复、自定义外观入口、标签间距与分页、重排／删除／清空菜单、系统侧边标签栏下的短内容和第 80 行可见性。已检查系统容器展开和列表末项截图，内容未被侧边按钮遮挡。混合页面已通过原先失败的折叠断言，`testSafeAreaTabsLTR` 已通过竖屏安全区域与滚动检查；两者随后均因窗口仍为 `466 × 678 pt`、未达到横屏方向而失败，整项仍记为失败。Xcode 导航器显示的“54 Tests”是 scheme 总目录，不代表这次聚焦调用运行了 54 项。
+
+随后通过官方 `RunAllTests` 完成全部 54 项，MCP 返回计数与 `xcresulttool get test-results summary` 一致，`sourceChangedSinceRun` 为空。33 项通过覆盖全部 5 项嵌套横向滚动用例、页面操作菜单、异步滚动视图替换、Header 拖动、宽度分配及溢出、默认／自定义标签交互、系统容器末行，以及附件固定、RTL 深色和栏高恢复。14 项失败均在等待实际横屏时发生：10 项记录实际方向仍为 `1`，另 4 项未获取到状态值，但窗口仍为 `466 × 678 pt`；后 4 项不单凭缺失状态值判断方向，结合此前官方设备层级对照保留为旋转验收失败。此前的触摸区域、菜单可见性及侧栏几何断言没有再次失败。7 项跳过均为 iPad 专属分屏／窗口用例。本轮整体仍为失败，不能称为完整验收通过。
+
+完整复测结束后重置电脑插件会话，再读取 `com.apple.dt.Devices` 仍返回 `-10005: timeoutReached`；同一插件读取 `/Applications/Xcode.app` 成功，并显示 54 项、14 项失败。因此当前阻塞具体位于 Device Hub 窗口读取，不能笼统认为全部电脑操作不可用；内外屏控件尚未被成功操作。
+
+随后用电脑插件经 Xcode 的“Open Developer Tool → Device Hub”重新打开，再以完整应用路径读取窗口，仍得到同样超时。官方设备诊断另行检查系统控制中心：成功打开后内容为空，仅有“添加控制”“电源”，没有可确认的方向锁控件，故锁定状态记为**未能确定**，没有修改设置。左右方向再次验证设备方向变化而 App 仍为 Portrait、`466 × 678 pt`；本次 App PID 全程不变，没有观察到意外退出。已恢复 Portrait，`EndSession` 返回 `Session stopped`；见[诊断摘要](Results/duo-official-orientation-diagnostic-20261020/observations.json)和[控制中心截图](Results/duo-official-orientation-diagnostic-20261020/control-center-screenshot.png)。内屏回归仍等待实际切换条件，不以模拟窗口尺寸替代。
+
+完整复测截图已从同次 `.xcresult` 导出：[清单](Results/duo-official-ui-full-20261020/all-attachments/manifest.json)。逐张检查[首端](TabBarAccessories/duo-outer-full-start.png)、[中间](TabBarAccessories/duo-outer-full-middle.png)、[尾端](TabBarAccessories/duo-outer-full-end.png)：两端附件位置固定，中间标签滚动，首端仅末侧存在渐隐，中间两侧渐隐，尾端仅首侧渐隐；右侧系统区域未覆盖附件。以上属于外屏竖向视觉证据，不代表旋转通过。
+
+保留的代表截图：[外屏系统容器展开](TabBarAccessories/duo-outer-system-expanded.png)、[外屏列表末项与侧边按钮](TabBarAccessories/duo-outer-system-last-row.png)、[菜单滚动后显示页面操作](TabBarAccessories/duo-outer-menu-scrolled.png)、[设备横向但 App 仍竖向](TabBarAccessories/duo-outer-device-landscape-app-portrait.png)。最后一张属于失败证据，设备方向需结合对应 hierarchy 读取，不能仅凭截图推断。
+
+源码关联复核：与外屏 183 项库测试运行快照相比，当前差异仅在 Demo 诊断视图及四个 UI 测试文件，`Sources/`、`Tests/` 和 `Package.swift` 未变化；与 `duo-ui-fixes-release-20261020` 的 Release 构建快照相比，仅 `StickyPagerDemoUITests.swift` 和 `SystemContainerTests.swift` 后续变化。因此保留这些阶段结果的适用范围，不把历史摘要的空变化列表解释成当前全仓源码均与当时一致。
+
+## 2026-10-20：iPhone Duo 外屏首轮阶段验证（尚未完成）
+
+环境为 Xcode 27.1（27A9275）／Swift 6.4、iPhone Duo／iOS 27.1（24A94232），设备 UUID 为 `049C3F56-87CB-4D53-8B0A-7537DDE19222`。用户确认 Device Hub 当前为外屏／Closed，确认截图保存在 `Results/duo-environment-20261020/user-confirmed-closed.png`。本节不能作为内外屏与旋转完整验收。
+
+| 范围 | 结果 | 证据 |
+| --- | --- | --- |
+| 标签、自动内容、指示器、附件聚焦库测试 | 通过：67 项，0 失败、0 跳过 | [摘要](Results/duo-tab-focused-20261020/summary.json) |
+| 外屏完整库测试 | 通过：183 项，0 失败、0 跳过 | [摘要](Results/duo-closed-library-full-20261020/summary.json) · [结果](Results/duo-closed-library-full-20261020/Result.xcresult) |
+| 外屏附件专项 UI 测试 | XCTest 通过：4 项；旋转证据不足，见下文 | [摘要](Results/duo-closed-ui-focused-20261020/summary.json) · [截图清单](Results/duo-closed-ui-focused-20261020/attachments/manifest.json) |
+| 外屏完整 Demo UI 套件尝试 | 未完成：1 项通过、6 项断言失败、1 项取消；其余未执行 | [摘要](Results/duo-closed-ui-full-20261020/summary.json) · [结果](Results/duo-closed-ui-full-20261020/Result.xcresult) |
+| Release Demo | 构建通过，终态日志为 `BUILD SUCCEEDED`；未执行 Release 测试 | [日志](Results/duo-release-build-20261020/xcodebuild.log) |
+| 内屏、真实内外屏切换及双屏旋转矩阵 | 被环境阻塞，尚未完成 | [环境记录](Results/duo-environment-20261020/) |
+
+上述运行已读取终态结果，核对时 `sourceChangedSinceRun` 均为空。执行使用 `SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`、上述 `SP_SIMULATOR_ID` 和表中目录名对应的 `SP_RUN_NAME`，通过 `Scripts/validate.sh` 分别运行 `SP_SCOPE=library` 的 `test`、`SP_SCOPE=demo` 的 `test` 及 `SP_CONFIGURATION=Release` 的 `build`；完整命令保留在各运行的 `xcodebuild.log`。
+
+附件专项截图已导出；首端画面可见固定附件与标签区域渐隐。不过“横屏辅助字号”截图仍呈竖向布局，该用例只发送了方向请求，没有断言实际界面方向，不能据其通过结果宣称旋转通过。需要补充实际方向验证后重测。
+
+完整 UI 尝试中，5 个 `CompositionalGestureTests` 在寻找可见 Section 的 `XCTUnwrap` 处失败；失败截图中仍可看到横向卡片，需继续核对测试的可见区域及工具栏几何计算。`testAsyncDiscoveryAndReplacement` 等待 Header 完全折叠失败，实际进度为 `0.00`，原因尚未确定。随后为按用户指示通过电脑操作屏幕切换，向本轮 xcodebuild 发送 SIGINT 并保存结果；`testCollapsedTabBarStaysAtNavigationBarBottom` 因取消记为失败，因此 xcresult 的 7 个失败包含 6 个断言失败与 1 个取消，不能将取消归为框架缺陷。原始日志、截图、录屏及结果包均保留。
+
+电脑控制能列出正在运行的 Device Hub，但使用 bundle ID、应用名及完整路径 `/Applications/Xcode.app/Contents/Applications/DeviceHub.app` 读取窗口持续返回 `-10005: timeoutReached`；用户恢复前台及连接后仍复现。另一个可连接的 `Simulator` 实际属于 Xcode 26.6，点击其方向菜单后显示黑屏，不能作为当前 Xcode 27.1 Device Hub 的姿态切换证据。尚未验证成功的横竖屏、内外屏操作均不计为通过；没有通过修改屏幕尺寸来代替折叠切换。
+
+## 2026-10-20：内容留白、固定附件及配套 UI／UX
+
+本轮新增 `contentInsets`、`leadingAccessoryView`、`trailingAccessoryView` 和 `invalidateAccessoryLayout()`；默认零留白、无附件。水平留白随标签滚动，附件固定在横向 Safe Area 内，渐隐和指示器限制在剩余标签视口。附件使用 Auto Layout 压缩尺寸测量，空间不足按理想宽度比例裁切；建议栏高综合标签高度、上下留白及附件高度。公开接入、尺寸依据、刷新、所有权、RTL、窄窗口、点击和无障碍边界统一更新在 [README](../README.md#内容留白与固定附件)，内容代理及指示器注释同步更新。
+
+Demo 的“标签外观 → 配置”与分页 Demo 的“页面”菜单新增“留白与附件”，支持对称／非对称留白、单端／双端附件、标题和高度变化、RTL。搜索展示本地反馈，更多频道菜单使用既有选择 API。启动参数、原有自定义内容和栏高／隐藏操作见 README；`--narrow-tabs` 是 240 pt 的独立栏夹具，与真实系统窗口缩放分别验证。
+
+### 问题、修复和保留的失败证据
+
+- 首轮 [环境日志](Results/accessory-focused-20261020-01/xcodebuild.log) 被沙盒下的 CoreSimulator 访问阻止，未取得有效测试结果；使用允许访问模拟器的执行环境后继续，没有把 0 项或 unknown 当作通过。
+- [首轮附件测试](Results/accessory-focused-20261020-02/xcodebuild.log) 8 项中 1 项失败：无尺寸依据的 UIView fitting 使用了旧 bounds。加入优先级 1 的零尺寸测量依据，业务约束与固有尺寸优先；没有使用 frame 或 `sizeThatFits(_:)` 回退。[下一轮](Results/accessory-focused-20261020-03/xcodebuild.log) 50 项中 1 项失败来自测试误将自定义内容可用宽度 220 pt 预期为 110 pt，修正为实际宽度分配契约；其余自动内容、指示器与间距测试通过。
+- [Demo 首次构建](Results/accessory-demo-build-20261020-01/xcodebuild.log) 因 Swift 6 对配置对象的重叠读写检查失败；先计算新标题再写回 `UIButton.Configuration` 后恢复。
+- [RTL 初次布局探针](Results/accessory-rtl-initial-probe-20261020/xcodebuild.log) 复现尚未布局时同时配置留白、附件与选中项导致初始偏移为 0，RTL 逻辑首项在屏幕外。修复几何刷新过程中提前清空对齐请求的问题，保留真实零 frame 起始回归。
+- [配置式按钮尺寸探针](Results/accessory-configured-button-probe-20261020/xcodebuild.log) 复现直接调用 UIButton 的 fitting 重写忽略外加最小高度。改为测量期间将附件四边临时连接普通 UIView 承载视图，由承载视图求解压缩尺寸，实际布局解除连接；44 → 80 → 44 pt 的库测试和真实菜单操作均纳入回归。
+- [第一轮 UI](Results/accessory-ui-20261020-01/xcodebuild.log) 和 [聚焦复测](Results/accessory-ui-focused-20261020-02/xcodebuild.log) 保留了上述问题及测试夹具问题：分页第二项实际为“列表”；辅助字号与极窄横屏允许零标签视口，附件的理想 frame 可能大于裁切区域，XCTest 默认激活点不可用。夹具改为在附件承载区域与窗口交集内发送真实点击，以搜索弹窗验证命中，再旋转恢复并继续拖动，没有放宽到仅验证按钮存在。
+- [首轮 iPad 窗口回归](Results/accessory-ui-ipad-final-20261020/xcodebuild.log) 中新增附件缩放用例失败于旧几何假设：将 Item 顶边等同栏顶边，忽略了 6 pt 上留白。更新公共夹具，分别断言栏顶、Item 上下内缩、页面紧接栏底；横向 Safe Area 由标签视口与两端承载区域的并集验证。保留原有无附件回归约束。
+- `accessory-library-final-20261020-01`、`-02`、`-03` 和 `accessory-release-build-20261020-01`、`accessory-release-final-20261020` 是阶段结果；最后的完整回归和摘要见下表。历史失败、旧源码快照及结果包均保留。
+
+### 最终验证
+
+工具链为 Xcode 26.6 / Swift 6.3.3。Debug 库测试使用真实 `UIWindow`，覆盖输入归一化、滚动留白、Safe Area／RTL、附件测量／生命周期／裁切／恢复、候选测量无显示副作用、手动滚动／选择动画／分页进度、默认／自定义／回退内容、指示器、渐隐及容器高度与隐藏恢复。Demo 测试发送真实触摸，不以构建代替交互验收。
+
+| 状态 | 范围 | 证据 |
+| --- | --- | --- |
+| 通过 | 附件及容器聚焦回归：13 通过、0 失败、0 跳过，iPhone 18 Pro Max / iOS 27.0 | [日志](Results/accessory-focused-20261020-05/xcodebuild.log)、[结果包](Results/accessory-focused-20261020-05/Result.xcresult) |
+| 通过 | 最终完整库：183 通过、0 失败、0 跳过，iPhone 18 Pro Max / iOS 27.0；终态 `TEST SUCCEEDED`，`sourceChangedSinceRun` 为空 | [摘要](Results/accessory-library-final-20261020-04/summary.json)、[结果包](Results/accessory-library-final-20261020-04/Result.xcresult) |
+| 通过 | Release Demo 构建（包含本地 Package）：终态 `BUILD SUCCEEDED`，`sourceChangedSinceRun` 为空；仅构建，摘要的测试字段为 unknown／0，不表示测试通过 | [日志](Results/accessory-release-final-20261020-02/xcodebuild.log)、[摘要](Results/accessory-release-final-20261020-02/summary.json)、[结果包](Results/accessory-release-final-20261020-02/Result.xcresult) |
+| 通过 | iPhone 最终 UI：4 通过、0 失败、0 跳过，iOS 27.0；固定附件、搜索反馈、频道选择、首／中／尾、RTL 深色、辅助字号旋转、窄栏裁切、分页栏高增长与恢复；`sourceChangedSinceRun` 为空 | [摘要](Results/accessory-ui-iphone-final-20261020-02/summary.json)、[结果包](Results/accessory-ui-iphone-final-20261020-02/Result.xcresult) |
+| 首轮失败，分项结果保留 | iPad Pro 11-inch (M5) / iOS 26.5：新增 UI 4 项、系统容器 RTL／旋转／恢复 1 项及嵌套横向 Section RTL 边界 1 项通过；窗口附件缩放 1 项失败，共 6 通过、1 失败、0 跳过 | [摘要](Results/accessory-ui-ipad-final-20261020/summary.json)、[结果包](Results/accessory-ui-ipad-final-20261020/Result.xcresult) |
+| 通过 | iPad 窗口最终复测：带附件及默认无附件对照共 2 通过、0 失败、0 跳过；真实系统窗口缩放至 375 pt、连续缩放、Header 展开／部分折叠／吸顶、真实分页、恢复全屏及搜索点击；`sourceChangedSinceRun` 为空 | [摘要](Results/accessory-window-recovery-20261020/summary.json)、[结果包](Results/accessory-window-recovery-20261020/Result.xcresult) |
+| 通过 | 本轮 13 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过；Demo Build Phase 未产生范围外的格式修改 | 按工作区差异逐文件 lint；源码、Demo 菜单、测试预期和 README 已交叉核对 |
+
+13 项聚焦及首轮 iPad 结果的 `sourceChangedSinceRun` 仅包含随后修正的 `StickyPagerDemoUITests.swift`，框架、Demo 及其他测试源码保持一致；聚焦内容已由最终 183 项库回归重新覆盖，窗口夹具用带附件和默认配置分别复测。没有把首轮 iPad 的整体失败改写为成功。最初环境阻塞已解除；本轮实际执行的最终复测没有失败或跳过项，未执行范围见下文。
+
+执行命令如下；这些运行名已使用，复现时应换用新名字。`Scripts/validate.sh` 同时保存工具链、`source-hashes.json`、终态日志和 `.xcresult`。Debug 构建包含在对应 `test` 操作中；库与 Demo 独立执行。
+
+```sh
+export SP_DEVELOPER_DIR="/Applications/Xcode-26.6.app/Contents/Developer"
+
+SP_SCOPE=library SP_SIMULATOR_ID=41AF9CED-9BBB-4B60-B563-73AFB035C2D4 SP_RUN_NAME=accessory-library-final-20261020-04 Scripts/validate.sh test
+SP_SCOPE=demo SP_CONFIGURATION=Release SP_SIMULATOR_ID=41AF9CED-9BBB-4B60-B563-73AFB035C2D4 SP_RUN_NAME=accessory-release-final-20261020-02 Scripts/validate.sh build
+
+SP_SCOPE=demo SP_SIMULATOR_ID=41AF9CED-9BBB-4B60-B563-73AFB035C2D4 SP_RUN_NAME=accessory-ui-iphone-final-20261020-02 Scripts/validate.sh test \
+  -only-testing:StickyPagerDemoUITests/TabBarAccessoryUITests
+
+SP_SCOPE=demo SP_SIMULATOR_ID=F4629C72-82B7-4FE3-BC0D-543A3A01D6C1 SP_RUN_NAME=accessory-ui-ipad-final-20261020 Scripts/validate.sh test \
+  -only-testing:StickyPagerDemoUITests/TabBarAccessoryUITests \
+  -only-testing:StickyPagerDemoUITests/StickyPagerDemoUITests/testSystemWindowResizeWithAccessories \
+  -only-testing:StickyPagerDemoUITests/SystemContainerTests/testRTLPagingRotationAndSystemTabRestore \
+  -only-testing:StickyPagerDemoUITests/CompositionalGestureTests/testSectionEdgesRTL
+
+SP_SCOPE=demo SP_SIMULATOR_ID=F4629C72-82B7-4FE3-BC0D-543A3A01D6C1 SP_RUN_NAME=accessory-window-recovery-20261020 Scripts/validate.sh test \
+  -only-testing:StickyPagerDemoUITests/StickyPagerDemoUITests/testSystemWindowResizeWithAccessories \
+  -only-testing:StickyPagerDemoUITests/StickyPagerDemoUITests/testSystemWindowResizePreservesPinnedListAndPaging
+
+DEVELOPER_DIR="$SP_DEVELOPER_DIR" python3 Scripts/summarize_validation.py Validation/Results/accessory-library-final-20261020-04
+# 其余已结束的运行目录使用同一摘要命令；截图用同一 Xcode 的 xcresulttool export attachments 导出。
+git diff --check
+```
+
+### 截图与验收边界
+
+已从 [最终 iPhone 截图清单](Results/accessory-ui-iphone-final-20261020-02/Attachments/manifest.json) 导出并检查：[浅色首端](TabBarAccessories/iphone-start.png)、[滚动中间](TabBarAccessories/iphone-middle.png)、[尾端](TabBarAccessories/iphone-end.png)、[RTL 深色首端](TabBarAccessories/iphone-rtl-dark.png)、[辅助字号极窄横屏](TabBarAccessories/iphone-narrow-accessibility.png)、[附件撑高分页栏](TabBarAccessories/iphone-pager-height.png)。固定按钮在标签滚动前后位置一致，首尾对应侧渐隐消失，中段两侧渐隐，背景和分隔线连续；RTL 初始选中项可见。极窄横屏截图记录标签视口压缩为零的边界行为，不代表推荐的常规产品布局。
+
+已查看首轮 iPad 中通过的外观用例截图：[LTR 首端](TabBarAccessories/ipad-start.png)、[RTL 深色首端](TabBarAccessories/ipad-rtl-dark.png)，原始出处见 [iPad 截图清单](Results/accessory-ui-ipad-final-20261020/Attachments/manifest.json)。该轮整体仍为失败，截图与其他通过的用例不替代窗口缩放的独立复测。
+
+窗口复测另行导出并检查 [375 pt 浮动窗口](TabBarAccessories/ipad-small-window.png) 和 [恢复全屏](TabBarAccessories/ipad-fullscreen-restored.png)：两端按钮仍可见，标签及渐隐位于中间视口，页面根视图紧接整栏底部。完整的展开、部分折叠、再次吸顶和连续缩放截图见 [窗口复测清单](Results/accessory-window-recovery-20261020/Attachments/manifest.json)。
+
+自动化检查覆盖按钮无障碍名称、可见区域的真实点击及菜单反馈；完整 VoiceOver 遍历顺序和朗读操作尚未人工验收。未执行完整 Demo UI 套件、真机、iOS 15 实际运行、Release 运行时测试、性能测量及所有设备／字号／方向的笛卡尔组合；部署目标保持 iOS 15 不等于已经在 iOS 15 实机验收。
+
+最终完整库日志仍包含历史记录中已出现的 UIKit observation tracking feedback loop 诊断；本轮未专项解决，不将测试通过表述为“没有运行时诊断”。
 
 ## 2026-10-20：提交前全量审查与指示器边界修复
 

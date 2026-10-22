@@ -37,7 +37,7 @@ final class SystemContainerTests: XCTestCase {
 
     override func setUp() async throws {
         continueAfterFailure = false
-        XCUIDevice.shared.orientation = .portrait
+        UITestOrientation.set(.portrait)
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
         if name.contains("RTL") {
@@ -60,7 +60,7 @@ final class SystemContainerTests: XCTestCase {
 
     override func tearDown() async throws {
         record("结束状态")
-        XCUIDevice.shared.orientation = .portrait
+        UITestOrientation.set(.portrait)
         app.terminate()
     }
 
@@ -115,11 +115,18 @@ final class SystemContainerTests: XCTestCase {
             accuracy: 1,
             "系统底部安全区域应只补偿一次"
         )
-        // iPad 的原生 Tab Bar 可以位于顶部；只在底部栏实际遮挡时断言末端避让。
-        if systemTabsFrame.midY > window.midY {
-            XCTAssertGreaterThan(safeBottom, 0)
-            XCTAssertLessThanOrEqual(frame.maxY - safeBottom, systemTabsFrame.minY + 1)
-        }
+        // 系统标签栏可以位于底部、顶部或 Duo 侧边；按实际安全区域验证避让。
+        let safeContent = CGRect(
+            x: frame.minX + (try XCTUnwrap(values["safeLeft"])),
+            y: frame.minY,
+            width: frame.width - (try XCTUnwrap(values["safeLeft"])) - (try XCTUnwrap(values["safeRight"])),
+            height: frame.height - safeBottom
+        )
+        let overlap = safeContent.intersection(systemTabsFrame)
+        XCTAssertTrue(
+            overlap.isNull || overlap.width <= 1 || overlap.height <= 1,
+            "内容安全区域 \(safeContent) 不应被系统标签栏 \(systemTabsFrame) 遮挡"
+        )
         XCTAssertEqual(try XCTUnwrap(values["automaticIndicators"]), 1)
         let isShort = (status.value as? String)?.contains("page=short;") == true
         XCTAssertEqual(try XCTUnwrap(values["showsIndicator"]), isShort ? 0 : 1)
@@ -137,11 +144,16 @@ final class SystemContainerTests: XCTestCase {
 
     private func verticalDrag(up: Bool, distance: CGFloat? = nil) {
         let barFrame = systemTabsFrame
-        let bottom = min(table.frame.maxY, barFrame.midY > table.frame.midY ? barFrame.minY : table.frame.maxY)
+        let x = tabs.frame.midX
+        let blocksDrag = barFrame.minX < x && x < barFrame.maxX && barFrame.midY > table.frame.midY
+        let bottom = min(table.frame.maxY, blocksDrag ? barFrame.minY : table.frame.maxY)
         let visibleHeight = bottom - table.frame.minY
         let origin = table.coordinate(withNormalizedOffset: .zero)
-        let start = origin.withOffset(CGVector(dx: table.frame.width * 0.5, dy: visibleHeight * (up ? 0.8 : 0.2)))
+        let start = origin.withOffset(CGVector(dx: x - table.frame.minX, dy: visibleHeight * (up ? 0.8 : 0.2)))
         let end = start.withOffset(CGVector(dx: 0, dy: (up ? -1 : 1) * (distance ?? visibleHeight * 0.6)))
+        print(
+            "SYSTEM CONTAINER DRAG: visibleHeight=\(visibleHeight), distance=\(distance ?? visibleHeight * 0.6), table=\(table.frame)"
+        )
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
     }
 
@@ -220,13 +232,14 @@ final class SystemContainerTests: XCTestCase {
             (.portrait, .portrait)
         ] {
             let savedContentPosition = try contentPosition()
-            XCUIDevice.shared.orientation = orientation
+            UITestOrientation.set(orientation)
             expect("interfaceOrientation=\(interface.rawValue);")
             try assertGeometry(pinned: true)
             XCTAssertEqual(try contentPosition(), savedContentPosition, accuracy: 1, "安全区域变化后保留正文滚动位置")
             record("系统容器-\(rtl ? "RTL" : "LTR")-方向\(interface.rawValue)")
             let before = try XCTUnwrap(geometry()["position"])
-            verticalDrag(up: true, distance: 60)
+            // 按当前可见视口验证旋转后的滚动能力，兼顾内外屏及横竖屏。
+            verticalDrag(up: true)
             XCTAssertGreaterThan(try XCTUnwrap(geometry()["position"]), before + 10, "旋转后新触摸仍能滚动")
         }
         app.buttons["demo.systemContainer.close"].tap()

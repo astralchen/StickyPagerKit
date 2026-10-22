@@ -95,7 +95,7 @@ public struct SPTabBarIndicatorLayoutContext {
     public let index: Int
     public let itemFrame: CGRect
     public let contentFrame: CGRect
-    /// 安全视口对应的滚动内容区域。自由布局回调不得依赖回调次数或修改标签栏。
+    /// 扣除固定附件后的标签视口对应的滚动内容区域（包含内容留白）。自由布局回调不得依赖回调次数或修改标签栏。
     public let viewportFrame: CGRect
     public let layoutDirection: UIUserInterfaceLayoutDirection
     public let traitCollection: UITraitCollection

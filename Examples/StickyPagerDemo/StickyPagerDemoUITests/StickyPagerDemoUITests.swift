@@ -5,11 +5,14 @@ final class StickyPagerDemoUITests: XCTestCase {
     private var app: XCUIApplication!
     override func setUp() async throws {
         continueAfterFailure = false
-        XCUIDevice.shared.orientation = .portrait
+        UITestOrientation.set(.portrait)
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
+        if name.contains("WithAccessories") {
+            app.launchArguments.append("--accessories")
+        }
         if name.contains("testSystemSplit") || name
-            .contains("testSystemWindowResize") {
+            .contains("testSystemWindowResize") || name.contains("testRotationAndBackGesture") {
             app.launchArguments.append("--paging-trace")
         }
         if name.contains("testSiblingLabel") {
@@ -37,7 +40,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         restoreFullScreen()
         // 陪测应用只提供窗口，不修改其内容；恢复 Demo 全屏后保留后台实例供后续分屏复用。
         // 避免在每个用例间反复终止仍由系统窗口管理关联的进程。
-        XCUIDevice.shared.orientation = .portrait
+        UITestOrientation.set(.portrait)
         app.terminate()
     }
 
@@ -135,12 +138,125 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     private func rotate(to orientation: UIDeviceOrientation) {
-        XCUIDevice.shared.orientation = orientation
+        UITestOrientation.set(orientation)
         // 设备方向请求可能被模拟器忽略；必须看到系统界面方向改变，不能在原方向下误报通过。
         let expected: UIInterfaceOrientation = orientation == .landscapeLeft ? .landscapeRight
             : orientation == .landscapeRight ? .landscapeLeft : .portrait
-        expect("interfaceOrientation=\(expected.rawValue);")
+        var actual = "<未取得状态>"
+        let predicate = NSPredicate { [self] _, _ in
+            let current = status.exists ? status : app.staticTexts["demo.gallery.status"]
+            guard current.exists else {
+                return false
+            }
+            actual = current.value as? String ?? "<无状态值>"
+            return actual.contains("interfaceOrientation=\(expected.rawValue);")
+        }
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 6),
+            .completed,
+            "请求界面方向 \(expected.rawValue)，实际：\(actual)，window=\(app.windows.firstMatch.frame)"
+        )
         print("INTERFACE ORIENTATION: \(expected.rawValue), window=\(app.windows.firstMatch.frame)")
+    }
+
+    private func openGallery() {
+        // Duo 将返回控件放在侧边；它不属于顶部导航栏的按钮序列。
+        let back = app.buttons["BackButton"]
+        if back.exists {
+            back.tap()
+        } else {
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        XCTAssertTrue(app.buttons["demo.open"].waitForExistence(timeout: 5))
+        app.buttons["标签外观"].tap()
+        XCTAssertTrue(app.staticTexts["demo.gallery.status"].waitForExistence(timeout: 5))
+    }
+
+    private func choosePageAction(_ title: String) {
+        app.buttons["demo.pages"].tap()
+        XCTAssertTrue(app.buttons["留白与附件"].waitForExistence(timeout: 5))
+        // 菜单 CollectionView 的无障碍高度可能包含裁切部分，使用最小承载区域的实际 frame。
+        let panels = app.otherElements.containing(.button, identifier: "留白与附件")
+            .allElementsBoundByIndex.map(\.frame).filter { $0.width > 100 && $0.height > 100 }
+        guard let panel = panels.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
+            XCTFail("未取得页面菜单的可见承载区域")
+            return
+        }
+        let window = app.windows.firstMatch.frame
+        let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        for _ in 0 ..< 6 {
+            let action = app.buttons[title]
+            if action.exists {
+                let visible = action.frame.intersection(panel)
+                if !visible.isNull, visible.height >= min(32, action.frame.height) {
+                    origin.withOffset(CGVector(dx: visible.midX - window.minX, dy: visible.midY - window.minY)).tap()
+                    return
+                }
+            }
+            let start = origin.withOffset(CGVector(
+                dx: panel.midX - window.minX,
+                dy: panel.minY + panel.height * 0.85 - window.minY
+            ))
+            let end = origin.withOffset(CGVector(
+                dx: panel.midX - window.minX,
+                dy: panel.minY + panel.height * 0.3 - window.minY
+            ))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        XCTFail("未能滚动到菜单项：\(title)")
+    }
+
+    private func horizontalSafeInsets() -> (left: CGFloat, right: CGFloat) {
+        let values = Dictionary(
+            (status.value as? String ?? "").split(separator: ";").compactMap { component -> (String, CGFloat)? in
+                let pair = component.split(separator: "=", maxSplits: 1)
+                guard pair.count == 2, let number = Double(pair[1]) else {
+                    return nil
+                }
+                return (String(pair[0]), CGFloat(number))
+            },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        guard let left = values["safeLeft"], let right = values["safeRight"] else {
+            XCTFail("未取得窗口横向安全区域")
+            return (0, 0)
+        }
+        return (left, right)
+    }
+
+    private func collapseHeaderByTouch() {
+        let header = app.otherElements["demo.headerView"].frame
+        let window = app.windows.firstMatch.frame
+        let safe = horizontalSafeInsets()
+        let x = (window.minX + safe.left + window.maxX - safe.right) / 2
+        let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(
+            dx: x - window.minX,
+            dy: header.minY + header.height * 0.85 - window.minY
+        ))
+        let end = origin.withOffset(CGVector(dx: x - window.minX, dy: header.minY + header.height * 0.1 - window.minY))
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
+    private func dragVisibleList(_ table: XCUIElement, up: Bool) {
+        let window = app.windows.firstMatch.frame
+        let frame = table.frame.intersection(window)
+        let bottom = min(frame.maxY, status.frame.minY - 24)
+        let height = bottom - frame.minY
+        XCTAssertGreaterThan(height, 100, "列表应保留可用于真实拖动的可见区域")
+        let safe = horizontalSafeInsets()
+        let x = (window.minX + safe.left + window.maxX - safe.right) / 2
+        let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(
+            dx: x - window.minX,
+            dy: frame.minY + height * (up ? 0.85 : 0.15) - window.minY
+        ))
+        let end = origin.withOffset(CGVector(
+            dx: x - window.minX,
+            dy: frame.minY + height * (up ? 0.15 : 0.85) - window.minY
+        ))
+        print("LIST TOUCH: frame=\(frame), status=\(status.frame), bottom=\(bottom), x=\(x)")
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
     }
 
     private func restoreFullScreen() {
@@ -224,7 +340,13 @@ final class StickyPagerDemoUITests: XCTestCase {
             XCTFail("未取得内容页原生安全区域", file: file, line: line)
             return
         }
-        let viewport = app.collectionViews["sp.tabBar.collection"].frame
+        var viewport = app.collectionViews["sp.tabBar.collection"].frame
+        if name.contains("WithAccessories") {
+            // Safe Area 包含固定附件区域，标签视口只占其中的剩余空间。
+            viewport = viewport
+                .union(app.otherElements["sp.tabBar.leadingAccessory"].frame)
+                .union(app.otherElements["sp.tabBar.trailingAccessory"].frame)
+        }
         XCTAssertEqual(table.frame.minX + CGFloat(left), viewport.minX, accuracy: 1, file: file, line: line)
         XCTAssertEqual(table.frame.maxX - CGFloat(right), viewport.maxX, accuracy: 1, file: file, line: line)
         print(
@@ -269,8 +391,12 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("page=list"); expect("progress=1.00")
         let table = app.tables["demo.list"]
         let tab = app.buttons["sp.tab.1"]
-        XCTAssertEqual(tab.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
-        XCTAssertEqual(table.frame.minY, tab.frame.maxY, accuracy: 1)
+        let viewport = app.collectionViews["sp.tabBar.collection"].frame
+        let verticalInset: CGFloat = name.contains("WithAccessories") ? 6 : 0
+        XCTAssertEqual(viewport.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
+        XCTAssertEqual(tab.frame.minY, viewport.minY + verticalInset, accuracy: 1)
+        XCTAssertEqual(tab.frame.maxY, viewport.maxY - verticalInset, accuracy: 1)
+        XCTAssertEqual(table.frame.minY, viewport.maxY, accuracy: 1)
         XCTAssertEqual(table.frame.minX, app.windows.firstMatch.frame.minX, accuracy: 1)
         XCTAssertEqual(table.frame.width, app.windows.firstMatch.frame.width, accuracy: 1)
         assertListSafeArea()
@@ -311,6 +437,16 @@ final class StickyPagerDemoUITests: XCTestCase {
         try verifySystemWindowResize(rtl: true)
     }
 
+    func testSystemWindowResizeWithAccessories() throws {
+        try verifySystemWindowResize(rtl: false)
+        let search = app.buttons["demo.accessory.search"]
+        XCTAssertTrue(search.isHittable)
+        XCTAssertTrue(app.buttons["demo.accessory.more"].isHittable)
+        search.tap()
+        XCTAssertTrue(app.alerts["搜索频道"].waitForExistence(timeout: 3))
+        app.alerts.buttons["关闭"].tap()
+    }
+
     private func verifySystemWindowResize(rtl: Bool) throws {
         try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统窗口缩放仅适用于 iPad")
         expect(rtl ? "direction=rtl" : "direction=ltr")
@@ -322,6 +458,10 @@ final class StickyPagerDemoUITests: XCTestCase {
         resizeSystemWindow(dx: -250, dy: -350)
         XCTAssertLessThan(app.windows.firstMatch.frame.width, full.width - 100)
         assertPinnedList(position: initialPosition); recordWindow("浮动小窗口")
+        if name.contains("WithAccessories") {
+            XCTAssertTrue(app.buttons["demo.accessory.search"].isHittable)
+            XCTAssertTrue(app.buttons["demo.accessory.more"].isHittable)
+        }
         verifyRootFollowsHeaderInCurrentWindow()
         assertPinnedList(position: initialPosition)
         for delta: CGVector in [CGVector(dx: 160, dy: 120), CGVector(dx: -80, dy: -60)] {
@@ -640,10 +780,10 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("progress=0.00")
         assertGeometry()
         XCTAssertEqual(table.cells.firstMatch.frame.minY, table.frame.minY, accuracy: 1)
-        table.swipeUp()
+        dragVisibleList(table, up: true)
         expect("progress=1.00")
         assertGeometry()
-        table.swipeUp()
+        dragVisibleList(table, up: true)
         assertGeometry()
         select(0); select(1)
         expect("progress=1.00")
@@ -656,23 +796,19 @@ final class StickyPagerDemoUITests: XCTestCase {
             if (status.value as? String)?.contains("progress=0.00") == true {
                 break
             }
-            table.swipeDown()
+            dragVisibleList(table, up: false)
         }
         expect("progress=0.00")
         assertGeometry()
         XCTAssertEqual(table.cells.firstMatch.frame.minY, table.frame.minY, accuracy: 1)
         // 展开后用新触摸再次折叠，验证 inset 更新未破坏原生拖动。
-        table.swipeUp()
+        dragVisibleList(table, up: true)
         expect("progress=1.00")
         assertGeometry()
     }
 
     func testHeaderDragAndListScroll() {
-        let header = app.otherElements["demo.headerView"]
-        header.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.85)).press(
-            forDuration: 0.05,
-            thenDragTo: header.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.1))
-        )
+        collapseHeaderByTouch()
         expect("progress=1.00")
         select(1)
         expect("page=list")
@@ -697,19 +833,20 @@ final class StickyPagerDemoUITests: XCTestCase {
         let tab = app.buttons["sp.tab.4"]
         XCTAssertEqual(tab.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
         XCTAssertEqual(plain.frame.minY, tab.frame.maxY, accuracy: 1)
-        XCTAssertEqual(plain.frame.maxY, app.frame.maxY, accuracy: 1)
+        XCTAssertEqual(plain.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
         plain.swipeUp(); expect("progress=1.00")
         plain.swipeDown(); expect("progress=0.00")
         XCTAssertEqual(plain.frame.minY, tab.frame.maxY, accuracy: 1)
-        XCTAssertEqual(plain.frame.maxY, app.frame.maxY, accuracy: 1)
+        XCTAssertEqual(plain.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
         plain.swipeDown(); expect("progress=0.00")
 
-        let header = app.otherElements["demo.headerView"]
-        header.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.85))
-            .press(forDuration: 0.05, thenDragTo: header.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.1)))
+        collapseHeaderByTouch()
         expect("progress=1.00")
         tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+            )
         expect("progress=0.00"); expect("page=plain")
         plain.swipeUp(); expect("progress=1.00")
         select(1); expect("page=list"); expect("progress=1.00")
@@ -767,8 +904,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
         app.tables["demo.list"].swipeRight()
         expect("page=grid")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["标签外观"].tap()
+        openGallery()
         app.buttons["配置"].tap()
         app.buttons["标签间距"].tap()
         app.buttons["项间距 8"].tap()
@@ -778,8 +914,7 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     func testCustomIndicatorGalleryPresetsAndForegroundHitTesting() {
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["标签外观"].tap()
+        openGallery()
         let tabs = app.collectionViews["sp.tabBar.collection"]
         let originalHeight = tabs.frame.height
         for mode in ["默认胶囊", "底部线条", "顶部固定线条", "跟随内容宽度", "内容背景", "自由布局与自定义视图", "隐藏指示器", "默认胶囊"] {
@@ -797,7 +932,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         app.buttons["配置"].tap(); app.buttons["自定义卡片"].tap()
         select(1)
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
-        XCUIDevice.shared.orientation = .landscapeLeft
+        rotate(to: .landscapeLeft)
         XCTAssertTrue(tabs.waitForExistence(timeout: 5))
         select(0)
         XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
@@ -828,8 +963,7 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     func testStandaloneTabGallerySelectionAndLiveContent() {
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["标签外观"].tap()
+        openGallery()
         let favorites = app.buttons["sp.tab.1"]
         XCTAssertTrue(favorites.waitForExistence(timeout: 5))
         favorites.tap()
@@ -843,8 +977,7 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     func testCustomTabGallerySwitchesModeAndUpdatesContent() {
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["标签外观"].tap()
+        openGallery()
         let tabs = app.collectionViews["sp.tabBar.collection"]
         let defaultHeight = tabs.frame.height
         app.buttons["配置"].tap()
@@ -926,10 +1059,12 @@ final class StickyPagerDemoUITests: XCTestCase {
                 app.buttons[title].tap()
             }
             choose("紧凑编号内容")
-            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, 44, accuracy: 1)
+            let tabs = app.collectionViews["sp.tabBar.collection"]
+            // Demo 有 13 项；宽屏余量会均分，minimumItemWidth 是下限而非固定宽度。
+            let equalWidth = tabs.frame.width / 13
+            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, max(44, equalWidth), accuracy: 1)
             choose("最小项宽 24")
-            XCTAssertGreaterThanOrEqual(app.buttons["sp.tab.0"].frame.width, 24)
-            XCTAssertLessThan(app.buttons["sp.tab.0"].frame.width, 44)
+            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, max(24, equalWidth), accuracy: 1)
             select(1)
             expect("page=list")
             select(0)
@@ -944,9 +1079,8 @@ final class StickyPagerDemoUITests: XCTestCase {
             choose("最小项宽 44")
             choose("不可压缩宽内容")
             expect("page=grid")
-            let tabs = app.collectionViews["sp.tabBar.collection"]
             XCTAssertGreaterThan(app.buttons["sp.tab.0"].frame.width, tabs.frame.width)
-            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, 480, accuracy: 1)
+            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, max(480, tabs.frame.width + 80), accuracy: 1)
             assertPageFrame(app.collectionViews["demo.grid"])
             select(1)
             expect("page=list")
@@ -1017,16 +1151,35 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     func testPageReorderDeletionAndEmptySnapshot() {
         select(1)
-        app.buttons["demo.pages"].tap(); app.buttons["重排页面"].tap(); expect("page=list")
-        app.buttons["demo.pages"].tap(); app.buttons["删除当前页"].tap(); expect("page=grid")
-        app.buttons["demo.pages"].tap(); app.buttons["清空页面"].tap(); expect("page=none")
+        choosePageAction("重排页面"); expect("page=list")
+        choosePageAction("删除当前页"); expect("page=grid")
+        choosePageAction("清空页面"); expect("page=none")
     }
 
     func testAsyncDiscoveryAndReplacement() {
         select(5)
         app.buttons["demo.replaceScroll"].tap()
         XCTAssertTrue(app.scrollViews["demo.asyncScroll"].exists)
-        app.scrollViews["demo.asyncScroll"].swipeUp(); expect("progress=1.00")
+        print(
+            "ASYNC VIEWPORT app=\(app.frame), window=\(app.windows.firstMatch.frame), scroll=\(app.scrollViews["demo.asyncScroll"].frame), toolbar=\(app.toolbars.firstMatch.frame)"
+        )
+        let scroll = app.scrollViews["demo.asyncScroll"]
+        let window = app.windows.firstMatch
+        let visible = scroll.frame.intersection(window.frame)
+        let bottom = min(visible.maxY, app.buttons["demo.replaceScroll"].frame.minY - 12)
+        XCTAssertGreaterThan(bottom - visible.minY, 100)
+        let origin = window.coordinate(withNormalizedOffset: .zero)
+        // 默认 swipe 的起点会落在覆盖于滚动视图之上的替换按钮内。
+        origin.withOffset(CGVector(dx: visible.midX - window.frame.minX, dy: bottom - window.frame.minY)).press(
+            forDuration: 0.05,
+            thenDragTo: origin.withOffset(CGVector(
+                dx: visible.midX - window.frame.minX,
+                dy: visible.minY + 12 - window.frame.minY
+            )),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.2
+        )
+        expect("progress=1.00")
         app.buttons["demo.replaceScroll"].tap()
         XCTAssertTrue(app.scrollViews["demo.asyncScroll"].exists)
     }
@@ -1074,16 +1227,20 @@ final class StickyPagerDemoUITests: XCTestCase {
         let tab = app.buttons["sp.tab.3"]
         expectSelectedTabAlignment(3)
         let before = tab.frame.midX
-        let start = app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: before, dy: tab.frame.midY))
-        // 超过触摸延迟后向左拖动；向右会受内容起点约 39 pt 的剩余距离限制。
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let viewport = tabs.frame
+        let distance = min(viewport.width * 0.3, before - viewport.minX - 12)
+        XCTAssertGreaterThan(distance, 40)
+        let start = tabs.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: before - viewport.minX, dy: tab.frame.midY - viewport.minY))
+        // 使用标签视口坐标和相对距离，避免 Duo 的 App 坐标仍处于旧方向。
         start.press(
             forDuration: 0.4,
-            thenDragTo: start.withOffset(CGVector(dx: -80, dy: 0)),
+            thenDragTo: start.withOffset(CGVector(dx: -distance, dy: 0)),
             withVelocity: .slow,
             thenHoldForDuration: 0.2
         )
-        XCTAssertGreaterThan(before - tab.frame.midX, 40, "按钮已按下时仍应能拖动标签栏")
+        XCTAssertGreaterThan(before - tab.frame.midX, distance * 0.5, "按钮已按下时仍应能拖动标签栏")
         expect("page=empty")
         XCTAssertTrue(tab.isSelected)
         select(1); expect("page=list")
@@ -1179,16 +1336,14 @@ final class StickyPagerDemoUITests: XCTestCase {
             expectSelectedTabAlignment(0)
             let viewport = tabs.frame
             let window = app.windows.firstMatch.frame
-            if orientation == .portrait || UIDevice.current.userInterfaceIdiom == .pad {
-                XCTAssertEqual(viewport.minX, window.minX, accuracy: 1)
-                XCTAssertEqual(viewport.maxX, window.maxX, accuracy: 1)
-            } else {
-                XCTAssertGreaterThan(viewport.minX, app.frame.minX)
-                XCTAssertLessThan(viewport.maxX, app.frame.maxX)
+            let safe = horizontalSafeInsets()
+            XCTAssertEqual(viewport.minX, window.minX + safe.left, accuracy: 1)
+            XCTAssertEqual(viewport.maxX, window.maxX - safe.right, accuracy: 1)
+            if safe.left > 1 {
                 // 安全区域外的背景不应命中标签或切换页面。
-                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
-                    dx: viewport.minX / 2,
-                    dy: viewport.midY
+                app.windows.firstMatch.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: safe.left / 2,
+                    dy: viewport.midY - window.minY
                 )).tap()
                 expect("page=grid")
             }
@@ -1208,14 +1363,18 @@ final class StickyPagerDemoUITests: XCTestCase {
             add(attachment)
             // 从标签栏内开始纵向拖动，避免横屏时列表的默认 swipe 起点落入底部工具栏。
             let expandedCenterY = tabs.frame.midY
-            // tabs.frame 是屏幕坐标；浮动窗口有非零原点，不能再叠加应用窗口的位置。
-            let origin = springboard.coordinate(withNormalizedOffset: .zero)
-            let collapseStart = origin.withOffset(CGVector(dx: tabs.frame.midX, dy: expandedCenterY))
+            // 多显示面设备的 SpringBoard 坐标可能属于另一屏；触摸锚定当前 App 窗口。
+            // frame 为屏幕坐标，需扣除浮动窗口原点后转换为窗口内偏移。
+            let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+            let collapseStart = tabs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            print(
+                "SAFE AREA DRAG: window=\(window), tabs=\(tabs.frame), navigation=\(app.navigationBars.firstMatch.frame)"
+            )
             collapseStart.press(
                 forDuration: 0.05,
                 thenDragTo: origin.withOffset(CGVector(
-                    dx: tabs.frame.midX,
-                    dy: app.navigationBars.firstMatch.frame.maxY + 4
+                    dx: tabs.frame.midX - window.minX,
+                    dy: app.navigationBars.firstMatch.frame.maxY + 4 - window.minY
                 )),
                 withVelocity: .slow,
                 thenHoldForDuration: 0.2
@@ -1232,12 +1391,12 @@ final class StickyPagerDemoUITests: XCTestCase {
                 if (status.value as? String)?.contains("progress=0.00") == true {
                     break
                 }
-                let expandStart = origin.withOffset(CGVector(dx: tabs.frame.midX, dy: tabs.frame.midY))
+                let expandStart = tabs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
                 expandStart.press(
                     forDuration: 0.05,
                     thenDragTo: origin.withOffset(CGVector(
-                        dx: tabs.frame.midX,
-                        dy: min(app.windows.firstMatch.frame.maxY - 90, expandedCenterY + 90)
+                        dx: tabs.frame.midX - window.minX,
+                        dy: min(window.maxY - 90, expandedCenterY + 90) - window.minY
                     )),
                     withVelocity: .slow,
                     thenHoldForDuration: 0.2
@@ -1248,7 +1407,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         }
     }
 
-    func testRotationAndBackGesture() {
+    func testRotationAndBackGesture() throws {
         select(1)
         app.tables["demo.list"].swipeUp()
         expect("progress=1.00")
@@ -1259,7 +1418,12 @@ final class StickyPagerDemoUITests: XCTestCase {
             XCTAssertEqual(app.tables["demo.list"].frame.minY, app.buttons["sp.tab.1"].frame.maxY, accuracy: 1)
             assertListSafeArea()
         }
-        let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 1, dy: app.frame.height * 0.5))
+        // Duo 旋转后 App 锚点可能不投递边缘触摸；使用实际窗口，并核对新输入确实进入窗口。
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 1, dy: window.frame.height * 0.5))
+        let before = try XCTUnwrap(try pagingTrace()["sequence"] as? Int)
+        print("BACK GEOMETRY app=\(app.frame), window=\(app.windows.firstMatch.frame), start=\(start.screenPoint)")
         // 小幅慢拖并停留后释放，取消系统返回；后续新触摸必须仍能正常翻页。
         start.press(
             forDuration: 0.1,
@@ -1269,9 +1433,16 @@ final class StickyPagerDemoUITests: XCTestCase {
         )
         expect("page=list"); expect("progress=1.00")
         XCTAssertFalse(app.buttons["demo.open"].exists)
+        let cancelled = try pagingTrace()
+        XCTAssertGreaterThan(try XCTUnwrap(cancelled["sequence"] as? Int), before, "边缘取消手势必须实际进入窗口")
+        let samples = try XCTUnwrap(cancelled["samples"] as? [[String: Double]])
+        XCTAssertEqual(try XCTUnwrap(samples.first?["x"]), 1, accuracy: 1)
         app.tables["demo.list"].swipeLeft()
         expect("page=short"); expect("progress=1.00")
-        start.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        start.press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        if status.exists {
+            print("BACK COMPLETE STATUS \(status.value ?? "")")
+        }
         XCTAssertTrue(app.buttons["demo.open"].waitForExistence(timeout: 5))
         app.buttons["demo.open"].tap()
         expect("page=grid"); expect("progress=0.00")

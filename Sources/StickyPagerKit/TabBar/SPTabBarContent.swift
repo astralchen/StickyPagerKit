@@ -12,7 +12,7 @@ public struct SPTabBarContentContext {
     public let tintColor: UIColor
     /// 本次布局的视觉方向；RTL 不改变 Item 的逻辑索引。
     public let layoutDirection: UIUserInterfaceLayoutDirection
-    /// 扣除左右安全区域后的视口宽度；尚未布局时可能为 0，不代表每项必须填满视口。
+    /// 扣除左右安全区域、固定附件和水平 contentInsets 后的内容可用宽度；尚未布局时可能为 0，不代表每项必须填满视口。
     public let availableWidth: CGFloat
     /// 当前生效外观的独立副本，修改它不会改变标签栏外观。
     public let appearance: SPTabBarAppearance
