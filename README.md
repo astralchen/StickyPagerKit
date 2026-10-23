@@ -105,7 +105,7 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 - 嵌套横向 Section 尚有可滚动空间时优先处理内部滚动；到达起点／终点后，下一次向外横滑切换相邻标签。手势归属在开始时判定，一次从内部开始的拖动不会在中途突然转为分页；容器也已到首尾时保留内部弹性滚动。
 - 启动参数 `--open-demo --compositional` 可直接打开组合布局页。横向卡片用于检查 Section 内部滚动及两端边界，纵向内容区域用于检查 Header 联动和容器横向分页。`CompositionalGestureTests` 通过真实触摸、内部布局偏移及分页轨迹验证这些行为。
 
-工程由 XcodeBuildMCP 创建，使用 Xcode 文件系统同步分组。`StickyPagerDemo` 和 `StickyPagerDemoUITests` 对应真实文件夹，新增源码会自动加入对应 target，无需重新生成工程。Demo 工程只包含应用和 UI 测试两个 target，应用通过本地 Package 依赖链接 `StickyPagerKit`。库测试位于根目录 `Tests/StickyPagerKitTests`，完全由根目录 `Package.swift` 管理，不再加入 Demo 工程或 Demo 的测试 scheme。构建配置位于 Demo 的 `Config` 目录。
+工程由 XcodeBuildMCP 创建，使用 `PBXFileSystemSynchronizedRootGroup` 文件系统同步分组。Demo 工程包含 `StickyPagerDemo`（应用）、`StickyPagerDemoTests`（Demo 单元测试）和 `StickyPagerDemoUITests`（UI 测试）三个 target，分别对应同名文件夹；已关联目录中的新文件通常自动参与所属 target，具体以目录关联和成员排除配置为准，无需逐文件添加引用。新增 target 或调整目录与 target 的关联时仍需更新工程配置。应用通过本地 Package 依赖链接 `StickyPagerKit`，共享 scheme `StickyPagerDemo` 使用应用 target 进行构建和运行，其 Test Action 配置了两个测试 target：`StickyPagerDemoTests` 和 `StickyPagerDemoUITests`。库测试位于根目录 `Tests/StickyPagerKitTests`，由根目录 `Package.swift` 独立管理；不要将库测试源码加入 Demo 的任何 target，也不要将 `StickyPagerKitTests` 加入 Demo scheme。应用、Demo 单元测试和 UI 测试使用的 `.xcconfig` 位于 Demo 的 `Config` 目录。
 
 ## 公开接口
 
@@ -511,13 +511,21 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 主工具链验证命令：
 
 ```sh
+# 根目录 Package 库测试。
 SP_SCOPE=library Scripts/validate.sh test
+# Demo 单元测试和 UI 测试。
 SP_SCOPE=demo Scripts/validate.sh test
+# Release 库测试允许 @testable 导入。
 SP_SCOPE=library SP_CONFIGURATION=Release Scripts/validate.sh test ENABLE_TESTABILITY=YES
+# 指定工具链构建 Demo。
 SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer Scripts/validate.sh build
 ```
 
-`SP_SCOPE=library` 先以根 Swift Package 的 `StickyPagerKit` scheme 执行 `build-for-testing`，再将同次测试包嵌入 `Tests/UIKitTestHost` 的独立最小应用，通过生成的 `Hosted.xctestrun` 执行 `test-without-building`。测试定义及编译仍由 `Package.swift` 管理，宿主不链接 StickyPagerKit，也不包含 Demo 页面；Demo 工程仍只有原来的两个 target。`SP_SCOPE=demo`（默认）继续运行 Demo 的应用及 UI 测试 scheme。两种流程都要求显式核对 `SP_DEVELOPER_DIR` 和 `SP_SIMULATOR_ID`，不修改全局 `xcode-select`。
+`SP_SCOPE=library` 先以根 Swift Package 的 `StickyPagerKit` scheme 执行 `build-for-testing`，再将同次测试包嵌入 `Tests/UIKitTestHost` 的独立最小应用，通过生成的 `Hosted.xctestrun` 执行 `test-without-building`。测试定义及编译仍由 `Package.swift` 管理，宿主不链接 StickyPagerKit，也不包含 Demo 页面；库测试及其宿主均独立于 Demo 工程。`SP_SCOPE=demo`（默认）使用共享 scheme `StickyPagerDemo`，执行 `test` 时运行 `StickyPagerDemoTests` 和 `StickyPagerDemoUITests`，不包含根目录库测试。两种流程都要求显式核对 `SP_DEVELOPER_DIR` 和 `SP_SIMULATOR_ID`，不修改全局 `xcode-select`。
+
+`StickyPagerDemoTests` 是以 `StickyPagerDemo` 应用为宿主的单元测试 target，适合测试 Demo 自身的逻辑、视图控制器和框架接入行为。需要访问 Demo 的内部类型时，可使用 `@testable import StickyPagerDemo`；涉及 UIKit 的测试需在主 actor 上执行。框架自身的回归测试仍放在根目录 `StickyPagerKitTests`，真实点击、拖动和分页手势使用 `StickyPagerDemoUITests`。
+
+`StickyPagerDemoTests` 当前仅包含 Swift Testing 的模板用例，尚无行为断言；该 target 已加入 scheme 不代表已有 Demo 单元测试覆盖。库测试、Demo 单元测试与 Demo UI 测试的验证范围应分别报告。
 
 UIKit 库测试需要真实 `UIApplication` 生命周期。直接在 Xcode 中对裸 Package 执行 Test，或直接运行 SwiftPM 生成的无宿主 `xctest`，不作为本仓库的 UIKit 验收入口：这种进程没有 application，系统 observation 的提交后清理与场景安全区域不能代表 App。新增环境回归会明确拒绝无宿主运行；导航栏安全区域夹具连接宿主的 `UIWindowScene`；窗口夹具在测试方法的挂载步骤显示（异步 `setUp` 只创建），显示后提交布局并推进运行循环，关闭时在窗口仍可见的阶段移除根控制器、完成消失回调，再隐藏窗口。固定宽度算法用例也连接真实 scene，但由 `SPTestWindow` 固定窗口尺寸并将屏幕安全区域设为零，仅通过 `additionalSafeAreaInsets` 注入测试条件；系统导航安全区域使用未覆盖安全区域的原生 UIWindow。库依赖 UIKit，不能以 macOS 为目标执行 `swift test`。
 
@@ -561,7 +569,7 @@ python3 Scripts/run_external_rotation.py \
 - `Sources/StickyPagerKit`：Container、Interfaces、TabBar、Layout、Internal。
 - `Tests/StickyPagerKitTests`：由根目录 Swift Package 管理的纯状态计算及 UIKit 行为测试。
 - `Tests/UIKitTestHost`：模拟器库测试专用的最小 UIKit 应用，仅提供 application／scene 生命周期。
-- `Examples/StickyPagerDemo`：应用、完整最小接入和 UI 测试工程。
+- `Examples/StickyPagerDemo`：应用、完整最小接入、Demo 单元测试和 UI 测试工程。
 - `Scripts`：可复现验证和结果汇总脚本。
 - `Validation`：验证记录与本地产物。
 

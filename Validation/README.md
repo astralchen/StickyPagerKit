@@ -1,6 +1,22 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-22。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-10-23。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+
+## 2026-10-23：Demo 单元测试 target 与文档审查
+
+新增 `StickyPagerDemoTests` 应用宿主单元测试 target，并加入共享 scheme 的 Test Action；应用、Demo 单元测试和 UI 测试共三个 target，根目录 Package 库测试保持独立。审查修复了模板配置中的 iOS 27 最低版本、Swift 5 语言模式及 macOS／visionOS 平台声明：Debug / Release 均复用 `Tests.xcconfig`，继承 iOS 15、Swift 6 和 iPhone／iPad 设置，仅支持 iOS 平台；补齐 scheme 中的 `BlueprintName`。文档明确三个 target 与两个测试 target 的区别，以及三类测试的职责。
+
+| 验证 | 结果 | 范围 |
+| --- | --- | --- |
+| [官方 Xcode MCP Debug 聚焦测试](Results/20261023-demo-tests-mcp-review/summary.json) | 2 通过、0 失败、0 跳过 | Xcode 27.1、iPhone 18 Pro Max / iOS 27.0；`StickyPagerDemoTests/example()` 与 `StickyPagerDemoUITests/testHeaderStartsAtScreenTopAndPageContentMeetsTabBar()`。三类运行时诊断均为 0。 |
+| [Release 测试构建](Results/20261023-demo-tests-release-review/summary.json) | `TEST BUILD SUCCEEDED`，退出码 0 | Xcode 26.6 / Swift 6.3.3，iPhone 17 Pro / iOS 26.5 目标；应用及两个测试 target 的 `build-for-testing` 通过，未执行 Release 测试。 |
+| 工程与文档静态核对 | 通过 | `plutil -lint`、scheme XML 的 Build / Test Action 引用、文档 target 数量与职责、`git diff --check`。 |
+
+两次构建均通过 Demo 的 SwiftFormat Build Phase，格式化后的源码对应两份摘要的 `sourceChangedSinceRun=[]`。MCP 运行的源码哈希在自动格式化完成后、等待测试执行结果期间记录。Release 验证通过仓库脚本指定另一套 Xcode 和配置，不切换全局 `xcode-select`；其摘要中的测试数量为 0、结果为 `unknown`，因为该次仅构建测试包，成功依据是构建日志和退出码。
+
+Xcode 27.1 的测试链接日志提示 XCTest、Testing、XCUIAutomation 等测试框架的最低系统版本高于 target 的 iOS 15 设置；本轮 iOS 27.0 实际测试通过，不据此宣称 iOS 15 测试运行兼容。Xcode 26.6 Release 构建另有未依赖 AppIntents 而跳过元数据提取的警告。
+
+`StickyPagerDemoTests` 仍只有无行为断言的 Swift Testing 模板用例，本轮仅证明其能够构建、加载并执行。未执行完整库测试、完整 Demo UI 回归、Release 测试运行、iOS 15 实际运行或真机验证；未改动框架实现及现有 UI 测试逻辑。
 
 ## 2026-10-22：顶部对齐完整 Demo UI 回归与滚动回写修复
 

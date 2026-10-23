@@ -14,13 +14,15 @@ StickyPagerKit 是通过 Swift Package Manager 分发的 UIKit 粘性 Header 与
 | `Sources/StickyPagerKit/TabBar/` | 标签对象、外观、测量、布局和交互 |
 | `Sources/StickyPagerKit/Internal/` | 滚动几何、绑定、发现与分页手势仲裁 |
 | `Tests/StickyPagerKitTests/` | 根目录 Package 管理的 XCTest 库测试 |
-| `Examples/StickyPagerDemo/` | 独立 Demo 工程、`Config/*.xcconfig` 和 UI 测试 |
+| `Examples/StickyPagerDemo/` | 独立 Demo 工程、`Config/*.xcconfig`、Demo 单元测试和 UI 测试 |
 | `Scripts/` | 验证执行与结果摘要脚本 |
 | `Validation/README.md` | 历次验证证据、失败记录与未覆盖范围 |
 
 公开行为和接入方式以 `README.md` 为入口；最小 containment 示例见 `Examples/StickyPagerDemo/StickyPagerDemo/MinimalIntegration.swift`，系统容器示例见同目录 `DemoSystemContainer.swift`。
 
-Demo 通过本地 Package 引用根目录库，只包含 `StickyPagerDemo` 和 `StickyPagerDemoUITests` 两个 target；不要把 `StickyPagerKitTests` 加入 Demo target 或 scheme。工程采用 `PBXFileSystemSynchronizedRootGroup`，源码目录中的新文件自动参与所属 target，通常无需逐文件修改 `project.pbxproj`。
+Demo 通过本地 Package 引用根目录库，包含 `StickyPagerDemo`（应用）、`StickyPagerDemoTests`（Demo 单元测试）和 `StickyPagerDemoUITests`（UI 测试）三个 target。共享 scheme `StickyPagerDemo` 使用应用 target 进行构建和运行，其 Test Action 配置了两个测试 target：`StickyPagerDemoTests` 和 `StickyPagerDemoUITests`。根目录的 `StickyPagerKitTests` 由 `Package.swift` 独立管理，不要将库测试源码加入 Demo 的任何 target，也不要将 `StickyPagerKitTests` 加入 Demo scheme。工程采用 `PBXFileSystemSynchronizedRootGroup`，已关联目录中的新文件通常自动参与所属 target，具体以目录关联和成员排除配置为准，无需逐文件添加引用；新增 target 或调整目录与 target 的关联时仍需更新工程配置。
+
+`StickyPagerDemoTests` 是以 `StickyPagerDemo` 应用为宿主的单元测试 target，用于测试 Demo 自身的逻辑、视图控制器和接入行为；需要访问 Demo 内部类型时使用 `@testable import StickyPagerDemo`，涉及 UIKit 的测试保持主 actor 隔离。框架回归测试放在根目录 `StickyPagerKitTests`；真实点击、拖动和分页手势由 `StickyPagerDemoUITests` 验证。
 
 ## 修改方式与代码约定
 
@@ -64,7 +66,7 @@ export SP_SIMULATOR_ID="<实际模拟器 UUID>"
 # Demo 构建；脚本默认 SP_SCOPE=demo、SP_CONFIGURATION=Debug
 SP_SCOPE=demo Scripts/validate.sh build
 
-# 库测试与 Demo UI 测试
+# 库测试与 Demo 测试（单元测试和 UI 测试）
 SP_SCOPE=library Scripts/validate.sh test
 SP_SCOPE=demo Scripts/validate.sh test
 
