@@ -2,6 +2,29 @@
 
 验证日期：2026-10-15 至 2026-10-23。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-23：最小接入与控制器生命周期 Demo 单元测试
+
+将 `StickyPagerDemoTests` 的空模板替换为四项 Swift Testing 用例，使用 `@testable import StickyPagerDemo` 测试真实 `MinimalIntegration`：
+
+- 数据源的页数、稳定标识、标签及独立滚动页面。
+- 真实 UIWindow 中的容器 containment、四边布局、Header 和初始选择，以及重复加载和重载后的页面复用。
+- 通过实际内容页的子控制器观察 appearance 回调，完整断言切页、导航遮盖／返回及窗口拆除的回调顺序。
+- 非动画导航退出后，用弱引用验证示例、分页容器、内容页、滚动视图和 Header 均释放。
+
+窗口测试使用宿主 `UIWindowScene`，在主 actor 上串行执行；拆除时先在可见窗口中移除根控制器，再隐藏窗口并恢复原 key window。未修改框架实现、Demo 产品代码或工程配置。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [首轮 Debug](Results/20261023-demo-unit-lifecycle-r1/summary.json) | 3 通过、1 失败 | 生命周期夹具同步推进 RunLoop 后即断言，`didAppear` 尚未交付；保留原测试源码和失败结果。 |
+| [异步夹具复测](Results/20261023-demo-unit-lifecycle-r2/summary.json) | 4 通过、0 失败 | 让出主 actor，并有界等待实际回调数量；完整顺序断言保留。 |
+| [修复宏警告后的最终 Debug](Results/20261023-demo-unit-lifecycle-final/summary.json) | **4 通过、0 失败、0 跳过** | Apple 官方 Xcode MCP，Xcode 27.1 / Swift 6.4，iPhone 18 Pro Max / iOS 27.0；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+释放用例先以显式 `UIView` 局部变量承接 `#require(pager.headerView)`，再赋给弱引用，保留 Header 必须存在的断言并消除直接赋给可选弱引用时的宏冗余警告。最终构建日志确认该警告消失；仍有 Xcode 27.1 测试框架最低系统版本高于 iOS 15 target 的既有链接警告。两次 MCP 复测的输入哈希在构建等待期间保存，终态通过摘要核对；旧轮次的源码差异不能当作最终源码已验证。
+
+本轮遇到高系统负载及构建工具重编译，部分替代验证被中止：[Release 尝试](Results/20261023-demo-unit-lifecycle-release/notes.txt)、[命令行 Debug 尝试](Results/20261023-demo-unit-lifecycle-cli-r3/notes.txt)、[隔离副本尝试](Results/20261023-demo-unit-isolated-debug/notes.txt)、[冗余 Debug 尝试](Results/20261023-demo-unit-lifecycle-final-debug/notes.txt)。这些目录保留日志，不作为通过证据；本次启动的遗留 SwiftFormat 编译进程已结束。最终 MCP 工件副本缺少 `Info.plist`，保留为 `MCPPartial.xcresult`；正式 `Result.xcresult` 来自同次运行已完成的 Xcode 原始结果包，摘要确认四项通过。
+
+**未覆盖：** 本轮未完成 Swift 6.3／Release 测试验证，未运行完整库测试、Demo UI 回归、iPad、iOS 15 或真机测试。README 中的 Release 单元测试命令要求 `ENABLE_TESTABILITY=YES`，不能用此前空模板的 Release 构建结果证明这四项新测试已通过。
+
 ## 2026-10-23：Demo 单元测试 target 与文档审查
 
 新增 `StickyPagerDemoTests` 应用宿主单元测试 target，并加入共享 scheme 的 Test Action；应用、Demo 单元测试和 UI 测试共三个 target，根目录 Package 库测试保持独立。审查修复了模板配置中的 iOS 27 最低版本、Swift 5 语言模式及 macOS／visionOS 平台声明：Debug / Release 均复用 `Tests.xcconfig`，继承 iOS 15、Swift 6 和 iPhone／iPad 设置，仅支持 iOS 平台；补齐 scheme 中的 `BlueprintName`。文档明确三个 target 与两个测试 target 的区别，以及三类测试的职责。

@@ -525,7 +525,14 @@ SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer Scripts/validate.sh 
 
 `StickyPagerDemoTests` 是以 `StickyPagerDemo` 应用为宿主的单元测试 target，适合测试 Demo 自身的逻辑、视图控制器和框架接入行为。需要访问 Demo 的内部类型时，可使用 `@testable import StickyPagerDemo`；涉及 UIKit 的测试需在主 actor 上执行。框架自身的回归测试仍放在根目录 `StickyPagerKitTests`，真实点击、拖动和分页手势使用 `StickyPagerDemoUITests`。
 
-`StickyPagerDemoTests` 当前仅包含 Swift Testing 的模板用例，尚无行为断言；该 target 已加入 scheme 不代表已有 Demo 单元测试覆盖。库测试、Demo 单元测试与 Demo UI 测试的验证范围应分别报告。
+`StickyPagerDemoTests` 使用 Swift Testing 覆盖最小接入的数据源与页面独立性、容器安装与布局、切页和导航过程中的 appearance 回调，以及退出导航后的控制器和视图释放。窗口用例在主 actor 上串行运行，挂载到宿主的真实 `UIWindowScene`，结束时恢复原 key window。库测试、Demo 单元测试与 Demo UI 测试的验证范围应分别报告。
+
+```sh
+# 仅运行 Demo 单元测试。
+SP_SCOPE=demo Scripts/validate.sh test -only-testing:StickyPagerDemoTests
+# Release 下使用 @testable import StickyPagerDemo 需要为应用启用可测试性。
+SP_SCOPE=demo SP_CONFIGURATION=Release Scripts/validate.sh test ENABLE_TESTABILITY=YES -only-testing:StickyPagerDemoTests
+```
 
 UIKit 库测试需要真实 `UIApplication` 生命周期。直接在 Xcode 中对裸 Package 执行 Test，或直接运行 SwiftPM 生成的无宿主 `xctest`，不作为本仓库的 UIKit 验收入口：这种进程没有 application，系统 observation 的提交后清理与场景安全区域不能代表 App。新增环境回归会明确拒绝无宿主运行；导航栏安全区域夹具连接宿主的 `UIWindowScene`；窗口夹具在测试方法的挂载步骤显示（异步 `setUp` 只创建），显示后提交布局并推进运行循环，关闭时在窗口仍可见的阶段移除根控制器、完成消失回调，再隐藏窗口。固定宽度算法用例也连接真实 scene，但由 `SPTestWindow` 固定窗口尺寸并将屏幕安全区域设为零，仅通过 `additionalSafeAreaInsets` 注入测试条件；系统导航安全区域使用未覆盖安全区域的原生 UIWindow。库依赖 UIKit，不能以 macOS 为目标执行 `swift test`。
 
