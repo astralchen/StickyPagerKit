@@ -1,26 +1,54 @@
 import UIKit
 
+/// 内置图文的测量与按钮配置共用尺寸；不应用于业务自定义内容。
+@MainActor
+internal enum SPDefaultTabContentMetrics {
+    static let horizontalPadding: CGFloat = 16
+    // 上下留白用于建议栏高；按钮仍以零垂直 inset 在最终高度中居中。
+    private static let verticalPadding: CGFloat = 11
+    private static let minimumHeight: CGFloat = 44
+    static let iconSize: CGFloat = 24
+    static let imageTitleSpacing: CGFloat = 4
+    static var totalHorizontalPadding: CGFloat {
+        2 * horizontalPadding
+    }
+
+    static var totalVerticalPadding: CGFloat {
+        2 * verticalPadding
+    }
+
+    static func height(for contentHeight: CGFloat) -> CGFloat {
+        max(minimumHeight, contentHeight + totalVerticalPadding)
+    }
+}
+
 /// 测量与显示共用角标尺寸，包含中文回退字体的实际行高和胶囊内边距。
 @MainActor
 internal enum SPTabBadgeMetrics {
+    static let contentOverlap: CGFloat = 4
+    private static let dotDiameter: CGFloat = 8
+    private static let minimumHeight: CGFloat = 18
+    private static let horizontalPadding: CGFloat = 5
+    private static let verticalPadding: CGFloat = 2
+
     static func size(for value: String?, font: UIFont) -> CGSize {
         guard let value else {
             return .zero
         }
         guard !value.isEmpty else {
-            return CGSize(width: 8, height: 8)
+            return CGSize(width: dotDiameter, height: dotDiameter)
         }
         let label = UILabel()
         label.font = font
         label.text = value
         let text = label.intrinsicContentSize
-        let height = max(18, ceil(text.height) + 4)
-        return CGSize(width: max(height, ceil(text.width) + 10), height: height)
+        let height = max(minimumHeight, ceil(text.height) + 2 * verticalPadding)
+        return CGSize(width: max(height, ceil(text.width) + 2 * horizontalPadding), height: height)
     }
 
-    /// 角标向内容内重叠 4 pt，其余向尾端延伸；两侧对称留白保持图文居中。
+    /// 角标向内容内重叠，先利用按钮尾端留白，再对称扩宽以保持图文居中。
     static func additionalWidth(for size: CGSize) -> CGFloat {
-        2 * max(0, size.width - 4 - 16)
+        2 * max(0, size.width - contentOverlap - SPDefaultTabContentMetrics.horizontalPadding)
     }
 }
 
@@ -288,7 +316,8 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         if anchor.isNull || anchor.isEmpty {
             anchor = CGRect(x: bounds.midX, y: bounds.midY, width: 0, height: 0)
         }
-        let x = value.layoutDirection == .rightToLeft ? anchor.minX + 4 - size.width : anchor.maxX - 4
+        let overlap = SPTabBadgeMetrics.contentOverlap
+        let x = value.layoutDirection == .rightToLeft ? anchor.minX + overlap - size.width : anchor.maxX - overlap
         badge.frame = CGRect(
             x: max(0, min(x, bounds.width - size.width)),
             y: max(0, min(anchor.minY - size.height / 2, bounds.height - size.height)),

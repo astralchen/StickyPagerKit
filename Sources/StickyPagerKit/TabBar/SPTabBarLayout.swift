@@ -1,8 +1,16 @@
 import UIKit
 
+/// 标签栏输入与测量几何共用的数值边界，不代表内容的首选尺寸。
+internal enum SPTabBarGeometryLimits {
+    static let maximumMagnitude: CGFloat = 1_000_000
+}
+
 /// 优先满足每项宽度需求，其余项尽量等宽；总需求超出视口时横向滚动。
 @MainActor
 final class SPTabBarLayout: UICollectionViewLayout {
+    // 独立布局缺失宽度或收到非有限宽度时的回退值，不受公开最小宽度配置影响。
+    private static let fallbackItemWidth: CGFloat = 32
+
     var itemWidths: [CGFloat] = [] {
         didSet {
             if oldValue != itemWidths {
@@ -48,8 +56,8 @@ final class SPTabBarLayout: UICollectionViewLayout {
         itemCount = collectionView.numberOfItems(inSection: 0)
         let size = collectionView.bounds.size
         let widths = (0 ..< itemCount).map { index -> CGFloat in
-            let width = itemWidths.indices.contains(index) ? itemWidths[index] : 32
-            return width.isFinite ? max(0, width) : 32
+            let width = itemWidths.indices.contains(index) ? itemWidths[index] : Self.fallbackItemWidth
+            return width.isFinite ? max(0, width) : Self.fallbackItemWidth
         }
         let resolved = Self.resolvedWidths(
             widths,

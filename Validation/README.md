@@ -2,6 +2,24 @@
 
 验证日期：2026-10-15 至 2026-10-23。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-23：SPTabBar 布局数值审查与重构
+
+本次仅整理内部布局规则，保留数值、公开 API 和现有布局行为：
+
+- 内置图文的 24 pt 图标槽位、4 pt 图文间距、单侧 16 pt 水平留白，以及单侧 11 pt 垂直留白由 `SPDefaultTabContentMetrics` 统一定义；总留白从单侧值派生，测量、按钮配置与角标空间计算共用。默认内容高度规则集中计算，仍至少 44 pt；自定义内容不额外套用该规则。
+- 角标尺寸与内边距在原 `SPTabBadgeMetrics` 内命名，测量与实际定位共用 4 pt 内容重叠量，避免只修改一处导致位置或宽度不一致。
+- 内容、附件及指示器共用 1,000,000 pt 几何上限；仍分别保留原有非有限值回退、正负值及尺寸校验规则。默认最小项宽、独立布局的缺省宽度各自命名，未因数值相同而与其他策略耦合。
+- 滚动呈现的 0.5 pt 容差和最大 16 pt 渐隐宽度在标签栏内命名；自定义内容测量优先级改为从 `required` 减 1 派生，实际仍为 999。
+- 保留已具备明确语义的胶囊／下划线预设、单像素分隔线、居中与插值公式，以及 `0`、`1`、`2` 等常规数学系数；不新增公开配置。接入及行为说明未变化，无需修改根 README。
+
+按用户要求，`.gitignore` 新增 `.DS_Store`、根目录 `build/`、`.xcarchive` 和 `.xcresult`；沿用现有 SwiftPM、Xcode 用户数据、DerivedData 及验证目录规则。未新增其他编辑器或未使用工具的忽略项。验证 11 项本地产物被忽略、8 项共享源码／配置／证据保持可跟踪，所有已跟踪文件均未命中忽略规则，见 [忽略规则检查](Results/20261023-tabbar-layout-metrics/gitignore-check.txt)。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug，iPhone 17 Pro / iOS 26.5 Simulator（x86_64）。官方 Xcode MCP 的 `XcodeListWindows` 返回 `Transport closed`，回退到 `SP_SCOPE=library Scripts/validate.sh test`，通过仓库独立 UIKit application host 执行根 Package 测试。
+
+- **通过：** 8 类 `SPTabBar*Tests` 共 **127 项，0 失败、0 跳过**，涵盖 RTL、左右安全区域、Dynamic Type、长标题、尺寸变化、短／空内容、角标、指示器、附件、自定义内容回退与自动测量、滚动位置及选择转场。读取终态 [summary.json](Results/20261023-tabbar-layout-metrics/summary.json)，`sourceChangedSinceRun=[]`；feedback loop、appearance 不平衡及不兼容内容替换诊断均为 0。
+- **通过：** 5 个修改的 Swift 文件使用 SwiftFormat 0.64.0 按根配置格式化，[lint](Results/20261023-tabbar-layout-metrics/swiftformat-lint.txt) 与 `git diff --check` 通过。测试沿用现有行为回归，未新增仅复述常量实现的测试。
+- **未执行：** 完整库测试、Demo 构建／UI 测试、Release、iPad、iOS 15 实际运行和真机验证。本次不改变容器或手势逻辑，不将聚焦库测试结果扩展为这些范围已通过。
+
 ## 2026-10-23：指示器职责边界复查
 
 复查上一轮未提交修改，发现并修复两类回调重入遗漏：

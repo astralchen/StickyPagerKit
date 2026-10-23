@@ -76,13 +76,16 @@ public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
     }
 
     internal static func finite(_ value: CGFloat, fallback: CGFloat = 0) -> CGFloat {
-        value.isFinite ? min(1_000_000, max(-1_000_000, value)) : fallback
+        value.isFinite ? min(
+            SPTabBarGeometryLimits.maximumMagnitude,
+            max(-SPTabBarGeometryLimits.maximumMagnitude, value)
+        ) : fallback
     }
 
     internal static func valid(_ rect: CGRect) -> Bool {
         // CGRect.width/height 会返回标准化后的尺寸；检查原始 size 才能拒绝负尺寸。
         [rect.origin.x, rect.origin.y, rect.size.width, rect.size.height]
-            .allSatisfy { $0.isFinite && abs($0) <= 1_000_000 }
+            .allSatisfy { $0.isFinite && abs($0) <= SPTabBarGeometryLimits.maximumMagnitude }
             && rect.size.width >= 0 && rect.size.height >= 0
     }
 }

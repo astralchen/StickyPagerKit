@@ -69,7 +69,8 @@ final class SPTabBarAccessoryHost: UIView {
         )
         guard size.width.isFinite, size.height.isFinite,
               size.width > 0, size.height > 0,
-              size.width <= 1_000_000, size.height <= 1_000_000 else {
+              size.width <= SPTabBarGeometryLimits.maximumMagnitude,
+              size.height <= SPTabBarGeometryLimits.maximumMagnitude else {
             return .zero
         }
         return size

@@ -3,6 +3,11 @@ import UIKit
 /// 支持可滚动图文标签、动态内容和分页进度的标签栏。
 @MainActor
 open class SPTabBar: UIView {
+    private static let defaultMinimumItemWidth: CGFloat = 44
+    // 保留半点阈值；它是滚动呈现容差，不随屏幕像素密度变化。
+    private static let scrollOffsetTolerance: CGFloat = 0.5
+    private static let maximumEdgeFadeWidth: CGFloat = 16
+
     public weak var delegate: SPTabBarDelegate?
     /// 指示器展示方式，与 ContentStyle 独立。
     public enum IndicatorStyle: Int, Sendable {
@@ -50,7 +55,8 @@ open class SPTabBar: UIView {
     public var minimumItemWidth: CGFloat {
         get { storedMinimumItemWidth }
         set {
-            let value = newValue.isFinite ? min(1_000_000, max(0, newValue)) : 44
+            let value = newValue.isFinite ? min(SPTabBarGeometryLimits.maximumMagnitude, max(0, newValue)) : Self
+                .defaultMinimumItemWidth
             guard value != storedMinimumItemWidth else {
                 return
             }
@@ -59,7 +65,7 @@ open class SPTabBar: UIView {
         }
     }
 
-    private var storedMinimumItemWidth: CGFloat = 44
+    private var storedMinimumItemWidth: CGFloat = SPTabBar.defaultMinimumItemWidth
 
     /// 相邻 Item 布局区域之间的固定水平间距，默认 0；首尾不额外留白。
     /// 不计入 Item 的内容测量或 minimumItemWidth；宽度分配和滚动范围包含总间距。
@@ -68,7 +74,7 @@ open class SPTabBar: UIView {
     public var itemSpacing: CGFloat {
         get { storedItemSpacing }
         set {
-            let value = newValue.isFinite ? min(1_000_000, max(0, newValue)) : 0
+            let value = newValue.isFinite ? min(SPTabBarGeometryLimits.maximumMagnitude, max(0, newValue)) : 0
             guard value != storedItemSpacing else {
                 return
             }
@@ -85,7 +91,7 @@ open class SPTabBar: UIView {
         get { storedContentInsets }
         set {
             func normalized(_ value: CGFloat) -> CGFloat {
-                value.isFinite ? min(1_000_000, max(0, value)) : 0
+                value.isFinite ? min(SPTabBarGeometryLimits.maximumMagnitude, max(0, value)) : 0
             }
             let value = NSDirectionalEdgeInsets(
                 top: normalized(newValue.top),
@@ -598,10 +604,8 @@ open class SPTabBar: UIView {
             height: bounds.height
         ))
         let measurement = measureContents(width: geometry.viewport.width)
-        let contentHeight = measurement?.height ?? appliedContentMeasurement?.height ?? max(
-            44,
-            ceil(titleFont.lineHeight) + 22
-        )
+        let contentHeight = measurement?.height ?? appliedContentMeasurement?.height ??
+            SPDefaultTabContentMetrics.height(for: ceil(titleFont.lineHeight))
         return CGSize(
             width: size.width,
             height: max(
@@ -669,7 +673,8 @@ open class SPTabBar: UIView {
         isPreparingSelection = false
         let canInterpolateIndicator = !fromIndicator.isEmpty && !targetIndicator.isEmpty
         if animated, !UIAccessibility.isReduceMotionEnabled, window != nil, bounds.width > 0, bounds.height > 0,
-           (canInterpolateIndicator && fromIndicator != targetIndicator) || abs(fromOffset - targetOffset) > 0.5 {
+           (canInterpolateIndicator && fromIndicator != targetIndicator) || abs(fromOffset - targetOffset) > Self
+            .scrollOffsetTolerance {
             selectionAnimation = SelectionAnimation(
                 fromIndex: fromIndex,
                 toIndex: selectedIndex,
@@ -869,18 +874,20 @@ open class SPTabBar: UIView {
             width: ceil(titleSizes.map(\.width).max() ?? 0),
             height: (item.title ?? "").isEmpty ? 0 : ceil(titleSizes.map(\.height).max() ?? 0)
         )
-        let icon: CGFloat = item.image != nil || item.selectedImage != nil || item.landscapeImagePhone != nil ? 24 : 0
-        let gap: CGFloat = icon > 0 && !(item.title ?? "").isEmpty ? 4 : 0
+        let icon: CGFloat = item.image != nil || item.selectedImage != nil || item
+            .landscapeImagePhone != nil ? SPDefaultTabContentMetrics.iconSize : 0
+        let gap: CGFloat = icon > 0 && !(item.title ?? "").isEmpty ? SPDefaultTabContentMetrics.imageTitleSpacing : 0
         let width = stacked ? max(title.width, icon) : title.width + icon + gap
         let height = stacked ? title.height + icon + gap : max(title.height, icon)
         let badgeSize = SPTabBadgeMetrics.size(
             for: item.badgeValue,
             font: .preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
         )
+        // 默认栏高已包含上下留白；大字号角标只补充超出留白的高度，避免顶部裁剪。
+        let badgeOverflow = badgeSize.height - SPDefaultTabContentMetrics.totalVerticalPadding
         return CGSize(
             width: width + SPTabBadgeMetrics.additionalWidth(for: badgeSize),
-            // 默认栏高另有 22 pt 上下留白；大字号角标需要对称扩展，避免顶部裁剪。
-            height: max(height + max(0, badgeSize.height - 22), badgeSize.height - 22)
+            height: max(height + max(0, badgeOverflow), badgeOverflow)
         )
     }
 
@@ -961,19 +968,21 @@ open class SPTabBar: UIView {
                     withHorizontalFittingPriority: .fittingSizeLevel,
                     verticalFittingPriority: .fittingSizeLevel
                 )
-                guard natural.width.isFinite, natural.width > 0, natural.width <= 1_000_000 else {
+                guard natural.width.isFinite, natural.width > 0,
+                      natural.width <= SPTabBarGeometryLimits.maximumMagnitude else {
                     view.removeFromSuperview()
                     return nil
                 }
                 // 部分系统内容视图重写 fitting，不采用外加的软宽度约束。
-                // 通过普通 Auto Layout 宿主求可行首选宽度，999 优先级让业务 required 最小宽度优先。
+                // 通过普通 Auto Layout 宿主求可行首选宽度，优先级略低于 required，让业务最小宽度优先。
                 let preferredWidth = width > 0 ? min(natural.width, width) : natural.width
                 let constrained = container.systemLayoutSizeFitting(
                     CGSize(width: preferredWidth, height: 0),
-                    withHorizontalFittingPriority: UILayoutPriority(999),
+                    withHorizontalFittingPriority: UILayoutPriority(UILayoutPriority.required.rawValue - 1),
                     verticalFittingPriority: .fittingSizeLevel
                 )
-                guard constrained.width.isFinite, constrained.width > 0, constrained.width <= 1_000_000 else {
+                guard constrained.width.isFinite, constrained.width > 0,
+                      constrained.width <= SPTabBarGeometryLimits.maximumMagnitude else {
                     view.removeFromSuperview()
                     return nil
                 }
@@ -987,7 +996,11 @@ open class SPTabBar: UIView {
         // 某项测量失败回退后，宽度分配可能改变，需要重新测量其余自动内容的高度。
         while true {
             widths = result.indices.map {
-                max(minimumItemWidth, result[$0]?.size?.width ?? (defaultSizes[$0].width + 32))
+                max(
+                    minimumItemWidth,
+                    result[$0]?.size?
+                        .width ?? (defaultSizes[$0].width + SPDefaultTabContentMetrics.totalHorizontalPadding)
+                )
             }
             let allocated = SPTabBarLayout.resolvedWidths(widths, viewportWidth: width, itemSpacing: itemSpacing)
             var failed = false
@@ -1026,8 +1039,9 @@ open class SPTabBar: UIView {
             itemSpacing: itemSpacing,
             insets: contentInsets,
             // 只对默认图文保留原有高度规则；自定义内容不承担容器的最小栏高策略。
-            height: result.indices.map { result[$0]?.size?.height ?? max(44, defaultSizes[$0].height + 22) }
-                .max() ?? max(44, ceil(titleFont.lineHeight) + 22)
+            height: result.indices.map {
+                result[$0]?.size?.height ?? SPDefaultTabContentMetrics.height(for: defaultSizes[$0].height)
+            }.max() ?? SPDefaultTabContentMetrics.height(for: ceil(titleFont.lineHeight))
         )
         candidateContentMeasurement = measurement
         return measurement
@@ -1035,7 +1049,8 @@ open class SPTabBar: UIView {
 
     private func validContentSize(_ size: CGSize) -> Bool {
         size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0
-            && size.width <= 1_000_000 && size.height <= 1_000_000
+            && size.width <= SPTabBarGeometryLimits.maximumMagnitude && size.height <= SPTabBarGeometryLimits
+            .maximumMagnitude
     }
 
     @discardableResult
@@ -1123,7 +1138,12 @@ open class SPTabBar: UIView {
         let iconColor = state.iconColor ?? defaultColor
         let titleColor = state.titleColor ?? defaultColor
         var configuration = UIButton.Configuration.plain()
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: 0,
+            leading: SPDefaultTabContentMetrics.horizontalPadding,
+            bottom: 0,
+            trailing: SPDefaultTabContentMetrics.horizontalPadding
+        )
         configuration.title = item.title
         let baseImage = traitCollection.verticalSizeClass == .compact ? (item.landscapeImagePhone ?? item.image) : item
             .image
@@ -1132,7 +1152,10 @@ open class SPTabBar: UIView {
             .landscapeImagePhone != nil && (index != selectedIndex || item.selectedImage == nil) ? item
             .landscapeImagePhoneInsets : item.imageInsets
         configuration.image = configuration.image.map { image in
-            let ratio = min(24 / max(1, image.size.width), 24 / max(1, image.size.height))
+            let ratio = min(
+                SPDefaultTabContentMetrics.iconSize / max(1, image.size.width),
+                SPDefaultTabContentMetrics.iconSize / max(1, image.size.height)
+            )
             let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
             // 符号光栅化后不再携带 isSymbolImage；显式保留其默认模板语义。
             let mode: UIImage.RenderingMode = image.isSymbolImage && image
@@ -1142,7 +1165,7 @@ open class SPTabBar: UIView {
                 .withRenderingMode(mode)
         }
         configuration.imagePlacement = stacked ? .top : .leading
-        configuration.imagePadding = 4
+        configuration.imagePadding = SPDefaultTabContentMetrics.imageTitleSpacing
         configuration.baseForegroundColor = iconColor
         let controlState: UIControl.State = !item.isEnabled ? .disabled : (index == selectedIndex ? .selected : .normal)
         let titleAttributes = item.titleTextAttributes(for: controlState) ?? item
@@ -1208,11 +1231,11 @@ open class SPTabBar: UIView {
     private func updateEdgeMask() {
         let viewport = collectionView.bounds
         let overflow = max(0, collectionView.contentSize.width - viewport.width)
-        guard viewport.width > 0, viewport.height > 0, !items.isEmpty, overflow > 0.5 else {
+        guard viewport.width > 0, viewport.height > 0, !items.isEmpty, overflow > Self.scrollOffsetTolerance else {
             collectionView.layer.mask = nil
             return
         }
-        let fadeWidth = min(16, viewport.width / 2)
+        let fadeWidth = min(Self.maximumEdgeFadeWidth, viewport.width / 2)
         // 临近端点时连续减弱，避免首尾渐隐突然开关。
         let left = min(1, max(0, viewport.minX / fadeWidth))
         let right = min(1, max(0, (overflow - viewport.minX) / fadeWidth))
