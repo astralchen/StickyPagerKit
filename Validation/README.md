@@ -2,6 +2,59 @@
 
 验证日期：2026-10-15 至 2026-10-23。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-23：提交前复查标签栏刷新边界
+
+在上一轮未提交的 6 个文件上继续审查，发现并补充修复以下遗漏：
+
+- `minimumItemWidth` 固定 Item 尺寸时，标题区域或替换 Appearance 后的指示器端点仍可变化；仅比较 Item 测量无法判断程序动画是否还有效。为选择动画保存原始端点几何，在最终布局核对后按实际变化结束旧动画。
+- 分页接管程序动画时保存的呈现起点也需要校验端点几何。内容区域改变后，清除旧接管起点，按相同分页端点和进度重新定位；接管前先处理待完成布局，覆盖属性修改与接管发生在同一轮更新的情况。
+- 通用属性刷新保留动画后，“减少动态效果”通知不再经过原有的停止动画路径。按通知类型单独结束程序动画并对齐选中项；透明度通知仍保留几何未变的动画，分页进度不清空。
+
+新增 4 项真实 UIWindow 回归，其中内容区域及分页起点覆盖 LTR／RTL。复查基线 4 项全部失败，修复后指示器、间距、自定义内容及标签布局聚焦共 75 项通过。公开注释和 README 明确：保留动画的前提包括指示器端点几何不变。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [复查失败基线](Results/20261023-tab-review-baseline/summary.json) | 0 通过、4 失败 | 保存对应实现及测试源码；三类运行时诊断均为 0。 |
+| [复查聚焦回归](Results/20261023-tab-review-focused/summary.json) | 75 通过、0 失败、0 跳过 | 指示器、间距、自定义内容和标签布局。 |
+| [第一阶段完整库测试](Results/20261023-tab-review-library-final/summary.json) | 218 通过、0 失败、0 跳过 | 包括新增 4 项回归；后续继续补充同一轮更新的接管顺序。 |
+| [接管顺序聚焦](Results/20261023-tab-review-takeover-focused/summary.json) | 4 通过、0 失败、0 跳过 | 属性更新在接管前／后两种顺序、程序动画中断、屏幕外几何及重新布局。 |
+| [最终完整库测试](Results/20261023-tab-review-library-final-r2/summary.json) | **218 通过、0 失败、0 跳过** | 最终源码 `sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [最终 Demo UI 聚焦](Results/20261023-tab-review-demo-ui-final/summary.json) | **4 通过、0 失败、0 跳过** | 指示器预设与前景命中、分页及取消手势、动态内容与禁用项、间距菜单操作与选择／分页；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+本节是提交前的后续复查；下方上一轮 214 项库测试及 4 项 UI 测试仅对应其当时源码，不能替代后续修复的验证。
+
+本轮使用 Xcode 27.1 / Swift 6.4、Debug、iPhone 18 Pro / iOS 27.0；库测试仍通过独立 UIKitTestHost 运行。沿用同一会话已确认可用的脚本流程完成验证，官方 MCP 的 hosted xctestrun 限制及 UI 请求未启动记录见下节。新增测试通过通知中心验证无障碍通知响应，没有修改系统无障碍设置。未补测 Release、Swift 6.3、iPad、iOS 15、真机或完整 Demo UI 套件。
+
+最终源码共新增 9 项库回归（前一轮 5 项、本轮 4 项），SwiftFormat 0.64.0 格式校验及 `git diff --check` 通过；按用户要求使用中文提交，不推送。
+
+## 2026-10-23：标签间距、指示器几何与属性刷新
+
+从干净工作区开始，审查 `SPTabBar`、`SPTabBarItem`、`SPTabBarAppearance` 及指示器布局的属性更新链路。未更改公开 API、输入归一化规则或选择回调契约；未提交或推送。
+
+- 指示器内容区域原来只按索引缓存。在间距、最小宽度或留白 setter 使 Collection View 布局失效后，另一次同步指示器刷新可能在 `prepare()` 前缓存旧坐标；后续布局继续复用该值。现在缓存同时保存并核对 Item frame，位置或尺寸不匹配时重新计算。
+- Item／Appearance 的通用更新原来直接清空分页转场、停止动画并标记重新居中。现在共用内容刷新策略，保留分页端点和进度；几何不变时保留程序动画与手动偏移，实际几何变化时按原内容刷新规则处理。
+- `indicatorColor` 改为只刷新渲染，栏级和 Item 级设置均不再中断程序选择动画。指示器几何配置及显式 `reloadIndicator()` 仍遵循其结束程序动画的既有约定。
+- 默认内容的 Dynamic Type 等测量环境变化仍在实际几何改变时对齐选中项。README 新增属性、影响范围和刷新入口对照表，包括业务自有内容与附件需要显式失效通知的边界。
+
+新增 5 项真实 UIWindow 回归，覆盖 LTR／RTL、自定义内容区域和实际 UIButton 标题几何、间距／最小宽度／留白／栏尺寸的连续修改、标题／字体／角标／Appearance 更新中的分页进度，以及颜色更新中的动画。旧实现基线运行其中 3 项，全部复现失败。
+
+库测试使用 Xcode 27.1 / Swift 6.4、Debug、iPhone 18 Pro Max / iOS 27.0。通过仓库脚本构建独立 Package 测试包，再用 UIKitTestHost 提供 UIApplication；官方 MCP 的 scheme 测试接口无法配置该脚本生成的 hosted xctestrun，因此不把库测试加入 Demo scheme。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前回归基线](Results/20261023-tab-layout-baseline/summary.json) | 0 通过、3 失败 | 捕获旧坐标复用、分页进度清空、动画和手动偏移跳变；保存对应修复前源码。 |
+| [首次聚焦回归](Results/20261023-tab-layout-focused/summary.json) | 51 通过、0 失败 | 指示器、间距、自定义内容；包括全部 5 项新增用例。 |
+| [首次完整库测试](Results/20261023-tab-layout-library-final/summary.json) | 213 通过、1 失败 | `testDynamicTypeUpdatesWidthsAndCentering` 暴露字体环境变化后的重新居中回归；保留失败和对应源码。 |
+| [环境对齐修正后聚焦](Results/20261023-tab-layout-traits-focused/summary.json) | 47 通过、0 失败 | Dynamic Type 对齐、指示器及自定义内容。 |
+| [完整库测试终态](Results/20261023-tab-layout-library-final-r2/summary.json) | **214 通过、0 失败、0 跳过** | `sourceChangedSinceRun=[]`；三类运行时诊断均为 0。 |
+| [Demo UI 聚焦终态](Results/20261023-tab-layout-demo-ui-r2/summary.json) | **4 通过、0 失败、0 跳过** | 指示器预设与前景命中、分页与取消手势、动态内容与禁用项、间距菜单操作与选择／分页；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+修改的 4 个 Swift 文件使用 Package 锁定版本对应的 SwiftFormat 0.64.0 CLI 按根目录 `.swiftformat` 格式化及 lint；`git diff --check` 通过。旧轮次保留为各自阶段的证据，不能作为最终源码的通过结论。
+
+Demo UI 优先尝试 Apple 官方 Xcode MCP；请求等待数分钟未返回，当时 Xcode 仍显示既有 Demo 调试会话，没有观察到 UI 测试 Runner，记录为[未执行尝试](Results/20261023-tab-layout-demo-ui-mcp-attempt/notes.txt)。随后改用仓库脚本，在实际读取到的 iPhone 18 Pro / iOS 27.0 模拟器上执行同样 4 项 UI 测试。首次 CLI 启动误填设备 UUID，在测试执行前停止，保留[中止记录](Results/20261023-tab-layout-demo-ui/notes.txt)及日志；正确设备运行使用独立的 `20261023-tab-layout-demo-ui-r2` 目录。
+
+**未覆盖：** 未执行 Release、Swift 6.3、iPad、iOS 15 实际运行或真机验证；未执行完整 Demo UI 套件。
+
 ## 2026-10-23：最小接入与控制器生命周期 Demo 单元测试
 
 将 `StickyPagerDemoTests` 的空模板替换为四项 Swift Testing 用例，使用 `@testable import StickyPagerDemo` 测试真实 `MinimalIntegration`：

@@ -33,6 +33,252 @@ final class SPTabBarIndicatorTests: XCTestCase {
         return collection.layoutAttributesForItem(at: IndexPath(item: index, section: 0))!.frame
     }
 
+    func testContentReferenceTracksSpacingInsetsAndSizeAfterIntermediateIndicatorRefresh() {
+        for rtl in [false, true] {
+            let (bar, collection, indicator) = mount(rtl: rtl)
+            let provider = IndicatorContentProvider()
+            bar.contentDelegate = provider
+            bar.contentStyle = .custom
+            var layout = SPTabBarIndicatorLayout()
+            layout.reference = .content
+            bar.standardAppearance.indicatorLayout = layout
+            bar.setSelectedIndex(2, animated: false)
+            let changes: [(SPTabBar) -> Void] = [
+                { $0.itemSpacing = 24 },
+                { $0.minimumItemWidth = 140 },
+                { $0.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 19, bottom: 11, trailing: 31) },
+                { $0.frame.size = CGSize(width: 500, height: 90) },
+                { $0.itemSpacing = 0 }
+            ]
+            for change in changes {
+                change(bar)
+                // 模拟同一轮更新中，外观 setter 或滚动回调在 Collection View prepare 前读取几何。
+                bar.reloadIndicator()
+                bar.layoutIfNeeded()
+                let item = frame(2, collection)
+                XCTAssertEqual(indicator.frame, provider.rect!.offsetBy(dx: item.minX, dy: item.minY))
+                XCTAssertEqual(bar.selectedIndex, 2)
+            }
+        }
+    }
+
+    func testItemAndAppearanceRefreshPreservePagingEndpointsAndProgress() {
+        for rtl in [false, true] {
+            let (bar, collection, indicator) = mount(rtl: rtl)
+            let renderer = RecordingIndicator()
+            bar.indicatorStyle = .custom
+            bar.indicatorView = renderer
+            bar.minimumItemWidth = 100
+            bar.layoutIfNeeded()
+            bar.setTransitionProgress(from: 1, to: 2, progress: 0.35)
+            let changes: [(SPTabBar) -> Void] = [
+                { $0.items[1].title = "分页中的长标题发生变化" },
+                { $0.standardAppearance.itemAppearance.normal.font = .systemFont(ofSize: 28) },
+                { $0.items[2].badgeValue = "新内容" },
+                { $0.items[1].setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 32)], for: .normal) },
+                { $0.standardAppearance = SPTabBarAppearance(barAppearance: $0.standardAppearance) },
+                { $0.standardAppearance.itemAppearance.layout = .inline }
+            ]
+            for change in changes {
+                change(bar)
+                bar.layoutIfNeeded()
+                let a = frame(1, collection).insetBy(dx: 4, dy: 4)
+                let b = frame(2, collection).insetBy(dx: 4, dy: 4)
+                XCTAssertEqual(indicator.frame.midX, a.midX + (b.midX - a.midX) * 0.35, accuracy: 0.01)
+                XCTAssertEqual(indicator.frame.width, a.width + (b.width - a.width) * 0.35, accuracy: 0.01)
+                XCTAssertEqual(renderer.state?.fromIndex, 1)
+                XCTAssertEqual(renderer.state?.toIndex, 2)
+                XCTAssertEqual(renderer.state?.progress, 0.35)
+                XCTAssertEqual(bar.selectedIndex, 0)
+            }
+        }
+    }
+
+    func testAppearanceOnlyRefreshPreservesSelectionAnimationAndManualOffset() {
+        let (bar, collection, indicator) = mount()
+        bar.minimumItemWidth = 150
+        bar.layoutIfNeeded()
+        collection.contentOffset.x = 90
+        bar.items[0].accessibilityHint = "查看频道"
+        bar.standardAppearance.backgroundColor = .systemPink
+        bar.layoutIfNeeded()
+        XCTAssertEqual(collection.contentOffset.x, 90, accuracy: 0.01)
+        bar.setSelectedIndex(4, animated: true)
+        bar.advanceSelectionAnimation(to: 0.5)
+        let midway = indicator.frame
+        let offset = collection.contentOffset.x
+        bar.standardAppearance.itemAppearance.normal.titleColor = .systemGreen
+        bar.items[0].badgeColor = .systemOrange
+        bar.layoutIfNeeded()
+        XCTAssertEqual(indicator.frame, midway)
+        XCTAssertEqual(collection.contentOffset.x, offset, accuracy: 0.01)
+        bar.advanceSelectionAnimation(to: 1)
+        XCTAssertEqual(indicator.frame, frame(4, collection).insetBy(dx: 4, dy: 4))
+    }
+
+    func testIndicatorColorRefreshKeepsAnimationForBarAndItemAppearance() {
+        for itemOverride in [false, true] {
+            let (bar, _, indicator) = mount()
+            if itemOverride {
+                bar.items[4].standardAppearance = SPTabBarAppearance()
+            }
+            let renderer = RecordingIndicator()
+            bar.indicatorStyle = .custom
+            bar.indicatorView = renderer
+            bar.setSelectedIndex(4, animated: true)
+            bar.advanceSelectionAnimation(to: 0.5)
+            let midway = indicator.frame
+            let appearance = itemOverride ? bar.items[4].standardAppearance! : bar.standardAppearance
+            appearance.indicatorColor = .systemPink
+            bar.layoutIfNeeded()
+            XCTAssertEqual(indicator.frame, midway)
+            XCTAssertEqual(renderer.state?.progress, 0.5)
+            XCTAssertEqual(renderer.state?.fromIndex, 0)
+            XCTAssertEqual(renderer.state?.toIndex, 4)
+            XCTAssertEqual(renderer.state?.color, .systemPink)
+            bar.advanceSelectionAnimation(to: 1)
+            XCTAssertNotEqual(indicator.frame, midway)
+        }
+    }
+
+    func testDefaultContentReferenceMatchesTitleAfterGeometryAndFontChanges() throws {
+        for rtl in [false, true] {
+            let (bar, collection, indicator) = mount(rtl: rtl)
+            var layout = SPTabBarIndicatorLayout()
+            layout.reference = .content
+            bar.standardAppearance.indicatorLayout = layout
+            bar.setSelectedIndex(2, animated: false)
+            let changes: [(SPTabBar) -> Void] = [
+                { $0.itemSpacing = 24 },
+                { $0.minimumItemWidth = 160 },
+                { $0.items[2].title = "动态更新标题" },
+                { $0.items[2].setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 28)], for: .selected) },
+                { $0.frame.size.height = 90 }
+            ]
+            for change in changes {
+                change(bar)
+                bar.reloadIndicator()
+                bar.layoutIfNeeded()
+                // 手动滚动策略允许选中项离开屏幕；滚至该项后核对实际显示内容。
+                collection.scrollToItem(at: IndexPath(item: 2, section: 0), at: .centeredHorizontally, animated: false)
+                collection.layoutIfNeeded()
+                let cell = try XCTUnwrap(collection.cellForItem(at: IndexPath(item: 2, section: 0)))
+                cell.layoutIfNeeded()
+                let button = try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? UIButton }.first)
+                button.layoutIfNeeded()
+                let title = try XCTUnwrap(button.titleLabel)
+                let actual = title.convert(title.bounds, to: collection)
+                XCTAssertEqual(indicator.frame.midX, actual.midX, accuracy: 1)
+                XCTAssertEqual(indicator.frame.width, actual.width, accuracy: 1)
+                XCTAssertEqual(indicator.frame.midY, actual.midY, accuracy: 1)
+            }
+        }
+    }
+
+    func testContentGeometryChangeSettlesAnimationEvenWhenItemFramesStayEqual() throws {
+        for rtl in [false, true] {
+            for changedIndex in [0, 2] {
+                let (bar, collection, indicator) = mount(rtl: rtl)
+                bar.items.forEach { $0.title = "短" }
+                bar.minimumItemWidth = 200
+                var layout = SPTabBarIndicatorLayout()
+                layout.reference = .content
+                bar.standardAppearance.indicatorLayout = layout
+                bar.setSelectedIndex(0, animated: false)
+                bar.setSelectedIndex(2, animated: true)
+                bar.advanceSelectionAnimation(to: 0.5)
+                let itemFrames = bar.items.indices.map { frame($0, collection) }
+                bar.items[changedIndex].title = "更新后的标题"
+                bar.layoutIfNeeded()
+                XCTAssertEqual(bar.items.indices.map { frame($0, collection) }, itemFrames)
+                let cell = try XCTUnwrap(collection.cellForItem(at: IndexPath(item: 2, section: 0)))
+                cell.layoutIfNeeded()
+                let button = try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? UIButton }.first)
+                button.layoutIfNeeded()
+                let title = try XCTUnwrap(button.titleLabel)
+                let expected = title.convert(title.bounds, to: collection)
+                XCTAssertEqual(indicator.frame.midX, expected.midX, accuracy: 1)
+                XCTAssertEqual(indicator.frame.width, expected.width, accuracy: 1)
+                bar.advanceSelectionAnimation(to: 1)
+                XCTAssertEqual(indicator.frame.midX, expected.midX, accuracy: 1)
+                XCTAssertEqual(indicator.frame.width, expected.width, accuracy: 1)
+            }
+        }
+    }
+
+    func testReplacingAppearanceRecalculatesAnimationIndicatorWithUnchangedItemFrames() {
+        let (bar, collection, indicator) = mount()
+        bar.minimumItemWidth = 200
+        bar.setSelectedIndex(2, animated: true)
+        bar.advanceSelectionAnimation(to: 0.5)
+        let item = frame(2, collection)
+        let appearance = SPTabBarAppearance(barAppearance: bar.standardAppearance)
+        var layout = SPTabBarIndicatorLayout()
+        layout.width = 23
+        layout.height = 5
+        appearance.indicatorLayout = layout
+        bar.standardAppearance = appearance
+        bar.layoutIfNeeded()
+        let expected = CGRect(x: item.midX - 11.5, y: item.midY - 2.5, width: 23, height: 5)
+        XCTAssertEqual(frame(2, collection), item)
+        XCTAssertEqual(indicator.frame, expected)
+        bar.advanceSelectionAnimation(to: 1)
+        XCTAssertEqual(indicator.frame, expected)
+    }
+
+    func testContentGeometryChangeRebasesPagingOriginTakenFromAnimation() {
+        for rtl in [false, true] {
+            for changeBeforeTakeover in [false, true] {
+                let (bar, collection, indicator) = mount(rtl: rtl)
+                let provider = IndicatorContentProvider()
+                bar.contentDelegate = provider
+                bar.contentStyle = .custom
+                var layout = SPTabBarIndicatorLayout()
+                layout.reference = .content
+                bar.standardAppearance.indicatorLayout = layout
+                bar.setSelectedIndex(0, animated: false)
+                bar.setSelectedIndex(2, animated: true)
+                bar.advanceSelectionAnimation(to: 0.5)
+                let updateContent = {
+                    provider.rect = CGRect(x: 17, y: 11, width: 41, height: 19)
+                    bar.items[2].title = "更新内容区域"
+                }
+                if changeBeforeTakeover {
+                    updateContent()
+                }
+                bar.setTransitionProgress(from: 0, to: 2, progress: 0.4)
+                if !changeBeforeTakeover {
+                    updateContent()
+                }
+                bar.layoutIfNeeded()
+                let a = frame(0, collection), b = frame(2, collection)
+                XCTAssertEqual(indicator.frame.minX, a.minX + (b.minX - a.minX) * 0.4 + 17, accuracy: 0.01)
+                XCTAssertEqual(indicator.frame.minY, 11)
+                XCTAssertEqual(indicator.frame.size, CGSize(width: 41, height: 19))
+                XCTAssertEqual(bar.selectedIndex, 2)
+            }
+        }
+    }
+
+    func testReduceMotionNotificationSettlesAnimationWhileTransparencyPreservesIt() {
+        let (bar, collection, indicator) = mount()
+        bar.setSelectedIndex(4, animated: true)
+        bar.advanceSelectionAnimation(to: 0.5)
+        let midway = indicator.frame
+        NotificationCenter.default.post(
+            name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+            object: nil
+        )
+        bar.layoutIfNeeded()
+        XCTAssertEqual(indicator.frame, midway)
+        NotificationCenter.default.post(name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
+        bar.layoutIfNeeded()
+        let expected = frame(4, collection).insetBy(dx: 4, dy: 4)
+        XCTAssertEqual(indicator.frame, expected)
+        bar.advanceSelectionAnimation(to: 0.7)
+        XCTAssertEqual(indicator.frame, expected)
+    }
+
     func testBuiltinStylesResolveGeometryAndColorWithoutAppearanceConfiguration() {
         let (bar, collection, indicator) = mount()
         bar.tintColor = .systemPink

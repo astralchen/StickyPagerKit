@@ -34,7 +34,14 @@ public final class SPTabBarAppearance: UIBarAppearance {
 
     /// nil 使用所选样式的默认颜色：胶囊使用 tertiarySystemFill，线条／自定义跟随选中文字颜色。
     public var indicatorColor: UIColor? {
-        didSet { indicatorChanged() }
+        didSet {
+            for bar in bars.allObjects {
+                bar.indicatorAppearanceDidChange()
+            }
+            for item in items.allObjects {
+                item.indicatorAppearanceDidChange()
+            }
+        }
     }
 
     /// nil 使用所选样式的默认布局；显式值完整覆盖预设，切换样式不会清除覆盖。

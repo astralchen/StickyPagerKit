@@ -187,6 +187,12 @@ public final class SPTabBarItem: UIBarItem {
         }
     }
 
+    internal func indicatorAppearanceDidChange() {
+        for bar in hosts.allObjects {
+            bar.indicatorAppearanceDidChange()
+        }
+    }
+
     internal func appearanceDidChange() {
         changed()
     }

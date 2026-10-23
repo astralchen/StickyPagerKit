@@ -181,6 +181,26 @@ tabs.standardAppearance.itemAppearance.selected.titleColor = .systemPurple
 tabs.indicatorStyle = .capsule
 ```
 
+### 运行时属性更新与布局刷新
+
+布局相关属性可在显示后直接修改；框架会按影响范围自动更新测量、布局或渲染，无需重新设置 `items` 或手动调用 `reloadContent()`。需要同步读取最终 frame 时，在修改完成后对标签栏调用 `layoutIfNeeded()`。同一轮属性修改之间即使发生指示器刷新，最终指示器仍按最新 Item frame 定位。
+
+| 属性或输入 | 影响范围 | 刷新方式 |
+| --- | --- | --- |
+| `itemSpacing`、`minimumItemWidth`、`contentInsets` | Item 宽度分配、位置、滚动范围；上下留白也影响建议栏高 | setter 自动重新测量并安排布局；归一化后相同值不重复刷新 |
+| `contentStyle`、`contentDelegate` | 内容配置、理想尺寸和内容指示器区域 | 模式变化或自定义模式下更换代理自动刷新；业务自有数据变化调用 `reloadContent()` |
+| `leadingAccessoryView`、`trailingAccessoryView` | 固定附件、剩余标签视口、建议栏高 | 替换自动刷新；已有附件的内容、约束或 `isHidden` 变化调用 `invalidateAccessoryLayout()` |
+| Item 的 `title`、`image`、`selectedImage`、`landscapeImagePhone`、`badgeValue`、状态文字属性中的字体 | 内容测量、栏高、Item 几何及内容指示器区域 | 自动通知所有宿主重新测量、配置内容并安排布局 |
+| Item 的 `imageInsets`、`landscapeImagePhoneInsets` | 图标绘制及内容配置 | 自动刷新；图标槽位仍按默认的 24 pt 规则测量 |
+| 栏级／所选 Item 的 `standardAppearance`，其中的 `itemAppearance.layout` 和各状态 `font` | 图文排列、字体测量、建议栏高及指示器 | 赋值时复制；通过宿主 getter 修改嵌套值也自动刷新 |
+| `indicatorStyle`、`indicatorLayoutDelegate`、`indicatorView`、Appearance 的 `indicatorLayout` 全部字段 | 指示器参考区域、对齐、宽高、内缩、偏移、圆角和层级 | 自动重算指示器，不参与标签测量；外部几何数据变化调用 `reloadIndicator()` |
+| Appearance 的 `indicatorColor` | 指示器颜色 | 仅刷新渲染，保留选择动画与分页进度 |
+| `tintColor`，Item 的颜色、启用状态、无障碍和大内容查看属性，Appearance 的状态颜色、背景和阴影 | 默认内容渲染、交互和装饰；自定义内容也可能据此改变尺寸 | 自动更新；通用内容刷新会核对实际测量，几何不变时不打断滚动或选择动画；阴影图片高度在布局时更新 |
+| `bounds`／`frame` 尺寸、Safe Area、布局方向、Dynamic Type、相关 traits | 视口、排列、内容尺寸与指示器内容区域 | 使用 UIView 布局／环境回调自动更新；布局方向由 `semanticContentAttribute` 和宿主环境解析 |
+| `items`、`selectedItem`／`setSelectedIndex(_:animated:)`、分页进度 | Item 身份及顺序、选中内容状态、指示器端点和滚动目标 | 使用各自更新入口，保持对象身份与原有选择回调语义；Item 的 `tag` 仅为业务标记，不影响布局 |
+
+Item 和 Appearance 的通用属性刷新与间距、留白使用相同的内容更新策略：保留选中对象和分页端点／进度；实际几何变化时，将手动偏移限制到新范围，正在执行的程序选择动画落到已选项；内容及指示器端点几何不变时保留动画与手动偏移。即使 Item 宽度未变，标题内容区域或替换 Appearance 后的指示器几何变化也会使程序动画落到最新选中项，并清除分页接管时保存的旧几何起点。默认内容因 Dynamic Type 等字体／图文布局环境变化而改变几何时，仍重新对齐选中项。“减少动态效果”状态通知会结束正在执行的程序选择动画；单纯的透明度设置通知不打断几何未变的动画。指示器几何配置变更或显式 `reloadIndicator()` 仍按该入口的约定结束程序选择动画并重算当前指示器。未启用指示器时，内容与分页仍正常刷新。
+
 ### 内容留白与固定附件
 
 `contentInsets: NSDirectionalEdgeInsets` 默认 `.zero`；`leadingAccessoryView` 和 `trailingAccessoryView` 默认 nil。三者都属于标签栏布局配置，不属于 Appearance，不参与其复制或归档。没有配置附件或留白时，布局和选择行为保持原样。
@@ -422,7 +442,7 @@ pager.tabBar.reloadContent()
 - 内容根视图须允许随实际分配宽度扩展。内部可设置 required 的最小宽度，超出视口时横向滚动；根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
 - 未设置代理、代理释放后下一次标签栏布局、返回 nil 或尺寸无效时，对应项回退到默认内容。允许同一栏混用默认项和自定义项。
 - 内容和尺寸会缓存。Item、选择、Appearance、tint、traits、可用宽度、RTL 或模式变化会重新获取配置；业务自有数据变化需调用 `reloadContent()`。提供方法应同步、无副作用，不得在其中修改标签栏或 Item、触发布局或重载。自动测量由框架构造独立视图；不要在代理回调中自行构造或缓存正在显示的视图。状态样式宜保持约束尺寸稳定，或为显式尺寸取各状态最大值。
-- `reloadContent()` 不发送选择回调。尺寸不变时保留手动滚动偏移、正在进行的选择动画和分页进度；尺寸变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.default` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
+- `reloadContent()` 不发送选择回调。内容及指示器端点几何不变时保留手动滚动偏移、正在进行的选择动画和分页进度；几何变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.default` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
 - `sizeThatFits(_:)` 只测量建议宽度对应的高度，不提交配置、不改变当前 Cell 布局、偏移或指示器。实际布局时才采用实际视口的配置与尺寸。显示快照与最近一次候选测量分开缓存，重复询问相同宽度不会反复调用代理或构造测量视图；候选宽度变化仍可能触发代理，所以回调不能假定标签栏已经改变 frame。
 - 测量视图处于隐藏、无交互和无障碍入口的独立宿主中，继承标签栏 traits、tint 和视觉方向，完成测量后移除；不会借用正在显示的 Cell。`makeContentView()` 和配置更新可能用于测量，不能依赖可见性或触发业务副作用。配置需独立描述完整内容。业务异步数据变化后调用 `reloadContent()`；仅在某个显示视图上调用 `invalidateIntrinsicContentSize()` 不会自动清除标签栏缓存。
 - 自定义配置的 `updated(for:)` 接收 `UICellConfigurationState`，其中包含选中、禁用和真实按压高亮。高亮变化仅更新内容配置，不重新询问尺寸。提供方法的 `context.state` 高亮为 false；框架只保证 traits、选中、禁用和运行时按压高亮，不承诺同步 Cell 的焦点、编辑或多选状态。`UIContentView.configuration` 应覆盖旧状态并复用子视图。默认、自定义及回退模式共用同一个框架内容容器和激活按钮；切换模式不会重建整个 Cell 内容容器。兼容的业务配置通过 `configuration` 原位更新；业务配置不兼容时仅替换内部自定义视图。iOS 16+ 使用 `supports(_:)` 判断业务配置兼容性，iOS 15 按配置类型判断。离开自定义模式会释放业务视图，恢复时按当前配置重新创建，不隐藏缓存旧内容。

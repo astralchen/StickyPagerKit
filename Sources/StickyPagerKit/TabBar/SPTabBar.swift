@@ -149,8 +149,8 @@ open class SPTabBar: UIView {
     }
 
     /// 业务自有数据变化后重新获取自定义配置与尺寸；默认模式下不改变显示或交互。
-    /// 尺寸不变时保留滚动偏移、选择动画及分页进度，不发送选择回调。
-    /// 尺寸变化时将手动滚动偏移限制到新范围，选择动画落到已选项，分页按原进度重新定位。
+    /// 内容及指示器端点几何不变时保留滚动偏移、选择动画及分页进度，不发送选择回调。
+    /// 几何变化时将手动滚动偏移限制到新范围，选择动画落到已选项，分页按原进度重新定位。
     /// Item、选择、外观和环境变化会自动刷新，无需为这些变化额外调用此方法。
     public func reloadContent() {
         guard contentStyle == .custom else {
@@ -202,7 +202,8 @@ open class SPTabBar: UIView {
         setNeedsLayout()
     }
 
-    private var indicatorContentFrames: [Int: CGRect] = [:]
+    // prepare 前的同步回调仍可能读到旧 Item frame；缓存必须同时校验实际几何。
+    private var indicatorContentFrames: [Int: (itemFrame: CGRect, contentFrame: CGRect)] = [:]
     private var resolvingIndicator = false
 
     private let contentMeasurementHost = UIView()
@@ -310,17 +311,13 @@ open class SPTabBar: UIView {
     }
 
     internal func itemDidChange() {
-        contentGeometryChanged = false
-        stopSelectionAnimation()
-        transition = nil
-        transitionOrigin = nil
-        updateMetrics()
-        updateVisibleCells()
+        // 属性变更共用内容刷新策略：保留分页进度，仅在实际几何改变时收敛选择动画。
+        refreshContentLayout()
         updateAppearance()
-        needsSelectionAlignment = true
-        invalidateIntrinsicContentSize()
-        setNeedsLayout()
-        superview?.setNeedsLayout()
+    }
+
+    internal func indicatorAppearanceDidChange() {
+        renderIndicator()
     }
 
     private func updateAppearance() {
@@ -389,7 +386,12 @@ open class SPTabBar: UIView {
         ))
     }
 
-    @objc private func accessibilitySettingsChanged() {
+    @objc private func accessibilitySettingsChanged(_ notification: Notification) {
+        if notification.name == UIAccessibility.reduceMotionStatusDidChangeNotification, selectionAnimation != nil {
+            // 动态效果设置改变时及时结束程序动画；分页进度及普通外观通知仍保留。
+            stopSelectionAnimation()
+            needsSelectionAlignment = true
+        }
         itemDidChange()
     }
 
@@ -411,12 +413,13 @@ open class SPTabBar: UIView {
     private let collectionView: UICollectionView
     private let edgeMask = CAGradientLayer()
     private var transition: (from: Int, to: Int, progress: CGFloat)?
-    private var transitionOrigin: (indicator: CGRect, offset: CGFloat)?
+    private var transitionOrigin: (indicator: CGRect, offset: CGFloat, fromGeometry: CGRect, toGeometry: CGRect)?
     private struct SelectionAnimation {
         let fromIndex: Int?
         let toIndex: Int?
         let fromIndicator: CGRect
         let toIndicator: CGRect
+        let fromGeometry: CGRect
         let fromOffset: CGFloat
         let toOffset: CGFloat
         let startTime: CFTimeInterval
@@ -474,13 +477,13 @@ open class SPTabBar: UIView {
         storedAppearance.attach(self)
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(accessibilitySettingsChanged),
+            selector: #selector(accessibilitySettingsChanged(_:)),
             name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
             object: nil
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(accessibilitySettingsChanged),
+            selector: #selector(accessibilitySettingsChanged(_:)),
             name: UIAccessibility.reduceMotionStatusDidChangeNotification,
             object: nil
         )
@@ -673,6 +676,7 @@ open class SPTabBar: UIView {
                 // 没有可插值的指示器时，内容偏移仍独立执行动画。
                 fromIndicator: canInterpolateIndicator ? fromIndicator : targetIndicator,
                 toIndicator: targetIndicator,
+                fromGeometry: fromIndex.map(indicatorFrame) ?? .zero,
                 fromOffset: fromOffset,
                 toOffset: targetOffset,
                 startTime: CACurrentMediaTime()
@@ -691,14 +695,20 @@ open class SPTabBar: UIView {
         guard items.indices.contains(fromIndex), items.indices.contains(toIndex), progress.isFinite else {
             return
         }
+        // 先应用待完成的属性刷新，避免把旧动画呈现位置与新端点几何一起保存为接管起点。
+        layoutIfNeeded()
+        collectionView.layoutIfNeeded()
         if transition?.from != fromIndex || transition?.to != toIndex {
             // 分页接管尚未完成的标签动画时，保留当前呈现位置，避免突然跳到旧目标。
-            transitionOrigin = selectionAnimation == nil ? nil : (indicator.frame, collectionView.contentOffset.x)
+            transitionOrigin = selectionAnimation == nil ? nil : (
+                indicator.frame,
+                collectionView.contentOffset.x,
+                indicatorFrame(fromIndex),
+                indicatorFrame(toIndex)
+            )
         }
         stopSelectionAnimation()
         transition = (fromIndex, toIndex, min(1, max(0, progress)))
-        layoutIfNeeded()
-        collectionView.layoutIfNeeded()
         updateIndicator()
         let p = min(1, max(0, progress))
         let from = transitionOrigin?.offset ?? centeredOffset(for: fromIndex), to = centeredOffset(for: toIndex)
@@ -748,6 +758,9 @@ open class SPTabBar: UIView {
             superview?.setNeedsLayout()
         }
         collectionView.layoutIfNeeded()
+        // Item 宽度可能被最小宽度固定，内容区域或新 Appearance 的指示器仍会改变。
+        // 核对转场端点的真实几何，避免保留动画或分页接管时使用旧矩形。
+        contentGeometryChanged = contentGeometryChanged || indicatorTransitionGeometryChanged()
         if contentGeometryChanged {
             contentGeometryChanged = false
             let wasAnimating = selectionAnimation != nil
@@ -786,18 +799,37 @@ open class SPTabBar: UIView {
         updateEdgeMask()
     }
 
+    private func indicatorTransitionGeometryChanged() -> Bool {
+        if let animation = selectionAnimation {
+            let from = animation.fromIndex.map(indicatorFrame) ?? .zero
+            let to = animation.toIndex.map(indicatorFrame) ?? .zero
+            return animation.fromGeometry != from || animation.toIndicator != to
+        }
+        if let transition, let origin = transitionOrigin {
+            return origin.fromGeometry != indicatorFrame(transition.from)
+                || origin.toGeometry != indicatorFrame(transition.to)
+        }
+        return false
+    }
+
     open override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         setNeedsLayout()
+        let metricsChanged = previousTraitCollection?.preferredContentSizeCategory != traitCollection
+            .preferredContentSizeCategory
+            || previousTraitCollection?.verticalSizeClass != traitCollection.verticalSizeClass
+            || previousTraitCollection?.displayScale != traitCollection.displayScale
         if contentStyle == .custom {
             // 菜单等临时系统 UI 也会改变环境；同尺寸刷新不应重新定位标签或清空转场。
             reloadContent()
             updateAppearance()
-        } else if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory
-            || previousTraitCollection?.verticalSizeClass != traitCollection.verticalSizeClass
-            || previousTraitCollection?.displayScale != traitCollection.displayScale
+        } else if metricsChanged
             || previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) != false {
             itemDidChange()
+            // 字体与图文方向的环境变化沿用选中项对齐策略；纯外观变化保留手动偏移。
+            if metricsChanged, contentGeometryChanged {
+                needsSelectionAlignment = true
+            }
         }
     }
 
@@ -1299,8 +1331,8 @@ open class SPTabBar: UIView {
     }
 
     private func indicatorContentFrame(at index: Int, itemFrame: CGRect) -> CGRect {
-        if let cached = indicatorContentFrames[index] {
-            return cached
+        if let cached = indicatorContentFrames[index], cached.itemFrame == itemFrame {
+            return cached.contentFrame
         }
         let local: CGRect
         if let content = customContent(at: index) {
@@ -1319,7 +1351,7 @@ open class SPTabBar: UIView {
             cell.removeFromSuperview()
         }
         let result = local.offsetBy(dx: itemFrame.minX, dy: itemFrame.minY)
-        indicatorContentFrames[index] = result
+        indicatorContentFrames[index] = (itemFrame, result)
         return result
     }
 
