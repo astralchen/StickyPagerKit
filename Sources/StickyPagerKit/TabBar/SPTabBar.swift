@@ -48,8 +48,32 @@ open class SPTabBar: UIView {
         }
     }
 
+    /// 整栏标签的宽度分配方式，命名沿用 UIKit 的 itemPositioning 风格。
+    public enum ItemPositioning: Int, Sendable {
+        /// 优先满足各项内容宽度，其余项尽量等宽。
+        case automatic
+        /// 均分可用宽度，不小于 minimumItemWidth；内容宽度不撑开 Cell。
+        case fill
+        /// 使用各项内容宽度，空间充足时整组居中。
+        case centered
+        /// 使用各项内容宽度，整组靠逻辑起始端排列，余量留在 trailing；RTL 下从右侧开始。
+        case leading
+    }
+
+    /// 整栏标签的宽度分配，默认 automatic 保留自适应策略。
+    /// automatic 优先满足内容宽度，其余项尽量等宽；fill 均分可用宽度，但不小于 minimumItemWidth。
+    /// centered 与 leading 按内容宽度排列，分别整组居中或靠逻辑起始端；所有模式超出视口时均可横向滚动。
+    /// fill 不以内容宽度撑开 Cell；自定义内容应支持压缩或换行。
+    public var itemPositioning: ItemPositioning = .automatic {
+        didSet {
+            if oldValue != itemPositioning {
+                refreshContentLayout()
+            }
+        }
+    }
+
     /// 每项 Cell 的最小布局宽度，默认 44 pt；适用于默认内容、自定义内容和回退项。
-    /// 内容需要更多空间时使用内容所需宽度，其余空间尽量等宽分配；超出视口时横向滚动。
+    /// 实际宽度由 itemPositioning 决定；所有模式都遵守该下限。
     /// 0 表示不额外设置宽度下限；负数归零，非有限值恢复为 44，大于 1,000,000 pt 时截到该上限。
     /// 不改变内容的理想尺寸，不扩大 Cell 之外的点击区域；实际几何不变时保留滚动和转场。
     public var minimumItemWidth: CGFloat {
@@ -225,6 +249,8 @@ open class SPTabBar: UIView {
         let contents: [SPTabBarContent?]
         let itemWidths: [CGFloat]
         let itemSpacing: CGFloat
+        let itemPositioning: ItemPositioning
+        let minimumItemWidth: CGFloat
         let insets: NSDirectionalEdgeInsets
         let height: CGFloat
     }
@@ -975,7 +1001,8 @@ open class SPTabBar: UIView {
                 }
                 // 部分系统内容视图重写 fitting，不采用外加的软宽度约束。
                 // 通过普通 Auto Layout 宿主求可行首选宽度，优先级略低于 required，让业务最小宽度优先。
-                let preferredWidth = width > 0 ? min(natural.width, width) : natural.width
+                let preferredWidth = itemPositioning != .centered && itemPositioning != .leading && width > 0
+                    ? min(natural.width, width) : natural.width
                 let constrained = container.systemLayoutSizeFitting(
                     CGSize(width: preferredWidth, height: 0),
                     withHorizontalFittingPriority: UILayoutPriority(UILayoutPriority.required.rawValue - 1),
@@ -1002,15 +1029,25 @@ open class SPTabBar: UIView {
                         .width ?? (defaultSizes[$0].width + SPDefaultTabContentMetrics.totalHorizontalPadding)
                 )
             }
-            let allocated = SPTabBarLayout.resolvedWidths(widths, viewportWidth: width, itemSpacing: itemSpacing)
+            let allocated = SPTabBarLayout.resolvedWidths(
+                widths,
+                viewportWidth: width,
+                itemSpacing: itemSpacing,
+                itemPositioning: itemPositioning,
+                minimumItemWidth: minimumItemWidth
+            )
             var failed = false
             for index in measuringViews.keys.sorted() {
                 guard let view = measuringViews[index] else {
                     continue
                 }
-                let fitted = view.systemLayoutSizeFitting(
+                // 系统内容视图可能忽略软宽度；fill 通过普通宿主求解最终宽度对应的高度。
+                let fittingView = itemPositioning == .fill ? (view.superview ?? view) : view
+                let fitted = fittingView.systemLayoutSizeFitting(
                     CGSize(width: allocated[index], height: 0),
-                    withHorizontalFittingPriority: .required,
+                    // fill 的 Cell 宽度固定；软测量避免与业务 required 最小宽度产生约束冲突。
+                    withHorizontalFittingPriority: itemPositioning == .fill
+                        ? UILayoutPriority(UILayoutPriority.required.rawValue - 1) : .required,
                     verticalFittingPriority: .fittingSizeLevel
                 )
                 guard validContentSize(fitted) else {
@@ -1037,6 +1074,8 @@ open class SPTabBar: UIView {
             contents: result,
             itemWidths: widths,
             itemSpacing: itemSpacing,
+            itemPositioning: itemPositioning,
+            minimumItemWidth: minimumItemWidth,
             insets: contentInsets,
             // 只对默认图文保留原有高度规则；自定义内容不承担容器的最小栏高策略。
             height: result.indices.map {
@@ -1067,6 +1106,8 @@ open class SPTabBar: UIView {
         customContents = measurement.contents
         tabLayout.itemWidths = measurement.itemWidths
         tabLayout.itemSpacing = measurement.itemSpacing
+        tabLayout.itemPositioning = measurement.itemPositioning
+        tabLayout.minimumItemWidth = measurement.minimumItemWidth
         tabLayout.contentInsets = measurement.insets
         customViewsNeedUpdate = true
         return true
@@ -1076,17 +1117,30 @@ open class SPTabBar: UIView {
         guard let previous, let current = appliedContentMeasurement else {
             return false
         }
-        return previous.insets != current
-            .insets || (current.itemWidths.count > 1 && previous.itemSpacing != current.itemSpacing) ||
+        func widths(_ value: ContentMeasurement) -> [CGFloat] {
             SPTabBarLayout.resolvedWidths(
-                previous.itemWidths,
-                viewportWidth: previous.width,
-                itemSpacing: previous.itemSpacing
-            ) != SPTabBarLayout.resolvedWidths(
-                current.itemWidths,
-                viewportWidth: current.width,
-                itemSpacing: current.itemSpacing
-            ) ||
+                value.itemWidths,
+                viewportWidth: value.width,
+                itemSpacing: value.itemSpacing,
+                itemPositioning: value.itemPositioning,
+                minimumItemWidth: value.minimumItemWidth
+            )
+        }
+        func alignmentOffset(_ value: ContentMeasurement, widths: [CGFloat]) -> CGFloat {
+            SPTabBarLayout.alignmentOffset(
+                widths,
+                viewportWidth: value.width,
+                itemSpacing: value.itemSpacing,
+                itemPositioning: value.itemPositioning,
+                isRightToLeft: value.direction == .rightToLeft
+            )
+        }
+        let previousWidths = widths(previous)
+        let currentWidths = widths(current)
+        return previous.insets != current.insets ||
+            (current.itemWidths.count > 1 && previous.itemSpacing != current.itemSpacing) ||
+            previousWidths != currentWidths ||
+            alignmentOffset(previous, widths: previousWidths) != alignmentOffset(current, widths: currentWidths) ||
             previous.height != current.height
     }
 
@@ -1138,6 +1192,9 @@ open class SPTabBar: UIView {
         let iconColor = state.iconColor ?? defaultColor
         let titleColor = state.titleColor ?? defaultColor
         var configuration = UIButton.Configuration.plain()
+        if itemPositioning == .fill {
+            configuration.titleLineBreakMode = .byTruncatingTail
+        }
         configuration.contentInsets = NSDirectionalEdgeInsets(
             top: 0,
             leading: SPDefaultTabContentMetrics.horizontalPadding,

@@ -5,7 +5,7 @@ internal enum SPTabBarGeometryLimits {
     static let maximumMagnitude: CGFloat = 1_000_000
 }
 
-/// 优先满足每项宽度需求，其余项尽量等宽；总需求超出视口时横向滚动。
+/// 按 itemPositioning 分配宽度；总需求超出视口时横向滚动。
 @MainActor
 final class SPTabBarLayout: UICollectionViewLayout {
     // 独立布局缺失宽度或收到非有限宽度时的回退值，不受公开最小宽度配置影响。
@@ -22,6 +22,22 @@ final class SPTabBarLayout: UICollectionViewLayout {
     var itemSpacing: CGFloat = 0 {
         didSet {
             if oldValue != itemSpacing {
+                invalidateLayout()
+            }
+        }
+    }
+
+    var itemPositioning: SPTabBar.ItemPositioning = .automatic {
+        didSet {
+            if oldValue != itemPositioning {
+                invalidateLayout()
+            }
+        }
+    }
+
+    var minimumItemWidth: CGFloat = 0 {
+        didSet {
+            if oldValue != minimumItemWidth {
                 invalidateLayout()
             }
         }
@@ -62,13 +78,22 @@ final class SPTabBarLayout: UICollectionViewLayout {
         let resolved = Self.resolvedWidths(
             widths,
             viewportWidth: max(0, size.width - contentInsets.leading - contentInsets.trailing),
-            itemSpacing: itemSpacing
+            itemSpacing: itemSpacing,
+            itemPositioning: itemPositioning,
+            minimumItemWidth: minimumItemWidth
         )
         let left = isRightToLeft ? contentInsets.trailing : contentInsets.leading
         let right = isRightToLeft ? contentInsets.leading : contentInsets.trailing
         let top = min(size.height, contentInsets.top)
         let height = max(0, size.height - top - contentInsets.bottom)
         var x: CGFloat = itemCount == 0 ? 0 : left
+        x += Self.alignmentOffset(
+            resolved,
+            viewportWidth: max(0, size.width - left - right),
+            itemSpacing: itemSpacing,
+            itemPositioning: itemPositioning,
+            isRightToLeft: isRightToLeft
+        )
         frames = (0 ..< itemCount).map { visualIndex in
             let index = isRightToLeft ? itemCount - 1 - visualIndex : visualIndex
             let width = resolved[index]
@@ -82,12 +107,22 @@ final class SPTabBarLayout: UICollectionViewLayout {
     static func resolvedWidths(
         _ widths: [CGFloat],
         viewportWidth: CGFloat,
-        itemSpacing: CGFloat = 0
+        itemSpacing: CGFloat = 0,
+        itemPositioning: SPTabBar.ItemPositioning = .automatic,
+        minimumItemWidth: CGFloat = 0
     ) -> [CGFloat] {
         guard !widths.isEmpty else {
             return []
         }
         let availableWidth = max(0, viewportWidth - CGFloat(widths.count - 1) * itemSpacing)
+        switch itemPositioning {
+        case .fill:
+            return Array(repeating: max(minimumItemWidth, availableWidth / CGFloat(widths.count)), count: widths.count)
+        case .centered, .leading:
+            return widths
+        case .automatic:
+            break
+        }
         guard widths.reduce(0, +) < availableWidth else {
             return widths
         }
@@ -103,6 +138,28 @@ final class SPTabBarLayout: UICollectionViewLayout {
             remaining -= width
         }
         return widths.map { max($0, level) }
+    }
+
+    /// 实际布局与几何变化判断共用整组的物理左侧偏移；RTL 的 leading 将余量留在左侧。
+    static func alignmentOffset(
+        _ widths: [CGFloat],
+        viewportWidth: CGFloat,
+        itemSpacing: CGFloat,
+        itemPositioning: SPTabBar.ItemPositioning,
+        isRightToLeft: Bool
+    ) -> CGFloat {
+        guard !widths.isEmpty else {
+            return 0
+        }
+        let remaining = max(0, viewportWidth - widths.reduce(0, +) - CGFloat(widths.count - 1) * itemSpacing)
+        switch itemPositioning {
+        case .centered:
+            return remaining / 2
+        case .leading:
+            return isRightToLeft ? remaining : 0
+        case .automatic, .fill:
+            return 0
+        }
     }
 
     override var collectionViewContentSize: CGSize {

@@ -48,6 +48,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         status.text = "独立使用：点击标签可选择；拖动可浏览更多标签。右上角可切换布局、样式和动态内容。"
         view.addSubview(status)
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "配置", menu: UIMenu(children: [
+            DemoTabBarPositioning.menu(for: bar),
             DemoTabBarAccessories.menu(for: bar, owner: self),
             indicatorProvider.menu(for: bar),
             UIMenu(title: "标签间距", children: [0, 8, 16, 24].map { spacing in
@@ -56,8 +57,22 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
                 }
             }),
             UIAction(title: "默认内容") { [weak self] _ in self?.bar.contentStyle = .default },
-            UIAction(title: "自定义卡片") { [weak self] _ in self?.bar.contentStyle = .custom },
-            UIAction(title: "自动布局") { [weak self] _ in
+            UIAction(title: "自定义卡片") { [weak self] _ in
+                guard let self else {
+                    return
+                }
+                self.contentProvider.usesCompactContent = false
+                self.contentProvider.showCustomContent(on: self.bar)
+            },
+            UIAction(title: "紧凑编号内容") { [weak self] _ in
+                guard let self else {
+                    return
+                }
+                self.contentProvider.usesCompactContent = true
+                self.contentProvider.usesNumberContent = true
+                self.contentProvider.showCustomContent(on: self.bar)
+            },
+            UIAction(title: "自动图文排列") { [weak self] _ in
                 self?.bar.standardAppearance.itemAppearance.layout = .automatic
             },
             UIAction(title: "上下图文") { [weak self] _ in self?.bar.standardAppearance.itemAppearance.layout = .stacked },

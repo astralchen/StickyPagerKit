@@ -148,6 +148,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         let height = UIBarButtonItem(title: "高度", primaryAction: heightAction)
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
+            DemoTabBarPositioning.menu(for: tabBar),
             DemoTabBarAccessories.menu(for: tabBar, owner: self),
             indicatorProvider.menu(for: tabBar),
             headerAction,
@@ -163,8 +164,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                     return
                 }
                 self.customTabProvider.usesCompactContent.toggle()
-                self.tabBar.contentStyle = .custom
-                self.tabBar.reloadContent()
+                self.customTabProvider.showCustomContent(on: self.tabBar)
             },
             UIMenu(title: "标签间距", children: [0, 8, 16, 24].map { spacing in
                 UIAction(title: "项间距 \(spacing)") { [weak self] _ in
@@ -179,8 +179,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                     self.customTabProvider.usesCompactContent = true
                     self.customTabProvider.usesNumberContent = true
                     self.customTabProvider.usesWideContent = false
-                    self.tabBar.contentStyle = .custom
-                    self.tabBar.reloadContent()
+                    self.customTabProvider.showCustomContent(on: self.tabBar)
                     self.setSelectedIndex(0, animated: false)
                 },
                 UIAction(title: "不可压缩宽内容") { [weak self] _ in
@@ -190,8 +189,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                     self.customTabProvider.usesCompactContent = true
                     self.customTabProvider.usesNumberContent = false
                     self.customTabProvider.usesWideContent = true
-                    self.tabBar.contentStyle = .custom
-                    self.tabBar.reloadContent()
+                    self.customTabProvider.showCustomContent(on: self.tabBar)
                     self.setSelectedIndex(0, animated: false)
                 }
             ] + [24, 44, 120].map { width in

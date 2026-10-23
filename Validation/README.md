@@ -1,6 +1,66 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-23。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-10-24。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+
+## 2026-10-24：布局模式审查修复与 Demo 窄卡片
+
+Demo 卡片在 `.fill` 下依据可用宽度、间距、项数和最小项宽计算等宽结果；不足 `max(160, 标题字体行高 × 6)` 时移除编号、缩小水平留白并居中显示两行以内的标题与副标题。布局选择写入内容配置，测量和实际显示共用；宽度恢复时重新插入编号。副标题的垂直压缩优先级略低于标题，消除初次布局高度竞争的歧义。保留 `.automatic` 默认策略与框架布局实现。
+
+分页与独立标签栏共用 `showCustomContent(on:)`：已为自定义模式时重载，否则通过 `contentStyle` setter 刷新，避免重复测量。“自动布局”改名“自动图文排列”。README 与 `SPTabBarContent.size` 注释补齐各模式的理想宽度、压缩及 required 最小宽度契约，并明确不可压缩宽内容示例不适用于 `.fill`。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug，iPhone 17 Pro / iOS 26.5 Simulator（x86_64）。先尝试官方 Xcode MCP，连接故障后使用仓库验证脚本；UI 回归通过 `test-without-building` 复用同一源码构建产物。
+
+- **MCP 环境阻塞：** [构建日志](Results/20261023-card-adaptation-mcp/build.log) 显示构建成功，但 [测试日志](Results/20261023-card-adaptation-mcp/xcodebuild.log) 记录 LLDB 附加测试宿主失败，[MCP 摘要](Results/20261023-card-adaptation-mcp/mcp-summary.txt) 为 2 项未执行。
+- **首轮失败保留：** [首轮单元测试](Results/20261023-card-adaptation-unit/summary.json) 为 2 失败，卡片文字存在垂直布局歧义；测试窗口未等待 appearance 完成还产生 5 条诊断。已保存当时卡片和测试源码。修正压缩优先级与测试窗口生命周期后重跑，保留无歧义断言，并增加大字号实际生效断言。
+- **最终单元测试通过：** [卡片组合测试](Results/20261023-card-adaptation-unit-final/summary.json) 为 2 通过、0 失败。真实 UIWindow 中覆盖 13 项卡片的四模式往返切换、LTR／RTL、普通／辅助功能最大字号、24／44／600 pt 最小项宽、间距，以及单项视口 80／320／80 pt 往返；检查内部文字边界、无布局歧义、编号隐藏和恢复、选择与栏高。
+- **最终 UI 回归通过：** [UI 结果](Results/20261024-card-adaptation-ui/summary.json) 为 6 通过、0 失败。包含已有独立栏 LTR／RTL 与默认内容分页模式测试、新增卡片 LTR／RTL 四模式真实点击与拖动、恢复默认内容，以及原有多行自定义内容自动栏高测试。已导出 [截图清单](Results/20261024-card-adaptation-ui/attachments/manifest.json)，核对 LTR／RTL 窄卡片与恢复编号后的宽卡片。
+
+两份最终结果均为 `sourceChangedSinceRun=[]`，三类运行时诊断均为 0；日志未发现 Auto Layout 约束冲突或布局歧义。修改／新增的 6 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。本轮未修改框架运行代码，未重跑库测试；未执行完整 Demo 套件、Release、iPad、iOS 15 实际运行或真机验证。保留此前全部修改与历史证据，未提交或推送。
+
+## 2026-10-23：Demo 标签布局模式切换
+
+分页 Demo 的“页面”和独立“标签外观”的“配置”菜单新增共用的“标签布局模式”子菜单，可选择 `.automatic`、`.fill`、`.centered`、`.leading`。使用不缓存的延迟菜单，每次打开按标签栏当前模式设置勾选；动作只修改 `itemPositioning`，保留内容、间距、附件、方向和选择。独立标签栏新增“紧凑编号内容”，便于在手机上比较 `.centered` 与 `.leading` 的留白；“自定义卡片”恢复非紧凑内容。默认仍为 `.automatic`，未修改库实现、工程 target 或 scheme。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug，iPhone 17 Pro / iOS 26.5 Simulator（x86_64）。Demo 构建按既有 Build Phase 运行 SwiftFormat 0.64.0。
+
+- **官方 MCP 环境阻塞：** [首轮结果](Results/20261023-demo-positioning-focused/summary.json) 与 [MCP 返回](Results/20261023-demo-positioning-focused/mcp-result.json) 已保存。构建成功，但 LLDB 无法附加到 UI 测试 Runner；MCP 报告 1 项未执行，xcresult 记录 Runner 启动错误，不能作为测试断言失败或通过。随后回退到仓库 `Scripts/validate.sh`，未更改全局调试权限。
+- **独立标签栏通过：** [LTR UI 测试](Results/20261023-demo-positioning-cli/summary.json) 为 1 通过、0 失败、0 跳过。真实点击四种模式，检查项宽、留白、选中状态，并验证紧凑内容切回卡片和默认内容；已导出并核对 `.centered` 与 `.leading` 截图，见该目录 attachments。`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。
+
+- **中间轮失败保留：** [RTL／分页尝试](Results/20261023-demo-positioning-remaining/summary.json) 中，RTL 四种模式的几何检查通过，但恢复宽卡片后选中项在视口外，测试直接读取已回收 Cell 的 frame 失败；随后重启的 Runner 等待 AX loaded 超时，分页用例未实际执行。已保留原测试源码，并修正用例先真实拖动到目标再验证恢复后的内容和选择，没有修改库或放宽几何断言。
+
+- **最终 UI 回归通过：** [最终结果](Results/20261023-demo-positioning-final/summary.json) 为 3 通过、0 失败、0 跳过。覆盖独立栏 LTR／RTL 四模式切换、内容恢复与选择保留，以及分页页菜单的实际项宽和当前页面保持。`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。
+
+修改或新增的 4 个 Demo Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。未执行完整 Demo 测试集、Release、iPad、iOS 15 实际运行或真机测试；本次只改 Demo，未重跑库测试，前述库功能的历史结果单独保留。
+
+## 2026-10-23：SPTabBar leading 布局模式
+
+在已有 `SPTabBar.ItemPositioning` 末尾新增 `.leading`，默认仍为 `.automatic`，既有枚举 rawValue 保持不变。每项使用内容测量宽度与 `minimumItemWidth` 的较大值，相邻项保持 `itemSpacing`；扣除安全区域、附件和内容留白后从逻辑起始端排列，余量全部留在 trailing。RTL 下从右侧开始，余量留在左侧；超宽时与 `.centered` 一致，选中项仍沿用已有滚动定位规则。
+
+`.leading` 与 `.centered` 共用自然首选宽度测量。实际布局和几何变化判断共用整组对齐偏移，确保切换模式时分页指示器刷新，等价的超宽几何保留手动偏移和选择动画。README 补充模式表、设置示例、RTL 与测量说明；保留上一轮未提交修改及历史验证记录。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug，iPhone 17 Pro / iOS 26.5 Simulator（x86_64），部署目标 iOS 15。官方 Xcode MCP 仍仅报告 Demo 窗口，库测试通过仓库 UIKit application host 脚本执行。
+
+- **聚焦通过：** [布局模式测试](Results/20261023-tab-leading-focused/summary.json) 为 12 通过、0 失败、0 跳过，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。新增 3 项测试覆盖短单项与空列表、超宽时与 `.centered` 等价及滚动动画、自然内容宽度与 Dynamic Type；扩展已有用例覆盖四种模式切换与默认策略恢复、LTR/RTL、安全区域、附件、留白、尺寸变化、默认／自定义／回退内容及分页指示器。
+
+- **完整库回归通过：** [最终库结果](Results/20261023-tab-leading-library/summary.json) 为 242 通过、0 失败、0 跳过，覆盖所有标签栏测试及容器、滚动、缓存和生命周期测试。`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。
+
+修改的 3 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。未执行 Demo UI 真实触摸、Release、iPad 模拟器、iOS 15 实际运行或真机测试。
+
+## 2026-10-23：SPTabBar 宽度分配模式
+
+新增框架自己的 `SPTabBar.ItemPositioning` 与 `itemPositioning` 属性，采用 UIKit 风格的 `.automatic`、`.fill`、`.centered` 命名。默认保留原自适应策略；`.fill` 均分剩余宽度并遵守最小项宽；`.centered` 按内容宽度排列，空间充足时整组居中。三种模式共用安全区域、附件、留白、间距与 RTL 处理。模式切换保留选择、分页进度和实际几何不变时的动画；测量快照包含模式和最小项宽，候选测量不修改当前布局。
+
+`.fill` 内置长标题使用尾部省略；自定义多行内容通过普通测量宿主按分配宽度求高度，水平优先级 999 避免与业务 required 最小宽度冲突。`.centered` 的自动内容测量使用自然首选宽度。同步根 README 的接入和测量契约。
+
+环境：Xcode 26.5（17F42）/ Swift 6.3.2 / Debug，iPhone 17 Pro / iOS 26.5 Simulator（x86_64），部署目标仍为 iOS 15。官方 Xcode MCP 仅报告 Demo 窗口；尝试独立打开 Package 后仍未返回库窗口。库测试使用仓库 `Scripts/validate.sh` 的 UIKit application host 流程，未将库测试加入 Demo target 或 scheme。
+
+- **首轮失败保留：** [新增模式首轮](Results/20261023-tab-positioning-focused/Result.xcresult) 为 6 通过、1 失败；根控制器的 trait override 未传播到标签栏，导致字号测高断言失败。改用现有测试的子控制器 trait 注入方式，新增实际字号断言；原测试源码保存在该运行目录。
+- **中间版本通过：** [标签栏回归](Results/20261023-tab-positioning-final/Result.xcresult) 为 134 通过、0 失败。之后补齐等宽长标题截断及系统内容软宽度测量，该记录不作为最终源码的完整回归证据。
+- **最终聚焦通过：** [内容与模式测试](Results/20261023-tab-positioning-content/summary.json) 为 23 通过、0 失败、0 跳过，其中新增 9 项覆盖默认策略恢复、三种模式、溢出、RTL、安全区域、附件、留白、尺寸变化、空／单项、默认／自定义／回退内容、Dynamic Type、多行系统内容、候选测量、选择及分页指示器。`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。
+
+- **最终完整库回归通过：** [完整库结果](Results/20261023-tab-positioning-library/summary.json) 为 239 通过、0 失败、0 跳过，包含标签栏及容器、滚动、缓存、生命周期测试。`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。
+
+修改的 3 个 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。未执行 Demo UI 真实触摸测试、Release、iPad 模拟器、iOS 15 实际运行或真机验证。
 
 ## 2026-10-23：SPTabBar 布局数值审查与重构
 

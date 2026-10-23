@@ -181,13 +181,39 @@ tabs.standardAppearance.itemAppearance.selected.titleColor = .systemPurple
 tabs.indicatorStyle = .capsule
 ```
 
+### 标签宽度分配
+
+`SPTabBar.itemPositioning` 使用框架自己的 `SPTabBar.ItemPositioning`，属性及已有枚举值命名参考 UIKit，并扩展 `.leading`：
+
+| 模式 | 宽度与排列 |
+| --- | --- |
+| `.automatic`（默认） | 保留原策略：优先满足各项内容宽度，其余项尽量等宽，铺满可用区域；总需求超宽时横向滚动。 |
+| `.fill` | 扣除间距后均分可用宽度，每项不小于 `minimumItemWidth`；最小宽度与间距之和超宽时横向滚动。长内容不撑开单项。 |
+| `.centered` | 每项使用内容测量宽度与 `minimumItemWidth` 的较大值，不拉伸；放得下时整组居中，超宽时横向滚动。 |
+| `.leading` | 与 `.centered` 使用相同项宽和固定间距，整组靠逻辑起始端排列，余量全部留在 trailing；超宽时横向滚动。 |
+
+```swift
+tabs.itemPositioning = .automatic // 默认，兼容原有布局
+tabs.itemPositioning = .fill      // 强制等宽
+tabs.itemPositioning = .centered  // 按内容宽度，整组居中
+tabs.itemPositioning = .leading   // 按内容宽度，靠逻辑起始端
+```
+
+可用宽度先扣除左右安全区域、固定附件及 `contentInsets` 水平留白；`itemSpacing` 在所有模式中均生效。RTL 仅镜像排列，不改变逻辑索引。`.automatic` 保持框架原策略，不采用系统 UITabBar 按设备类型选择布局的规则。
+
+`.leading` 从扣除安全区域、附件后的 `contentInsets.leading` 开始排列；RTL 下从右侧开始，余量留在左侧。单项不拉伸，空列表不产生额外滚动范围；超宽时与 `.centered` 的布局相同。选中项仍沿用现有滚动定位规则，不会强制贴到起始边缘。
+
+默认内容、自定义内容与回退项共用此策略。自定义自动测量内容在 `.centered` 和 `.leading` 下使用自然首选宽度，不受视口宽度限制；其他模式沿用视口内的首选宽度测量。内容高度按最终分配宽度重新测量。`.fill` 下内置长标题按按钮配置截断；自定义内容应支持压缩或换行，业务 required 最小宽度不能撑开 Cell，可能超出其布局区域。显式 `SPTabBarContent.size` 的高度仍由业务提供。运行时切换自动刷新测量、滚动范围和指示器，保留 Item 身份、选择与分页进度，不发送选择回调。
+
+Demo 的“页面 → 标签布局模式”和“标签外观 → 配置 → 标签布局模式”均可切换四种模式，菜单每次打开时根据当前模式显示勾选。切换只改变宽度分配，不重置内容、间距、附件、方向或当前选择。手机上可先在独立“标签外观 → 配置”选择“紧凑编号内容”，观察 `.centered` 两侧留白与 `.leading` 单侧留白的区别；“默认内容”恢复图文，“自定义卡片”恢复卡片。通过“留白与附件 → 切换布局方向”可对比 RTL；分页页保留原有多频道内容，适合观察超宽滚动。自定义卡片在 `.fill` 分配宽度不足时隐藏编号并缩小留白，标题和副标题居中、最多两行；恢复充足宽度后重新显示编号。此布局选择在配置阶段完成，自动测量与显示保持一致。“自动图文排列”只调整标签内部图文关系，与整栏的“自动分配”相互独立。
+
 ### 运行时属性更新与布局刷新
 
 布局相关属性可在显示后直接修改；框架会按影响范围自动更新测量、布局或渲染，无需重新设置 `items` 或手动调用 `reloadContent()`。需要同步读取最终 frame 时，在修改完成后对标签栏调用 `layoutIfNeeded()`。同一轮属性修改之间即使发生指示器刷新，最终指示器仍按最新 Item frame 定位。
 
 | 属性或输入 | 影响范围 | 刷新方式 |
 | --- | --- | --- |
-| `itemSpacing`、`minimumItemWidth`、`contentInsets` | Item 宽度分配、位置、滚动范围；上下留白也影响建议栏高 | setter 自动重新测量并安排布局；归一化后相同值不重复刷新 |
+| `itemPositioning`、`itemSpacing`、`minimumItemWidth`、`contentInsets` | Item 宽度分配、位置、滚动范围；上下留白也影响建议栏高 | setter 自动重新测量并安排布局；归一化后相同值不重复刷新 |
 | `contentStyle`、`contentDelegate` | 内容配置、理想尺寸和内容指示器区域 | 模式变化或自定义模式下更换代理自动刷新；业务自有数据变化调用 `reloadContent()` |
 | `leadingAccessoryView`、`trailingAccessoryView` | 固定附件、剩余标签视口、建议栏高 | 替换自动刷新；已有附件的内容、约束或 `isHidden` 变化调用 `invalidateAccessoryLayout()` |
 | Item 的 `title`、`image`、`selectedImage`、`landscapeImagePhone`、`badgeValue`、状态文字属性中的字体 | 内容测量、栏高、Item 几何及内容指示器区域 | 自动通知所有宿主重新测量、配置内容并安排布局 |
@@ -433,13 +459,13 @@ pager.tabBar.reloadContent()
 配置与测量遵循以下约定：
 
 - `context` 提供当前 `UICellConfigurationState`、tintColor、视觉方向、扣除左右安全区域、固定附件和水平内容留白后的可用宽度，以及当前生效 Appearance 的独立副本。尚未布局时宽度可能为 0。业务决定如何使用 Item 和 Appearance；框架不会把默认样式强加给自定义内容。
-- `SPTabBarContent(configuration:)` 默认自动测量，`size == nil`。框架用独立的内容视图调用 `systemLayoutSizeFitting`：先以压缩目标求首选宽度，再由普通 Auto Layout 测量宿主以水平优先级 999 尝试视口内的首选宽度（未知视口时使用内容首选宽度）；业务 required 最小宽度可以超出视口。然后由布局应用 `minimumItemWidth`，先满足较宽项、再让较窄项尽量等宽，以水平 `.required`、垂直 `.fittingSizeLevel` 定宽求高度。所有 Cell 高度取各项所需高度的最大值，并受容器最低栏高约束；`tabBarHeight == 0` 仍隐藏标签栏。
+- `SPTabBarContent(configuration:)` 默认自动测量，`size == nil`。框架用独立的内容视图调用 `systemLayoutSizeFitting`：先以压缩目标求首选宽度，再由普通 Auto Layout 测量宿主以水平优先级 999 尝试视口内的首选宽度（未知视口或 `.centered`／`.leading` 时使用内容首选宽度）；业务 required 最小宽度可以影响首选宽度，但不会改变 `.fill` 的最终项宽。然后由布局应用 `minimumItemWidth` 和 `itemPositioning` 分配宽度，以水平 `.required`、垂直 `.fittingSizeLevel` 定宽求高度；`.fill` 的水平测量优先级为 999，以避免与业务 required 最小宽度冲突，Cell 仍严格使用分配宽度。所有 Cell 高度取各项所需高度的最大值，并受容器最低栏高约束；`tabBarHeight == 0` 仍隐藏标签栏。
 - 自定义视图需要完整的内部 Auto Layout 约束或能参与求解的 `intrinsicContentSize`。例如多行 UILabel 应连接内容视图四边，框架不额外添加业务内边距。`targetSize` 本身不是最大尺寸；普通 UIView 只重写 `sizeThatFits` 也不代表它一定参与 Auto Layout 测量。手动布局视图可继续提供显式尺寸，或自行实现 `systemLayoutSizeFitting`。
-- 仍可使用 `SPTabBarContent(configuration: configuration, size: CGSize(width: 160, height: 76))` 跳过自动测量；它是理想尺寸覆盖，最终宽度可能由标签栏扩展。`size` 现在为 `CGSize?`，旧的显式尺寸初始化调用保持可用，读取属性的代码需要处理 nil；赋值 nil 可恢复自动测量。显式尺寸和自动测量结果必须为有限正数且不超过 1,000,000 pt，否则该项回退到默认内容；理想尺寸不再混入 Cell 最小宽度，高度不额外设下限（自动测量尺寸向上取整到 pt）。显式尺寸不限制到视口；自动测量可能压缩可换行内容。
-- `SPPageLayout.tabBarHeight` 是最小栏高，默认 44，设为 0 时隐藏。正值时实际栏高为 `max(tabBarHeight, 内容所需高度 + 上下内容留白, 两端附件理想高度)`，不是固定高度。例如自定义内容需要 28 pt 时，配置 32 / 60 / 44，实际栏高分别为 32 / 60 / 44；内容需要 80 pt 时，这三个配置都得到 80。默认图文及回退项保留自身至少 44 pt 的规则，因此混用时仍可能把整栏撑高。宽度由标签栏自身的 `minimumItemWidth`、`itemSpacing` 和分配规则控制，不由 `SPPageLayout` 控制。
+- 仍可使用 `SPTabBarContent(configuration: configuration, size: CGSize(width: 160, height: 76))` 跳过自动测量；它是理想尺寸覆盖，最终宽度由 `itemPositioning` 决定，可扩展，也可在 `.fill` 下小于理想宽度。`size` 现在为 `CGSize?`，旧的显式尺寸初始化调用保持可用，读取属性的代码需要处理 nil；赋值 nil 可恢复自动测量。显式尺寸和自动测量结果必须为有限正数且不超过 1,000,000 pt，否则该项回退到默认内容；理想尺寸不再混入 Cell 最小宽度，高度不额外设下限（自动测量尺寸向上取整到 pt）。显式尺寸不限制到视口；自动测量可能压缩可换行内容。
+- `SPPageLayout.tabBarHeight` 是最小栏高，默认 44，设为 0 时隐藏。正值时实际栏高为 `max(tabBarHeight, 内容所需高度 + 上下内容留白, 两端附件理想高度)`，不是固定高度。例如自定义内容需要 28 pt 时，配置 32 / 60 / 44，实际栏高分别为 32 / 60 / 44；内容需要 80 pt 时，这三个配置都得到 80。默认图文及回退项保留自身至少 44 pt 的规则，因此混用时仍可能把整栏撑高。宽度由标签栏自身的 `itemPositioning`、`minimumItemWidth`、`itemSpacing` 和分配规则控制，不由 `SPPageLayout` 控制。
 - `SPTabBar.minimumItemWidth` 默认 44 pt，同时作用于默认、自定义及回退项。0 表示不额外设下限，负数归零，非有限值恢复为 44，超过 1,000,000 pt 截到该上限。它是 Cell 最小布局宽度，不改变业务返回的理想尺寸，也不扩大 Cell 外的命中区域。较小的宽度或栏高属于业务主动选择的紧凑交互，不能据此认为仍有 44 × 44 pt 点击区域。
-- 宽度分配连续：320 pt 视口中，理想宽度 `[160, 44]` 得到 `[160, 160]`，变成 `[161, 44]` 后得到 `[161, 159]`，不会再跳到 `[218.5, 101.5]`。这是对原“固有宽度加平均剩余空间”策略的行为调整。减少最小宽度不会关闭剩余空间分配，两个短标签仍可能等宽填满整栏。
-- 内容根视图须允许随实际分配宽度扩展。内部可设置 required 的最小宽度，超出视口时横向滚动；根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
+- `.automatic` 的宽度分配连续：320 pt 视口中，理想宽度 `[160, 44]` 得到 `[160, 160]`，变成 `[161, 44]` 后得到 `[161, 159]`，不会再跳到 `[218.5, 101.5]`。这是对原“固有宽度加平均剩余空间”策略的行为调整。减少最小宽度不会关闭剩余空间分配，两个短标签仍可能等宽填满整栏。
+- 内容根视图须适应实际分配宽度，包括 `.fill` 下的压缩。其他模式允许内部 required 最小宽度撑开单项并横向滚动；`.fill` 不会因此增宽，业务需自行降级内容或约束。根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
 - 未设置代理、代理释放后下一次标签栏布局、返回 nil 或尺寸无效时，对应项回退到默认内容。允许同一栏混用默认项和自定义项。
 - 内容和尺寸会缓存。Item、选择、Appearance、tint、traits、可用宽度、RTL 或模式变化会重新获取配置；业务自有数据变化需调用 `reloadContent()`。提供方法应同步、无副作用，不得在其中修改标签栏或 Item、触发布局或重载。自动测量由框架构造独立视图；不要在代理回调中自行构造或缓存正在显示的视图。状态样式宜保持约束尺寸稳定，或为显式尺寸取各状态最大值。
 - `reloadContent()` 不发送选择回调。内容及指示器端点几何不变时保留手动滚动偏移、正在进行的选择动画和分页进度；几何变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.default` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
@@ -449,7 +475,7 @@ pager.tabBar.reloadContent()
 - 每个标签保留一个由框架管理的整项点击和无障碍入口。自定义视图内部控件不参与命中测试或独立无障碍导航；如需标签内的独立按钮，当前接口不提供该交互模型。点击否决、禁用、程序化选择和分页手势的回调语义均沿用原规则。
 - `SPTabBarContent.accessibilityLabel`、`accessibilityHint`、`accessibilityValue` 可覆盖描述；nil 沿用 Item 标题／描述与角标值。选中和禁用 traits 由框架维护，避免重复暴露内部标签。
 
-完整自定义视图示例见 [CustomTabContent.swift](Examples/StickyPagerDemo/StickyPagerDemo/CustomTabContent.swift)：编号、标题、副标题组成卡片，演示按压、选中、禁用、Dynamic Type 与 RTL。Demo 首页“标签外观”→“配置”→“自定义卡片”，或分页 Demo“页面”→“切换自定义标签”即可查看；`--open-demo --custom-tabs` 可直接启动。Demo 的卡片内部使用 Auto Layout 和 UILabel 固有尺寸，不再手算文字宽高。“页面”→“切换多行副标题”使用包含换行的两段文字，确保宽屏也能演示多行测量、栏高增长与恢复；“刷新自定义内容”演示同尺寸更新后保持手动滚动位置。“切换紧凑标签”使用仅含 UILabel 的 `UIContentView`，通过字体固有尺寸和内边距约束自动测量；“标签栏最小高度”菜单可选择 32、60、隐藏或默认 44，演示紧凑内容低于 44 和隐藏后恢复。该菜单不限制大字号所需高度。“页面”→“标签宽度”提供紧凑编号内容、24／44／120 最小项宽，以及首项内部 required 最小宽度为 `max(480, availableWidth + 80)` pt 的示例；后者在内屏与宽窗口也能超出视口并横向滚动。最小项宽是下限，内容较少时余量仍会均分。
+完整自定义视图示例见 [CustomTabContent.swift](Examples/StickyPagerDemo/StickyPagerDemo/CustomTabContent.swift)：编号、标题、副标题组成卡片，演示按压、选中、禁用、Dynamic Type 与 RTL。Demo 首页“标签外观”→“配置”→“自定义卡片”，或分页 Demo“页面”→“切换自定义标签”即可查看；`--open-demo --custom-tabs` 可直接启动。Demo 的卡片内部使用 Auto Layout 和 UILabel 固有尺寸，不再手算文字宽高。“页面”→“切换多行副标题”使用包含换行的两段文字，确保宽屏也能演示多行测量、栏高增长与恢复；“刷新自定义内容”演示同尺寸更新后保持手动滚动位置。“切换紧凑标签”使用仅含 UILabel 的 `UIContentView`，通过字体固有尺寸和内边距约束自动测量；“标签栏最小高度”菜单可选择 32、60、隐藏或默认 44，演示紧凑内容低于 44 和隐藏后恢复。该菜单不限制大字号所需高度。“页面”→“标签宽度”提供紧凑编号内容、24／44／120 最小项宽，以及首项内部 required 最小宽度为 `max(480, availableWidth + 80)` pt 的示例；后者在 `.automatic`、`.centered` 和 `.leading` 下可超出视口并横向滚动，不适用于要求内容可压缩的 `.fill`。最小项宽是下限，默认 `.automatic` 模式下内容较少时余量仍会均分。
 
 容器中设置最小栏高，无需业务计算内容高度：
 

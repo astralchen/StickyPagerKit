@@ -29,8 +29,10 @@ public struct SPTabBarContent {
     public var configuration: any UIContentConfiguration
     /// 可选的理想尺寸覆盖；nil（默认）由 UIContentView 的 Auto Layout 自动测量。
     /// 自动测量先求首选宽度，再按实际分配宽度定宽测高。
-    /// 测量宿主以优先级 999 尝试视口内的首选宽度；业务 required 最小宽度可超出视口并横向滚动。
-    /// 内容须允许根视图随分配宽度扩展；固定根宽度或自身矛盾的 required 约束不受支持。
+    /// centered / leading 使用自然首选宽度；automatic / fill 尝试视口内的首选宽度。
+    /// fill 严格等宽，可小于理想宽度；内容须支持压缩或换行，required 最小宽度不会撑开 Cell。
+    /// 其他模式允许业务 required 最小宽度超出视口并横向滚动。
+    /// 内容须适应最终分配宽度；固定根宽度或自身矛盾的 required 约束不受支持。
     /// 内容须具备完整内部约束或固有尺寸；不会假定普通 UIView 自动转调 sizeThatFits(_:)。
     /// 显式尺寸包含业务内边距，并非最终 Cell 尺寸。
     /// 每个分量必须为有限正数且不超过 1,000,000 pt，否则整项回退到默认内容。

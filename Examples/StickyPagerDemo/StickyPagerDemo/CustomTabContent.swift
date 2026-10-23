@@ -9,6 +9,15 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
     var usesNumberContent = false
     var usesWideContent = false
 
+    /// 更新业务配置后只刷新一次；切入自定义模式时由属性 setter 完成刷新。
+    func showCustomContent(on bar: SPTabBar) {
+        if bar.contentStyle == .custom {
+            bar.reloadContent()
+        } else {
+            bar.contentStyle = .custom
+        }
+    }
+
     func tabBar(
         _ tabBar: SPTabBar,
         contentFor item: SPTabBarItem,
@@ -29,6 +38,13 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
         let subtitleFont = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traits)
         let title = item.title?.isEmpty == false ? item.title! : (item.accessibilityLabel ?? "未命名")
         let subtitle = item.isEnabled ? (item.badgeValue.map { $0.isEmpty ? "有新内容" : "\($0) 条更新" } ?? self.subtitle) : "暂不可用"
+        // fill 的公开分配规则可在配置阶段确定项宽，测量与实际显示使用同一布局。
+        let count = CGFloat(max(1, tabBar.items.count))
+        let equalWidth = max(
+            tabBar.minimumItemWidth,
+            (context.availableWidth - max(0, count - 1) * tabBar.itemSpacing) / count
+        )
+        let compact = tabBar.itemPositioning == .fill && equalWidth < max(160, titleFont.lineHeight * 6)
         let configuration = DemoCardConfiguration(
             number: "\(index + 1)",
             title: title,
@@ -36,7 +52,8 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
             titleFont: titleFont,
             subtitleFont: subtitleFont,
             tintColor: context.tintColor,
-            direction: context.layoutDirection
+            direction: context.layoutDirection,
+            compact: compact
         )
         // 只提供内容配置；内部完整约束同时用于显示和 systemLayoutSizeFitting 测量。
         return SPTabBarContent(configuration: configuration)
@@ -51,6 +68,7 @@ private struct DemoCardConfiguration: UIContentConfiguration {
     let subtitleFont: UIFont
     let tintColor: UIColor
     let direction: UIUserInterfaceLayoutDirection
+    let compact: Bool
     var selected = false
     var highlighted = false
     var disabled = false
@@ -78,6 +96,9 @@ private final class DemoCardContentView: UIView, UIContentView {
     private let number = UILabel()
     private let title = UILabel()
     private let subtitle = UILabel()
+    private let badge = UIView()
+    private let row = UIStackView()
+    private var rowInsets: [NSLayoutConstraint] = []
 
     var configuration: any UIContentConfiguration {
         get { value }
@@ -94,12 +115,12 @@ private final class DemoCardContentView: UIView, UIContentView {
         value = configuration
         super.init(frame: .zero)
         addSubview(card)
-        let badge = UIView()
         badge.addSubview(number)
         let text = UIStackView(arrangedSubviews: [title, subtitle])
         text.axis = .vertical
         text.spacing = 4
-        let row = UIStackView(arrangedSubviews: [badge, text])
+        row.addArrangedSubview(badge)
+        row.addArrangedSubview(text)
         row.alignment = .center
         row.spacing = 10
         card.addSubview(row)
@@ -108,10 +129,17 @@ private final class DemoCardContentView: UIView, UIContentView {
         }
         title.numberOfLines = 2
         subtitle.numberOfLines = 2
+        // 初次布局或栏高受限时优先保留标题，避免两段文字以相同优先级争用高度。
+        subtitle.setContentCompressionResistancePriority(UILayoutPriority(749), for: .vertical)
         number.setContentCompressionResistancePriority(.required, for: .horizontal)
         badge.setContentHuggingPriority(.required, for: .horizontal)
         let preferredWidth = widthAnchor.constraint(greaterThanOrEqualToConstant: 160)
         preferredWidth.priority = .defaultHigh
+        rowInsets = [
+            row.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
+            card.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: 10)
+        ]
+        NSLayoutConstraint.activate(rowInsets)
         NSLayoutConstraint.activate([
             preferredWidth,
             heightAnchor.constraint(greaterThanOrEqualToConstant: 76),
@@ -119,8 +147,6 @@ private final class DemoCardContentView: UIView, UIContentView {
             card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             card.topAnchor.constraint(equalTo: topAnchor, constant: 5),
             card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
-            row.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
-            row.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -10),
             row.topAnchor.constraint(greaterThanOrEqualTo: card.topAnchor, constant: 10),
             row.bottomAnchor.constraint(lessThanOrEqualTo: card.bottomAnchor, constant: -10),
             row.centerYAnchor.constraint(equalTo: card.centerYAnchor),
@@ -141,6 +167,14 @@ private final class DemoCardContentView: UIView, UIContentView {
     }
 
     private func apply() {
+        // 从 arrangedSubviews 移除编号，避免 UIStackView 的隐藏零宽约束与编号约束冲突。
+        if value.compact {
+            row.removeArrangedSubview(badge)
+            badge.removeFromSuperview()
+        } else if badge.superview == nil {
+            row.insertArrangedSubview(badge, at: 0)
+        }
+        rowInsets.forEach { $0.constant = value.compact ? 4 : 10 }
         number.text = value.number
         title.text = value.title
         subtitle.text = value.subtitle
@@ -156,7 +190,7 @@ private final class DemoCardContentView: UIView, UIContentView {
         card.layer.borderColor = value.tintColor.cgColor
         card.alpha = value.disabled ? 0.4 : 1
         semanticContentAttribute = value.direction == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
-        let alignment: NSTextAlignment = value.direction == .rightToLeft ? .right : .left
+        let alignment: NSTextAlignment = value.compact ? .center : (value.direction == .rightToLeft ? .right : .left)
         title.textAlignment = alignment
         subtitle.textAlignment = alignment
         setNeedsLayout()
