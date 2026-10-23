@@ -589,6 +589,8 @@ final class DemoList: UITableViewController {
         if #available(iOS 15.0, *) {
             tableView.sectionHeaderTopPadding = 0
         }
+        // 短／空列表也允许原生下拉刷新，由业务页面选择回弹策略。
+        tableView.alwaysBounceVertical = true
         let refresh = UIRefreshControl()
         refresh.accessibilityIdentifier = "demo.refresh"
         refresh.addTarget(self, action: #selector(refreshContent), for: .valueChanged)

@@ -1276,7 +1276,17 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     func testRefreshFromExpandedHeader() {
         select(1)
+        expect("page=list")
         let table = app.tables["demo.list"]
+        // 从 Header 向下拖动不会替列表制造越界或触发业务刷新。
+        let header = app.otherElements["demo.headerView"]
+        header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(
+            forDuration: 0.1,
+            thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        )
+        expect("progress=0.00")
+        XCTAssertTrue(table.staticTexts["原生 UITableView · 已刷新 0 次"].firstMatch.exists)
+        // 新触摸从列表开始，仍由 UIKit 原生下拉触发刷新。
         table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).press(
             forDuration: 0.1,
             thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))

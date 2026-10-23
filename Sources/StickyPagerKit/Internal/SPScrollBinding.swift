@@ -23,7 +23,6 @@ internal final class SPScrollBinding {
         }
     }
 
-    private let originalBounce: Bool
     private var range: CGFloat = 0
     private var pageDisplacement: CGFloat = 0
     private weak var pageRoot: UIView?
@@ -49,18 +48,12 @@ internal final class SPScrollBinding {
         )
     }
 
-    var isRefreshing: Bool {
-        scrollView.refreshControl?.isRefreshing == true
-    }
-
     init(scrollView: UIScrollView) {
         self.scrollView = scrollView
         baseInset = scrollView.contentInset
         baseIndicatorInset = scrollView.verticalScrollIndicatorInsets
         requestedVerticalIndicator = scrollView.showsVerticalScrollIndicator
         requestedHorizontalIndicator = scrollView.showsHorizontalScrollIndicator
-        originalBounce = scrollView.alwaysBounceVertical
-        scrollView.alwaysBounceVertical = true
         observations = [
             scrollView.observe(\.contentOffset, options: [.old, .new]) { [weak self] _, change in
                 MainActor.assumeIsolated {
@@ -210,7 +203,6 @@ internal final class SPScrollBinding {
             requestedHorizontalIndicator {
             scrollView.showsHorizontalScrollIndicator = requestedHorizontalIndicator
         }
-        scrollView.alwaysBounceVertical = originalBounce
         scrollView.contentOffset.y = contentPosition - scrollView.adjustedContentInset.top
     }
 

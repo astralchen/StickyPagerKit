@@ -813,6 +813,109 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 150, accuracy: 0.01)
     }
 
+    func testBindingNeverOwnsBusinessBounceConfiguration() {
+        for enabled in [false, true] {
+            let pager = mount(height: 0)
+            let scroll = UIScrollView(frame: pager.records[0]!.controller.view.bounds)
+            scroll.bounces = enabled
+            scroll.alwaysBounceVertical = enabled
+            scroll.alwaysBounceHorizontal = enabled
+            pager.records[0]!.controller.view.addSubview(scroll)
+            pager.setScrollView(scroll, forPageAt: 0)
+            pager.view.layoutIfNeeded()
+            XCTAssertEqual(scroll.bounces, enabled)
+            XCTAssertEqual(scroll.alwaysBounceVertical, enabled)
+            XCTAssertEqual(scroll.alwaysBounceHorizontal, enabled)
+            let binding = pager.records[0]!.binding!
+            XCTAssertEqual(binding.maximumPosition, 200, accuracy: 0.01)
+            scroll.bounces = !enabled
+            scroll.alwaysBounceVertical = !enabled
+            scroll.alwaysBounceHorizontal = !enabled
+            binding.detach()
+            XCTAssertEqual(scroll.bounces, !enabled)
+            XCTAssertEqual(scroll.alwaysBounceVertical, !enabled)
+            XCTAssertEqual(scroll.alwaysBounceHorizontal, !enabled)
+        }
+    }
+
+    func testHeaderDragAndInertiaStayWithinScrollBounds() {
+        for height: CGFloat in [0, 100, 1800] {
+            for bounces in [false, true] {
+                let pager = mount(height: height)
+                let binding = pager.records[0]!.binding!
+                binding.scrollView.bounces = bounces
+                let pan = FixturePan()
+                pan.send(to: pager, state: .began)
+                pan.send(to: pager, state: .changed, y: 300)
+                XCTAssertEqual(binding.position, 0, accuracy: 0.01)
+                pan.testVelocity.y = 5000
+                pan.send(to: pager, state: .ended)
+                // 检查真实 display link 推进期间的每个采样点，不能只检查最终归位。
+                for _ in 0 ..< 12 {
+                    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+                    XCTAssertEqual(binding.position, 0, accuracy: 0.01)
+                }
+                pan.send(to: pager, state: .began)
+                pan.send(to: pager, state: .changed, y: -5000)
+                XCTAssertEqual(binding.position, binding.maximumPosition, accuracy: 0.01)
+                pan.testVelocity.y = -5000
+                pan.send(to: pager, state: .ended)
+                for _ in 0 ..< 12 {
+                    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+                    XCTAssertEqual(binding.position, binding.maximumPosition, accuracy: 0.01)
+                }
+                XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
+                XCTAssertEqual(binding.scrollView.bounces, bounces)
+            }
+        }
+    }
+
+    func testHeaderDragReversesImmediatelyAfterReachingEitherBoundary() {
+        for plain in [false, true] {
+            for height: CGFloat in [0, 100, 1800] {
+                for direction: UISemanticContentAttribute in [.forceLeftToRight, .forceRightToLeft] {
+                    let pager = mount(plain: plain ? [0] : [], height: height)
+                    pager.view.semanticContentAttribute = direction
+                    pager.view.layoutIfNeeded()
+                    let binding = pager.records[0]!.binding
+                    let maximum = binding?.maximumPosition ?? 200
+                    let pan = FixturePan()
+                    pan.send(to: pager, state: .began)
+                    pan.send(to: pager, state: .changed, y: 300)
+                    XCTAssertEqual(binding?.position ?? pager.collapseOffset, 0, accuracy: 0.01)
+                    // 已丢弃的越界距离不能变成反向拖动时需要先抵消的空行程。
+                    pan.send(to: pager, state: .changed, y: 290)
+                    XCTAssertEqual(binding?.position ?? pager.collapseOffset, 10, accuracy: 0.01)
+                    pan.send(to: pager, state: .changed, y: -5000)
+                    XCTAssertEqual(binding?.position ?? pager.collapseOffset, maximum, accuracy: 0.01)
+                    pan.send(to: pager, state: .changed, y: -4990)
+                    XCTAssertEqual(binding?.position ?? pager.collapseOffset, maximum - 10, accuracy: 0.01)
+                    pan.send(to: pager, state: .cancelled)
+                }
+            }
+        }
+    }
+
+    func testHeaderInertiaContinuesInsideBoundsAndStopsAtBoundary() {
+        let pager = mount(height: 0)
+        let binding = pager.records[0]!.binding!
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -80)
+        pan.testVelocity.y = -1000
+        pan.send(to: pager, state: .ended)
+        var furthest: CGFloat = 80
+        for _ in 0 ..< 30 {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+            XCTAssertGreaterThanOrEqual(binding.position, 80 - 0.01)
+            XCTAssertLessThanOrEqual(binding.position, 200 + 0.01)
+            furthest = max(furthest, binding.position)
+        }
+        XCTAssertGreaterThan(furthest, 80)
+        XCTAssertEqual(binding.position, 200, accuracy: 0.01)
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
+    }
+
     func testBindingExternalInsetAndShortContentResize() {
         let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
         let binding = SPScrollBinding(scrollView: scroll)
@@ -1612,19 +1715,53 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.selectedIndex, 1)
     }
 
-    func testRefreshPinsHeaderAndRetainsBusinessControl() {
+    func testRefreshAllowsScrollAndHeaderDragWithoutEndingBusinessRefresh() {
         let pager = mount()
         let scroll = pager.currentScrollView!
         let refresh = UIRefreshControl()
         scroll.refreshControl = refresh
-        scroll.contentOffset.y = 300 - scroll.adjustedContentInset.top
         refresh.beginRefreshing()
-        scroll.contentOffset.y += 1
-        XCTAssertEqual(pager.collapseOffset, 0)
+        scroll.contentOffset.y = 300 - scroll.adjustedContentInset.top
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
+        XCTAssertEqual(pager.records[0]!.binding!.position, 300, accuracy: 0.01)
         XCTAssertTrue(scroll.refreshControl === refresh)
+        XCTAssertTrue(refresh.isRefreshing)
+        let pan = FixturePan()
+        XCTAssertTrue(pager.gestureRecognizerShouldBegin(pan))
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: 220)
+        XCTAssertEqual(pager.collapseOffset, 80, accuracy: 0.01)
+        pan.testVelocity.y = -1000
+        pan.send(to: pager, state: .ended)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        XCTAssertGreaterThan(pager.records[0]!.binding!.position, 80)
+        XCTAssertTrue(refresh.isRefreshing)
+        // 业务结束刷新后仍正常跟随内容位置。
         refresh.endRefreshing()
         scroll.contentOffset.y = 120 - scroll.adjustedContentInset.top
         XCTAssertEqual(pager.collapseOffset, 120, accuracy: 0.01)
+    }
+
+    func testNativeOverscrollIsPreservedWithoutFrameworkDrag() {
+        for refreshing in [false, true] {
+            let pager = mount()
+            let scroll = pager.currentScrollView!
+            let binding = pager.records[0]!.binding!
+            let refresh = UIRefreshControl()
+            scroll.refreshControl = refresh
+            if refreshing {
+                refresh.beginRefreshing()
+            }
+            // 列表自身的负向位移不受 Header 手势边界钳制影响。
+            scroll.contentOffset.y = -45 - scroll.adjustedContentInset.top
+            pager.view.setNeedsLayout()
+            pager.view.layoutIfNeeded()
+            XCTAssertEqual(binding.position, -45, accuracy: 0.01)
+            XCTAssertEqual(pager.collapseOffset, 0, accuracy: 0.01)
+            XCTAssertEqual(refresh.isRefreshing, refreshing)
+            XCTAssertTrue(scroll.refreshControl === refresh)
+            refresh.endRefreshing()
+        }
     }
 
     func testContainerReleaseRestoresOwnedInsets() {
@@ -1723,8 +1860,10 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.records[0]!.binding!.position, 350, accuracy: 0.01)
         XCTAssertEqual(pager.tabBar.frame.minY, pager.pagingView.frame.minY, accuracy: 0.01)
         pager.setSelectedIndex(1, animated: false)
-        XCTAssertEqual(pager.collapseOffset, 0)
-        XCTAssertLessThanOrEqual(pager.records[1]!.binding!.position, 0)
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
+        XCTAssertEqual(pager.records[1]!.binding!.position, 200, accuracy: 0.01)
+        XCTAssertTrue(pager.currentScrollView!.refreshControl === refresh)
+        XCTAssertTrue(refresh.isRefreshing)
     }
 
     func testOnlyOwningPanCanContinueOrEndHeaderDrag() {

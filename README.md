@@ -491,7 +491,7 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 使用 `UICollectionViewFlowLayout` 的网格页还需让 Cell 布局遵循安全区域。Demo 将 `sectionInsetReference` 设为 `.fromSafeArea`，并按同一边界扣除 section 间距和列间距后计算三列宽度；在布局和安全区域变化时更新尺寸。仅保证 Collection View 根视图全宽，或直接用其 `bounds.width` 计算 Cell 宽度，并不能保证 Cell 内容避开横屏安全区域。
 
-框架只持有自己添加的 inset 增量，解绑时移除并恢复原有纵向回弹配置。业务需要更新 inset 时，赋值完整的业务基准值，框架随后重新叠加自身贡献；不要将读取到的、已经含框架贡献的 inset 再作为新基准写回。
+框架只持有自己添加的 inset 增量，解绑时移除。业务列表的 `bounces`、`alwaysBounceVertical` 和 `alwaysBounceHorizontal` 由业务配置，框架在绑定、布局与解绑时均不改写。业务需要更新 inset 时，赋值完整的业务基准值，框架随后重新叠加自身贡献；不要将读取到的、已经含框架贡献的 inset 再作为新基准写回。
 
 纵向滚动指示器避让标签栏覆盖区域，不再重复添加 Header 避让距离；启用 UIKit 自动指示器 inset 时利用 Safe Area，关闭自动调整时由绑定补足标签栏遮挡高度。保留业务 `verticalScrollIndicatorInsets`、横向指示器配置及 UIKit 的自动安全区域调整。短列表、空列表若只有 Header 折叠范围而没有正文滚动范围，则暂时隐藏纵向指示器，避免顶部折叠 inset 与底部补齐 inset 产生误导性的长条。内容或视口尺寸变化后，框架按业务 `showsVerticalScrollIndicator` 设置恢复显示；解绑时恢复最新的业务设置。更新指示器 inset 时同样应赋值完整的业务基准值。
 
@@ -499,7 +499,7 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 原本已隐藏的指示器不重复写入显隐属性，也不更新隐藏的纵向指示器轨道；仅在需要显示时计算其边距。
 
-列表原生拖动保留 UIKit 的减速和回弹。Header / 标签栏纵向拖动由框架 pan 识别器驱动同一坐标，使用 display link 完成惯性及边界回弹。Header 内按钮、输入控件和独立手势区域优先处理自身操作。
+列表原生拖动保留 UIKit 的减速和回弹。Header / 标签栏纵向拖动由框架 pan 识别器驱动同一坐标，Header 完全折叠后可继续滚动正文；拖动与 display link 惯性均限制在合法滚动范围内，到达边界即停止，不模拟列表越界或弹簧回弹；同一次拖动到达边界后立即反向移动即可响应，不需要先抵消越界距离。Header 内按钮、输入控件和独立手势区域优先处理自身操作。
 
 一次 Header 拖动只由开始该次交互的识别器驱动，其他识别器不能改写位置或提前结束交互。替换标签栏、切页、重新绑定或布局变化会使旧拖动失效，后续新拖动可以重新开始。
 
@@ -522,9 +522,11 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 ### 下拉刷新
 
-在内容滚动视图上安装 `UIRefreshControl`，正常监听 `.valueChanged`，完成后调用 `endRefreshing()`。先展开 Header，再由列表的原生下拉触发刷新；刷新期间 Header 保持展开。Header 区域的拖动不手动触发刷新。各页自行持有刷新任务，切到其他页面不取消后台业务请求。
+业务在内容滚动视图上安装 `UIRefreshControl`，监听 `.valueChanged`，管理刷新任务并在完成后调用 `endRefreshing()`。短／空列表若需要原生下拉回弹，由业务自行设置 `alwaysBounceVertical` 等配置；Demo 的列表页显式开启纵向回弹。
 
-只有已选中的刷新页会展开共享 Header；后台刷新页参与布局或作为切页候选时不改变当前 Header。取消该次切页保留原页折叠状态，提交到刷新页后再展开。
+先展开 Header，再由列表的原生下拉触发刷新。框架不读取刷新状态，不因刷新而强制展开 Header、重置正文位置或禁止 Header / 标签栏拖动；刷新期间仍按实际滚动位置协调，向上滚动可正常折叠 Header。Header / 标签栏拖动仅在合法范围内协调，不制造下拉越界，也不手动触发刷新。
+
+后台页的滚动回调不改变当前 Header；切页到正在刷新的页面时，沿用普通页面的共享 Header 对齐和位置恢复规则，取消切页则保留原页状态。框架不主动开始或结束刷新，也不管理或取消业务请求。
 
 ## 测试与证据
 

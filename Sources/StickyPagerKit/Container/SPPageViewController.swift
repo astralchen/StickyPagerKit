@@ -613,17 +613,6 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         guard let record, let binding = record.binding else {
             return
         }
-        if binding.isRefreshing {
-            // 后台刷新页和转场候选页不能改变当前共享 Header。
-            if record === currentRecord {
-                collapseOffset = 0
-                if binding.position > 0 {
-                    binding.setPosition(0)
-                }
-                publishHeader()
-            }
-            return
-        }
         let position = SPScrollGeometry.position(
             collapse: collapseOffset,
             content: positions[record.identifier] ?? 0,
@@ -634,10 +623,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     private func consume(_ binding: SPScrollBinding) {
         let range = effectiveLayout.collapseRange
-        collapseOffset = binding.isRefreshing ? 0 : SPScrollGeometry.collapse(binding.position, range: range)
-        if binding.isRefreshing && binding.position > 0 {
-            binding.setPosition(0)
-        }
+        collapseOffset = SPScrollGeometry.collapse(binding.position, range: range)
         if let id = currentRecord?
             .identifier {
             positions[id] = SPScrollGeometry.content(binding.position, range: range)
@@ -866,7 +852,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let record = currentRecord,
-              record.binding?.isRefreshing != true, transitionTarget == nil else {
+              transitionTarget == nil else {
             return false
         }
         if let dragPan, dragPan !== pan {
@@ -909,8 +895,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     @objc internal func handleHeaderPan(_ pan: UIPanGestureRecognizer) {
-        guard let record = currentRecord, transitionTarget == nil,
-              record.binding?.isRefreshing != true else {
+        guard let record = currentRecord, transitionTarget == nil else {
             return
         }
         let binding = record.binding
@@ -928,14 +913,19 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             dragRecord = record; dragBinding = binding; dragPan = pan
             dragStart = binding?.position ?? collapseOffset
         case .changed:
-            let raw = dragStart - pan.translation(in: view).y
+            let translation = pan.translation(in: view).y
+            let raw = dragStart - translation
+            let maximum = binding?.maximumPosition ?? effectiveLayout.collapseRange
+            let bound = min(max(0, raw), maximum)
+            // 丢弃越界距离并同步手势基准，反向拖动立即生效，不积累边界外的空行程。
+            dragStart = bound + translation
             if let binding {
-                let bound = min(max(0, raw), binding.maximumPosition)
-                binding.setPosition(bound + (raw - bound) * 0.35)
+                // 框架拖动仅协调合法范围，列表原生回弹由业务配置和 UIKit 管理。
+                binding.setPosition(bound)
                 consume(binding)
             } else {
                 // 普通页面只消耗 Header 范围，不生成内容位移或越界回弹。
-                collapseOffset = SPScrollGeometry.collapse(raw, range: effectiveLayout.collapseRange)
+                collapseOffset = bound
                 publishHeader()
             }
         case .ended:
@@ -967,8 +957,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     private func stepAnimation(_ link: CADisplayLink) {
-        guard let record = currentRecord, transitionTarget == nil,
-              record.binding?.isRefreshing != true else {
+        guard let record = currentRecord, transitionTarget == nil else {
             stopAnimation(); return
         }
         let dt = min(1.0 / 30, max(1.0 / 240, link.targetTimestamp - link.timestamp))
@@ -983,18 +972,13 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             }
             return
         }
-        var position = binding.position
-        let target = min(max(0, position), binding.maximumPosition)
-        if abs(position - target) > 0.1 {
-            animationVelocity += (-180 * (position - target) - 26 * animationVelocity) * dt
-        } else {
-            animationVelocity *= pow(binding.scrollView.decelerationRate.rawValue, dt * 1000)
-        }
-        position += animationVelocity * dt
-        if abs(animationVelocity) < 2 && abs(position - target) < 0.5 {
-            binding.setPosition(target); consume(binding); stopAnimation(); return
-        }
+        animationVelocity *= pow(binding.scrollView.decelerationRate.rawValue, dt * 1000)
+        let position = min(max(0, binding.position + animationVelocity * dt), binding.maximumPosition)
         binding.setPosition(position)
         consume(binding)
+        // 到达边界即停止，不为业务列表制造越界位移或弹簧回弹。
+        if abs(animationVelocity) < 2 || position <= 0 || position >= binding.maximumPosition {
+            stopAnimation()
+        }
     }
 }

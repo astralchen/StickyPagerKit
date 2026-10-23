@@ -2,6 +2,52 @@
 
 验证日期：2026-10-15 至 2026-10-23。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-23：滚动职责收敛复查
+
+在上一轮未提交修改上复查，发现并修复 1 项边界拖动遗漏：位置钳制后仍以手势开始时的绝对 translation 计算位置，越界距离虽不显示，却会变成反向拖动时必须先抵消的空行程。现在钳制时同步更新拖动基准；Header／标签栏与无滚动视图的普通页采用相同规则，边界反向移动立即生效，仍不模拟越界和回弹。
+
+新增 2 项真实 UIWindow 库回归：上下边界反向移动覆盖长／短／空内容、普通页、LTR／RTL；列表自身负向位移在普通布局更新中保留，分别覆盖未刷新和正在刷新。前者在修复前失败，修复后通过。同步 README 的边界交互说明，未改变公开 API、业务回弹配置、刷新所有权或其他既有策略。
+
+环境沿用 Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。库测试使用仓库 UIKit application host 脚本；官方 Xcode MCP 已核对 Demo 工程、scheme 和运行目标。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前失败基线](Results/20261023-scroll-review-baseline/summary.json) | **1 失败** | 新增边界反向用例；保存当时的容器和测试源码，失败证据保留。 |
+| [修复后聚焦](Results/20261023-scroll-review-focused/summary.json) | **92 通过、0 失败、0 跳过** | 容器及分页；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [完整库测试](Results/20261023-scroll-review-library/summary.json) | **223 通过、0 失败、0 跳过** | 最终源码回归，`sourceChangedSinceRun=[]`；三类运行时诊断均为 0。 |
+| [Demo UI 聚焦](Results/20261023-scroll-review-ui/summary.json) | **5 通过、0 失败、0 跳过** | 官方 MCP：Header、普通页、标签栏纵向拖动、原生刷新及嵌套列表位置恢复；`sourceChangedSinceRun=[]`，完整控制台日志的三类诊断均为 0。 |
+
+本轮主动格式化和 lint 仅覆盖 2 个修改的 Swift 文件，使用 Package 缓存的 SwiftFormat 0.64.0；[lint](Results/20261023-scroll-review-ui/swiftformat-lint.txt) 通过，`git diff --check` 通过。没有提交或推送。
+
+**证据边界：** 上一轮结果保留为对应阶段证据，不替代本轮最终源码验证。未执行 Release、Swift 6.3、iPad、iOS 15 实际运行、真机及完整 Demo 测试套件。
+
+## 2026-10-23：滚动职责边界收敛
+
+本轮从干净工作区开始，仅收敛已讨论的三项职责：
+
+- `SPScrollBinding` 不再保存、强制开启或恢复业务 `alwaysBounceVertical`；业务在绑定期间修改回弹配置，解绑后仍保留新值。
+- Header／标签栏拖动及 display link 惯性均限制在合法滚动范围内，移除越界阻尼和弹簧回弹。保留 Header 折叠、折叠后正文滚动，以及范围内惯性；列表原生触摸的减速和回弹由 UIKit 与业务配置管理。
+- 框架源码不再读取 `refreshControl`／`isRefreshing`。刷新期间按实际位置协调，不强制展开 Header、不把正文归零、不禁用框架纵向手势；切页和取消沿用普通页面的共享状态规则。Demo 列表页显式设置 `alwaysBounceVertical = true`，由页面持有刷新策略。
+
+同步 README；保留原有指示器显隐、自动发现和 inset 基准契约。本轮没有新增公开 API、修改 Package／工程配置、提交或推送。
+
+新增 3 项库回归，覆盖回弹配置所有权、长／短／空内容在上下边界的拖动与实际 display link 采样、范围内惯性推进及边界停止；更新 2 项刷新回归，覆盖刷新期间滚动／Header 手势／惯性、切页提交和取消，并检查刷新控件及刷新状态仍由业务持有。Demo 原生刷新触摸用例增加 Header 下拉不触发刷新、随后列表下拉正常触发刷新的检查。
+
+环境：Xcode 27.1（27A9275）、Swift 6.4、Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。已通过官方 Xcode MCP 核对 Demo 工程、scheme 和运行目标。库测试需要脚本生成 UIKit application host 的 `.xctestrun`，官方测试接口无法配置该执行路径，故库测试使用仓库脚本。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [容器与分页聚焦](Results/20261023-scroll-ownership-focused/summary.json) | **90 通过、0 失败、0 跳过** | 含全部本轮库回归，`sourceChangedSinceRun=[]`；三类运行时诊断均为 0。 |
+| [完整库测试](Results/20261023-scroll-ownership-library/summary.json) | **221 通过、0 失败、0 跳过** | `sourceChangedSinceRun=[]`；三类运行时诊断均为 0。 |
+| [官方 MCP UI 测试](Results/20261023-scroll-ownership-demo-ui/summary.json) | **7 通过、0 失败、0 跳过** | Xcode 延迟执行；后续归档原始结果包。`sourceChangedSinceRun=[]`，无可导出的控制台日志，运行时诊断未核验。 |
+| [Demo UI 聚焦（脚本）](Results/20261023-scroll-ownership-demo-ui-cli/summary.json) | **7 通过、0 失败、0 跳过** | iPhone 18 Pro / iOS 27.0；与官方执行同一组触摸用例，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+官方测试请求等待期间未返回结果，回退脚本后发现 Xcode 已延迟启动 Runner；终止工具等待不会取消 Xcode 的执行。最终归档官方结果包，两次测试分别保留证据，详见[执行说明](Results/20261023-scroll-ownership-demo-ui/notes.txt)。
+
+5 个修改的 Swift 文件使用 Package 缓存中的 SwiftFormat 0.64.0 CLI，按根目录配置格式化及 lint；[lint](Results/20261023-scroll-ownership-demo-ui/swiftformat-lint.txt) 为 `0/5 files require formatting`。Demo Build Phase 为 `0/48 files formatted, 2 files skipped`，未引入额外源码差异。`git diff --check` 通过。
+
+**未覆盖：** Release、Swift 6.3 工具链、iPad、iOS 15 实际运行、真机和完整 Demo 测试套件。
+
 ## 2026-10-23：提交前复查标签栏刷新边界
 
 在上一轮未提交的 6 个文件上继续审查，发现并补充修复以下遗漏：
