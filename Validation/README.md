@@ -2,6 +2,53 @@
 
 验证日期：2026-10-15 至 2026-10-22。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-22：顶部对齐完整 Demo UI 回归与滚动回写修复
+
+从提交 `7278e2a` 的干净工作区开始，使用 Xcode 27.1 / Swift 6.4、Debug、iOS 26.5 的 iPhone 17 Pro 与 iPad Pro 13-inch (M4)。本轮用户要求完整 Demo UI 回归、发现问题直接修复并保留失败；不提交或推送。Demo 使用 Apple 官方 Xcode MCP，iPad 初轮与独立 Package 宿主库测试使用仓库脚本；库测试仍独立于 Demo scheme。
+
+### 首轮完整结果与诊断
+
+| 运行 | 终态 | 发现 |
+| --- | --- | --- |
+| [iPhone 完整 UI 首轮](Results/20261022-top-alignment-full-ui-iphone-r1/summary.json) | 40 通过、12 失败、8 跳过，共 60 项 | 5 项标签栏纵向拖动未完成折叠，7 项旋转断言失败；8 项跳过为 iPad 专属窗口、分屏及指针用例。 |
+| [iPad 完整 UI 首轮](Results/20261022-top-alignment-full-ui-ipad-r1/summary.json) | 40 通过、20 失败、0 跳过，共 60 项 | 18 项在旋转步骤失败；另 2 项标签横向拖动用例的默认内容在宽屏上仅剩约 14 pt 滚动余量，不足以验证其长距离拖动要求。3 项实际系统窗口连续缩放用例通过。 |
+| [Header 拖动诊断](Results/20261022-top-alignment-drag-diagnostic/Result.xcresult) | 0 通过、1 失败 | 临时调用栈定位到 UITableView 布局回写近乎相同的 `contentOffset`，触发绑定回调并中止 Header 拖动；临时日志已移除。 |
+| [旋转串行复核](Results/20261022-top-alignment-serial-focus-r1/summary.json) | 2 项用例失败，另有 Runner exit 75 错误 | `.xcresult` 因 Runner 错误共计 3 条失败；官方 MCP 用例计数为 2。排除了仅由两组 UI 测试并行造成失败的解释。 |
+| [仅重启模拟器后](Results/20261022-top-alignment-reboot-focus-r1/summary.json) | 0 通过、2 失败 | 第一项在获取活动应用时发生 AX -25218，清理阶段卡住后结束该 Runner，保留 signal term；第二项仍未进入横屏。 |
+
+首轮 iPad 在运行期间开始了后续源码修复，其摘要的 `sourceChangedSinceRun` 列出 3 个修改文件；首轮二进制来自修复前快照，不能当作修复后验收。所有失败目录、日志、截图和 `.xcresult` 均保留，没有通过删除失败记录获得绿色结果。
+
+### 修复与环境恢复
+
+- `SPScrollBinding` 仍对偏移通知刷新指示器，仅在纵向偏移实际变化超过既有定位精度 `0.001 pt` 时通知容器接管滚动。相同值及浮点尾差不再中止当前 Header 拖动，真实外部滚动仍能接管。
+- 新增真实 UIWindow 回归 `testNumericalOffsetWritebackDoesNotInterruptHeaderDrag`，验证连续拖动、完全折叠后正文滚动及真实外部偏移接管。旧实现运行该新增用例失败，4 条位置断言均捕获拖动停在约 45 pt 的问题。
+- 两项标签横向拖动 UI 用例先通过公开菜单设置最小项宽 120 pt，建立充分滚动余量；保留原移动距离、居中、边界与选中状态断言。
+- 手动多次旋转及仅重启模拟器均未恢复应用方向；按用户要求重启 Device Hub 后，同一 Demo 实际进入横屏，导航栏、标签及网格重新布局。保留[横屏截图](Results/20261022-top-alignment-devicehub-restart/landscape.png)与[操作记录](Results/20261022-top-alignment-devicehub-restart/notes.txt)。这是环境恢复证据，不能替代其后的自动测试终态。
+- iPad 后续补测暴露了分屏辅助函数遗漏的状态：系统旋转会把窗口恢复全屏，原函数仍直接点击仅在窗口化状态下提供的 `window-controls`。四项分屏用例在同一辅助函数失败，失败前的窄窗口分页与顶部几何断言通过。补充全屏尺寸判断，以真实右下角系统手柄缩小窗口并断言宽度至少缩小 100 pt，然后重新建立分屏；原分页、位置保持、安全区域及不重叠断言不变。该修改仅用于 iPad 分屏测试，不改变产品代码。
+
+| 修复阶段 | 结果 | 说明 |
+| --- | --- | --- |
+| [新增回归的旧实现基线](Results/20261022-top-alignment-offset-baseline/summary.json) | 0 通过、1 失败 | 原实现无法抵抗相同偏移／浮点尾差回写。 |
+| [绑定修复首轮](Results/20261022-top-alignment-offset-focused/summary.json) | 86 通过、1 失败 | 过早过滤通知使短内容指示器在视口缩小后未刷新；保留失败并调整通知顺序。 |
+| [绑定修复聚焦终态](Results/20261022-top-alignment-offset-focused-r2/summary.json) | 87 通过、0 失败 | 容器与分页库测试；指示器刷新先于实际滚动变化过滤，`sourceChangedSinceRun=[]`。 |
+| [Device Hub 重启后 UI 聚焦](Results/20261022-top-alignment-hub-focus-r1/summary.json) | 4 通过、0 失败、0 跳过 | 网格 LTR／RTL 连续旋转、标签安全区域 LTR、两项横向标签拖动。MCP 简表误报 4 项未执行，实际日志及终态 `.xcresult` 均为 4 项通过。 |
+| [iPad 完整库测试](Results/20261022-top-alignment-library-final-ipad/summary.json) | 209 通过、0 失败、0 跳过 | 三类运行时诊断均为 0；框架与库测试源码一致，差异仅为 Demo 工程签名 Team 和后续 iPad 分屏测试辅助函数，见下述核验。 |
+| [iPhone 完整 UI 终态](Results/20261022-top-alignment-full-ui-iphone-final-r3/summary.json) | 52 通过、0 失败、8 跳过，共 60 项 | 首轮 12 项失败全部通过；8 项为 iPad 专属。三类运行时诊断均为 0；后续仅修改 iPad 分屏辅助函数，见下述源码范围核验。 |
+| [iPad 14 项补测首轮](Results/20261022-top-alignment-ipad-final/summary.json) | 9 通过、5 失败、0 跳过 | 4 项分屏在旋转恢复全屏后找不到系统窗口控制按钮；另 1 项 RTL 系统容器在横屏后的新拖动未产生滚动位移。两项宽屏标签拖动、网格连续旋转、固定 Label、指针观察、三项窗口缩放及系统容器 LTR 均通过。 |
+| [分屏修正与 RTL 状态诊断](Results/20261022-top-alignment-ipad-input-diagnostic/summary.json) | 2 通过、0 失败 | 修正后的 LTR 分屏边界通过；RTL 原无位移现象未复现。该轮系统容器未开启触摸轨迹窗口，只记录状态值，不作为输入轨迹证据。 |
+| [RTL 实际触摸轨迹诊断](Results/20261022-top-alignment-ipad-input-trace/summary.json) | 1 通过、0 失败 | 临时开启现有 `--paging-trace`；[解码轨迹](Results/20261022-top-alignment-ipad-input-trace/decoded-touch-traces.json)确认两侧横屏均收到约 535 pt 纵向触摸、正文滚动约 519.5 pt，触摸以 ended 结束。临时参数和日志随后全部移除。 |
+| [iPad 无临时诊断终态回归](Results/20261022-top-alignment-ipad-recovery-final/summary.json) | 5 通过、0 失败、0 跳过 | 四项分屏修正及原 RTL 系统容器用例均通过；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。系统容器测试代码已逐字节恢复原文件。 |
+
+运行期间外部曾修改 Demo 工程 Debug／Release 的 `DEVELOPMENT_TEAM`，随后又恢复为空，本轮均未干预。iPad 库测试快照包含该签名配置差异，将恢复后的文件中的两处空 Team 替换为当时值，SHA-256 与运行快照精确一致，见[签名配置核验](Results/20261022-top-alignment-library-final-ipad/current-source-audit.json)。后续只在 `arrangeSideBySide` 增加了 8 行窗口前置操作；[修改前后 diff](Results/20261022-top-alignment-ipad-final/window-setup-fix.patch)及[范围核验](Results/20261022-top-alignment-full-ui-iphone-final-r3/final-scope-audit.json)确认，移除这 8 行后 UI 文件与 iPhone 完整回归快照逐字节相同。该函数仅由四个经过 iPad 条件检查的分屏用例调用。框架、库测试和 Demo 源码未再改变；临时系统容器诊断已恢复至原文件。因而此前的全量结果保留其实际执行范围，不能将历史 `sourceChangedSinceRun=[]` 理解为后来增加测试辅助操作后仍完全无文件差异。
+
+官方 MCP 完整测试曾因活动目标被切到真机 `iPhone Xr.` 而在 UI 测试 target 签名阶段失败，保存[构建日志](Results/20261022-top-alignment-full-ui-iphone-final-r2/xcodebuild.log)，没有将该次计为已执行 UI 测试；后续改用脚本固定模拟器 UUID，不改动用户当前 Xcode 运行目标。
+
+**保留的因果边界：** iPad RTL 系统容器那次旋转后的无位移失败没有被后续诊断复现，原运行缺少实际触摸轨迹，不能把它明确归因于输入未送达或某一框架缺陷，也不能宣称已找到并修复其根因。后续通过记录与原失败分别保存。
+
+**终态覆盖：** iPhone 完整套件为 52 通过、8 项 iPad 专属跳过；iPad 14 项补测中的 9 项先通过，其余 5 项在修正／诊断后以最终源码全部通过。按用例标识去重，60 个 Demo UI 用例均有通过记录，缺失 0，见[覆盖审计](Results/20261022-top-alignment-final-audit/coverage.json)。这是完整 iPhone 套件加 iPad 分组回归，iPad 后续没有再次运行完整 60 项套件。iPhone 首轮 12 项失败均在完整终态运行中通过；iPad 首轮 20 项失败与后续补测的 5 项失败均保留原记录，不据分组结果宣称每个旧 iPad 场景都已经重新执行。
+
+最终 3 个修改 Swift 文件的 SwiftFormat 0.64.0 lint 和 `git diff --check` 通过；仅保留滚动绑定修复、新库回归、UI 测试前置操作及本验证记录，共 4 个文件。没有提交或推送，也没有改动用户当前 Xcode 真机目标。未执行本轮独立 Release、最低 iOS、真机、Duo、VoiceOver 和性能专项；这些范围不由模拟器 Debug 结果推定通过。
+
 ## 2026-10-22：原 iPhone 菜单输入因果对照
 
 在原 iPhone 18 Pro Max／iOS 27.0（24A434），UUID `41AF9CED-9BBB-4B60-B563-73AFB035C2D4` 上继续排查。遵照用户要求使用当前工作区，保留本来已有的安全区域与顶部对齐改动。官方 Xcode MCP 负责构建、测试与 LLDB；输入操作使用电脑工具。没有修改 `DemoPager` 的原生菜单、拦截系统滚轮或加入失败重试。

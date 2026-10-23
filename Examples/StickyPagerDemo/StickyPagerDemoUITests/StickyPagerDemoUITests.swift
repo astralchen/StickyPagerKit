@@ -627,6 +627,14 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     private func arrangeSideBySide() {
         app.activate()
+        let frame = app.windows.firstMatch.frame
+        let screen = springboard.frame
+        // 系统旋转也可能恢复全屏，此时没有窗口控制按钮；先用真实手柄建立浮动窗口。
+        if max(frame.width, frame.height) >= max(screen.width, screen.height) - 1,
+           min(frame.width, frame.height) >= min(screen.width, screen.height) - 1 {
+            resizeSystemWindow(dx: -250, dy: -350)
+            XCTAssertLessThan(app.windows.firstMatch.frame.width, frame.width - 100)
+        }
         springboard.buttons["window-controls:dev.stickypager.StickyPagerDemo"].tap()
         springboard.buttons["Zoom-button"].press(forDuration: 1)
         springboard.buttons["左右"].tap()
@@ -1329,7 +1337,17 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("progress=1.00")
     }
 
+    private func prepareScrollableTabContent() {
+        // 默认标题在宽屏上可能只有十几 pt 滚动余量，无法验证长距离拖动接管。
+        // 通过公开菜单建立足够宽的内容，不改变实际拖动或选中状态的验收要求。
+        app.buttons["demo.pages"].tap()
+        app.buttons["标签宽度"].tap()
+        app.buttons["最小项宽 120"].tap()
+        XCTAssertGreaterThanOrEqual(app.buttons["sp.tab.0"].frame.width, 120)
+    }
+
     func testScrollableTabSelectionCentersAndHorizontalDragPreservesPage() {
+        prepareScrollableTabContent()
         // 不同设备的滚动余量不同：验证居中，以及首尾边界的精确钳制。
         let tabs = app.collectionViews["sp.tabBar.collection"]
         for (index, page) in [(3, "empty"), (9, "weekly"), (6, "hot")] {
@@ -1351,6 +1369,7 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     func testHeldTabButtonYieldsToHorizontalDrag() {
+        prepareScrollableTabContent()
         select(3); expect("page=empty")
         let tab = app.buttons["sp.tab.3"]
         expectSelectedTabAlignment(3)

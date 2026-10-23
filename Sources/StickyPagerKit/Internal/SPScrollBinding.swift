@@ -62,12 +62,16 @@ internal final class SPScrollBinding {
         originalBounce = scrollView.alwaysBounceVertical
         scrollView.alwaysBounceVertical = true
         observations = [
-            scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
+            scrollView.observe(\.contentOffset, options: [.old, .new]) { [weak self] _, change in
                 MainActor.assumeIsolated {
                     guard let self, !self.updating, !self.changingExternalInset, !self.detached else {
                         return
                     }
                     self.updateIndicators()
+                    // 布局回写仍需刷新指示器，但相同偏移或浮点尾差不能接管 Header 拖动。
+                    guard let old = change.oldValue, let new = change.newValue, abs(new.y - old.y) > 0.001 else {
+                        return
+                    }
                     self.onScroll?(self)
                 }
             },

@@ -1067,6 +1067,26 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertNil(pager.currentScrollView)
     }
 
+    func testNumericalOffsetWritebackDoesNotInterruptHeaderDrag() throws {
+        let pager = mount()
+        let scroll = try XCTUnwrap(pager.currentScrollView)
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -45)
+        // UITableView 的后续布局可能回写相同偏移，或产生浮点运算尾差。
+        scroll.contentOffset = scroll.contentOffset
+        scroll.contentOffset.y += 0.0000000001
+        pan.send(to: pager, state: .changed, y: -150)
+        XCTAssertEqual(pager.collapseOffset, 150, accuracy: 0.001)
+        pan.send(to: pager, state: .changed, y: -260)
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.001)
+        XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 260, accuracy: 0.001)
+        // 真实的外部滚动仍接管位置，旧 Header 触摸不能覆盖它。
+        scroll.contentOffset.y += 10
+        pan.send(to: pager, state: .changed, y: -300)
+        XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 270, accuracy: 0.001)
+    }
+
     func testPlainPageOldDragCannotAffectSelectedPageOrNewBinding() throws {
         let pager = mount(plain: [1])
         pager.setSelectedIndex(1, animated: false)
