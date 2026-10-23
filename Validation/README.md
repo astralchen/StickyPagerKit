@@ -2,6 +2,50 @@
 
 验证日期：2026-10-15 至 2026-10-23。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-23：指示器职责边界复查
+
+复查上一轮未提交修改，发现并修复两类回调重入遗漏：
+
+- 显隐回调中切回 `.preserve` 或解绑时，外层旧操作可能继续隐藏另一方向；恢复中重新开启隐藏还可能保存到只恢复了一半的配置。现在按状态版本串行完成显隐更新，完整恢复后才清除业务意图；缓存页逐页读取最新策略，避免使用回调前的过期值。
+- 统一屏蔽框架显隐写入期间的所有通知，会漏掉业务在回调中的再次赋值。现在按方向和通知层级识别本次框架 setter 的通知，保留同轴同值、跨轴及恢复期间的业务配置修改。保留原有几何更新期间的滚动回调保护。
+
+新增 4 项库回归，覆盖上述路径与多个缓存页。前三项修复前失败；业务嵌套赋值用例使用动态派发夹具后确认修复前失败。同步 README 的回调赋值语义；策略注释统一为“切页转场”，与现有无动画切页的同步转场语义一致。没有扩大公开 API 或接管默认模式显隐。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 核对工程、scheme 和目标并执行 UI 测试；库测试继续使用仓库 UIKit application host 脚本。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [策略／解绑重入失败基线](Results/20261023-indicator-review-baseline/summary.json) | **3 失败** | 保存修复前容器、绑定和测试源码快照。 |
+| [动态派发下的业务赋值失败基线](Results/20261023-indicator-review-dynamic-baseline/summary.json) | **1 失败** | 同轴同值、跨轴及恢复期赋值均丢失；保存对应绑定和测试源码。 |
+| [最终聚焦](Results/20261023-indicator-review-final/summary.json) | **99 通过、0 失败、0 跳过** | 最终源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [完整库测试](Results/20261023-indicator-review-library/summary.json) | **230 通过、0 失败、0 跳过** | 最终源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [Demo UI 聚焦](Results/20261023-indicator-review-ui/summary.json) | **4 通过、0 失败、0 跳过** | 官方 Xcode MCP：默认短／空／长列表显隐、可选分页隐藏与恢复、快速切页、嵌套列表位置恢复；`sourceChangedSinceRun=[]`，完整控制台三类运行时诊断均为 0。 |
+
+中间阶段 `20261023-indicator-review-focused`、`20261023-indicator-review-focused-final` 的 98 项通过只代表当时实现。`20261023-indicator-review-notification-baseline`、`20261023-indicator-review-regressions` 和 `20261023-indicator-review-notification-trace` 保留诊断过程；其新增赋值用例的 Swift 属性重写未使用动态派发，部分嵌套写入绕过 KVO，不作为最终框架行为判据。修正夹具后重新建立上述动态派发失败基线，并执行最终回归。临时通知日志已从源码移除。
+
+最终 6 个修改或新增的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261023-indicator-review-ui/swiftformat-lint.txt)，`git diff --check` 通过。保留上一轮所有修改；本轮没有提交或推送。
+
+**未覆盖：** Release、Swift 6.3 工具链、iPad、iOS 15 实际运行、真机及完整 Demo 测试套件。UI 验证为真实触摸下的显隐属性变化与恢复，不等同于指示器像素持续显示验证。
+
+## 2026-10-23：业务滚动指示器职责收敛
+
+新增 `SPScrollIndicatorVisibilityPolicy` 与 `SPPageViewController.scrollIndicatorVisibilityPolicy`。默认 `.preserve`，绑定、布局、分页、解绑均不写入业务列表两个方向的显隐属性；移除短／空内容按正文范围自动隐藏。业务显式选择 `.hideDuringPaging` 后，仅在分页期间保存并临时覆盖显隐，结束、取消、解绑、释放或切回 `.preserve` 时恢复最新业务意图，包括隐藏期间同值 `false` 的赋值。保留必要的纵向指示器 inset 避让与现有滚动协调。
+
+同步 README 的默认行为、接入示例和临时隐藏的读取／赋值语义。新增 3 项库测试，更新原有短／空内容、混合页面、分页显隐和 inset 恢复断言；覆盖四种显隐组合的零写入、内容与视口变化、分页中的策略切换、重复赋值、重新绑定、重载及释放。Demo 增加显式策略启动参数与仅在回归模式计数的显隐观测；新增真实分页 UI 用例，并加强短／空／长内容用例的显隐断言。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 核对 Demo scheme 和运行目标并执行 UI 测试；库测试需要仓库脚本生成 UIKit application host 的 `.xctestrun`，采用脚本执行。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [首轮聚焦](Results/20261023-indicator-policy-focused/summary.json) | **93 通过、2 失败** | 两处旧测试仍断言短／空内容自动隐藏；更新为保留业务配置。保存失败时测试源码快照，结果与最终源码的差异已标记。 |
+| [最终聚焦](Results/20261023-indicator-policy-focused-final/summary.json) | **95 通过、0 失败、0 跳过** | 容器与分页回归，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [完整库测试](Results/20261023-indicator-policy-library/summary.json) | **226 通过、0 失败、0 跳过** | 最终源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [Demo UI 聚焦](Results/20261023-indicator-policy-ui/summary.json) | **4 通过、0 失败、0 跳过** | 默认策略下短／空／长列表显隐、显式策略真实横向分页隐藏与恢复、快速切页、嵌套列表位置恢复；`sourceChangedSinceRun=[]`，完整控制台日志的三类运行时诊断均为 0。 |
+
+6 个修改或新增的 Swift 文件使用 SwiftFormat 0.64.0 按仓库配置格式化，[lint](Results/20261023-indicator-policy-ui/swiftformat-lint.txt) 通过，`git diff --check` 通过。没有提交或推送。
+
+**证据边界：** UI 用例验证真实触摸下显隐属性的临时写入及最终恢复，不将其解释为 UIKit 实际指示器像素的持续显示。未执行 Release、Swift 6.3、iPad、iOS 15 实际运行、真机和完整 Demo 测试套件。
+
 ## 2026-10-23：滚动职责收敛复查
 
 在上一轮未提交修改上复查，发现并修复 1 项边界拖动遗漏：位置钳制后仍以手势开始时的绝对 translation 计算位置，越界距离虽不显示，却会变成反向拖动时必须先抵消的空行程。现在钳制时同步更新拖动基准；Header／标签栏与无滚动视图的普通页采用相同规则，边界反向移动立即生效，仍不模拟越界和回弹。

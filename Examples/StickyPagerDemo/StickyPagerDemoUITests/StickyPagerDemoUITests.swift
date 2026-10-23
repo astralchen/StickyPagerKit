@@ -8,6 +8,9 @@ final class StickyPagerDemoUITests: XCTestCase {
         UITestOrientation.set(.portrait)
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
+        if name.contains("testOptInPagingIndicatorVisibility") {
+            app.launchArguments.append("--hide-indicators-during-paging")
+        }
         if name.contains("WithAccessories") {
             app.launchArguments.append("--accessories")
         }
@@ -1618,7 +1621,34 @@ final class StickyPagerDemoUITests: XCTestCase {
         table.swipeDown(); expect("progress=0.00")
     }
 
-    func testScrollIndicatorWithShortEmptyAndLongContent() {
+    private func indicatorGeometry() throws -> [String: Double] {
+        let value = try XCTUnwrap(app.tables["demo.list"].value as? String)
+        let data = try XCTUnwrap(value.data(using: .utf8))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Double])
+    }
+
+    func testOptInPagingIndicatorVisibility() throws {
+        select(1); expect("page=list")
+        let before = try indicatorGeometry()
+        XCTAssertEqual(before["showsIndicator"], 1)
+        XCTAssertEqual(before["showsHorizontalIndicator"], 1)
+        app.tables["demo.list"].swipeLeft()
+        expect("page=short")
+        let short = try indicatorGeometry()
+        XCTAssertEqual(short["showsIndicator"], 1)
+        XCTAssertEqual(short["showsHorizontalIndicator"], 1)
+        XCTAssertGreaterThan(try XCTUnwrap(short["verticalHideCount"]), 0)
+        XCTAssertGreaterThan(try XCTUnwrap(short["horizontalHideCount"]), 0)
+        app.tables["demo.list"].swipeRight()
+        expect("page=list")
+        let after = try indicatorGeometry()
+        XCTAssertEqual(after["showsIndicator"], 1)
+        XCTAssertEqual(after["showsHorizontalIndicator"], 1)
+        XCTAssertGreaterThan(try XCTUnwrap(after["verticalHideCount"]), try XCTUnwrap(before["verticalHideCount"]))
+        XCTAssertGreaterThan(try XCTUnwrap(after["horizontalHideCount"]), try XCTUnwrap(before["horizontalHideCount"]))
+    }
+
+    func testScrollIndicatorWithShortEmptyAndLongContent() throws {
         for (index, page) in [(2, "short"), (3, "empty"), (1, "list")] {
             select(index)
             // 相邻页动画期间可同时存在两个同名表格，提交选择后再发送新触摸。
@@ -1627,6 +1657,11 @@ final class StickyPagerDemoUITests: XCTestCase {
             table.swipeUp()
             expect("page=\(page)"); expect("progress=1.00")
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            let geometry = try indicatorGeometry()
+            XCTAssertEqual(geometry["showsIndicator"], 1)
+            XCTAssertEqual(geometry["showsHorizontalIndicator"], 1)
+            XCTAssertEqual(geometry["verticalHideCount"], 0)
+            XCTAssertEqual(geometry["horizontalHideCount"], 0)
             attachment.name = "滚动指示器-\(page)-吸顶"
             attachment.lifetime = .keepAlways
             add(attachment)

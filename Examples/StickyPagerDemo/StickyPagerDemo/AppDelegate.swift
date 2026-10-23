@@ -122,6 +122,9 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         }
         dataSource = self
         delegate = self
+        if ProcessInfo.processInfo.arguments.contains("--hide-indicators-during-paging") {
+            scrollIndicatorVisibilityPolicy = .hideDuringPaging
+        }
         if ProcessInfo.processInfo.arguments.contains("--accessories") {
             DemoTabBarAccessories.install(on: tabBar, owner: self, leading: true, trailing: true)
             tabBar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
@@ -487,6 +490,24 @@ final class RegressionStatusLabel: UILabel {
 /// UI 回归仅在指定启动参数下读取原生滚动坐标及安全区域，不改变可见内容或生产无障碍描述。
 @MainActor
 private final class RegressionTableView: UITableView {
+    private var verticalHideCount = 0
+    private var horizontalHideCount = 0
+    override var showsVerticalScrollIndicator: Bool {
+        didSet {
+            if !showsVerticalScrollIndicator, ProcessInfo.processInfo.arguments.contains("--window-regression") {
+                verticalHideCount += 1
+            }
+        }
+    }
+
+    override var showsHorizontalScrollIndicator: Bool {
+        didSet {
+            if !showsHorizontalScrollIndicator, ProcessInfo.processInfo.arguments.contains("--window-regression") {
+                horizontalHideCount += 1
+            }
+        }
+    }
+
     override var accessibilityValue: String? {
         get {
             guard ProcessInfo.processInfo.arguments.contains("--window-regression") else {
@@ -506,6 +527,9 @@ private final class RegressionTableView: UITableView {
                 "indicatorBottom": Double(verticalScrollIndicatorInsets.bottom),
                 "automaticIndicators": automaticallyAdjustsScrollIndicatorInsets ? 1 : 0,
                 "showsIndicator": showsVerticalScrollIndicator ? 1 : 0,
+                "showsHorizontalIndicator": showsHorizontalScrollIndicator ? 1 : 0,
+                "verticalHideCount": Double(verticalHideCount),
+                "horizontalHideCount": Double(horizontalHideCount),
                 "offsetY": Double(contentOffset.y)
             ]
             if let first = indexPathsForVisibleRows?.sorted().first, let cell = cellForRow(at: first) {

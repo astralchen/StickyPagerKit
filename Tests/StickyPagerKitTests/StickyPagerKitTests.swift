@@ -110,7 +110,7 @@ final class StickyPagerKitTests: XCTestCase {
                             let physicalRange = scroll.contentSize.height + scroll.adjustedContentInset.top + scroll
                                 .adjustedContentInset.bottom - scroll.bounds.height
                             XCTAssertEqual(physicalRange, 200, accuracy: 0.01)
-                            XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+                            XCTAssertTrue(scroll.showsVerticalScrollIndicator)
                         }
                     }
                 }
@@ -531,7 +531,7 @@ final class StickyPagerKitTests: XCTestCase {
                 let physicalRange = scroll.contentSize.height + scroll.adjustedContentInset.top + scroll
                     .adjustedContentInset.bottom - scroll.bounds.height
                 XCTAssertEqual(physicalRange, 200, accuracy: 0.01)
-                XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+                XCTAssertTrue(scroll.showsVerticalScrollIndicator)
                 XCTAssertEqual(
                     scroll.convert(.zero, to: pager.view).y,
                     page.label.convert(page.label.bounds, to: pager.view).maxY + 8 + base.top,
@@ -545,28 +545,27 @@ final class StickyPagerKitTests: XCTestCase {
         }
     }
 
-    func testShortContentDoesNotShowIndicatorForSyntheticScrollRange() {
+    func testShortAndEmptyContentPreserveBusinessIndicatorVisibility() {
         let pager = mount(height: 216, inNavigation: true)
         let scroll = pager.currentScrollView!
         let binding = pager.records[0]!.binding!
-        for height: CGFloat in [216, 0, 216] {
-            scroll.contentSize.height = height
-            for position: CGFloat in [0, 100, 200] {
-                binding.setPosition(position)
-                XCTAssertFalse(scroll.showsVerticalScrollIndicator)
-                XCTAssertEqual(binding.maximumPosition, 200, accuracy: 0.01)
+        XCTAssertEqual(pager.scrollIndicatorVisibilityPolicy, .preserve)
+        for visible in [true, false] {
+            scroll.showsVerticalScrollIndicator = visible
+            scroll.showsHorizontalScrollIndicator = !visible
+            for height: CGFloat in [216, 0, 1800, 216] {
+                scroll.contentSize.height = height
+                for position: CGFloat in [0, 100, 200] {
+                    binding.setPosition(position)
+                    XCTAssertEqual(scroll.showsVerticalScrollIndicator, visible)
+                    XCTAssertEqual(scroll.showsHorizontalScrollIndicator, !visible)
+                }
             }
+            scroll.frame.size.height = 2000
+            XCTAssertEqual(scroll.showsVerticalScrollIndicator, visible)
+            scroll.frame.size.height = 500
+            XCTAssertEqual(scroll.showsVerticalScrollIndicator, visible)
         }
-        scroll.contentSize.height = 1800
-        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
-        // 保持视口顶部不动；直接改 bounds 会绕 center 放大，并移入标签栏／Header 覆盖区域。
-        scroll.frame.size.height = 2000
-        XCTAssertFalse(
-            scroll.showsVerticalScrollIndicator,
-            "bounds=\(scroll.bounds), content=\(scroll.contentSize), adjusted=\(scroll.adjustedContentInset), maximum=\(pager.records[0]!.binding!.maximumPosition)"
-        )
-        scroll.frame.size.height = 500
-        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
     }
 
     func testIndicatorTrackFollowsVisibleHeaderAndKeepsBusinessInsets() {
@@ -600,29 +599,213 @@ final class StickyPagerKitTests: XCTestCase {
         )
     }
 
-    func testBindingRestoresLatestIndicatorPreferences() {
+    func testBindingRestoresLatestIndicatorPreferencesOnlyAfterTemporaryHiding() {
         let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
         let initial = UIEdgeInsets(top: 11, left: 2, bottom: 17, right: 4)
         scroll.verticalScrollIndicatorInsets = initial
         scroll.automaticallyAdjustsScrollIndicatorInsets = false
         let binding = SPScrollBinding(scrollView: scroll)
         binding.setRange(200)
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        binding.indicatorsHiddenForPaging = true
         XCTAssertFalse(scroll.showsVerticalScrollIndicator)
         let updated = UIEdgeInsets(top: 9, left: 6, bottom: 23, right: 8)
         scroll.verticalScrollIndicatorInsets = updated
         XCTAssertEqual(scroll.verticalScrollIndicatorInsets, updated)
+        // false 与临时隐藏后的实际值相同，也必须记为新的业务意图。
         scroll.showsVerticalScrollIndicator = false
+        scroll.showsHorizontalScrollIndicator = false
         scroll.contentSize.height = 1800
+        binding.indicatorsHiddenForPaging = false
         XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        XCTAssertFalse(scroll.showsHorizontalScrollIndicator)
         scroll.showsVerticalScrollIndicator = true
-        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
         XCTAssertEqual(scroll.verticalScrollIndicatorInsets.top, 209)
         scroll.contentSize.height = 0
-        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        binding.indicatorsHiddenForPaging = true
+        scroll.showsHorizontalScrollIndicator = true
+        XCTAssertFalse(scroll.showsHorizontalScrollIndicator)
         binding.detach()
         XCTAssertEqual(scroll.verticalScrollIndicatorInsets, updated)
         XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        XCTAssertTrue(scroll.showsHorizontalScrollIndicator)
         XCTAssertFalse(scroll.automaticallyAdjustsScrollIndicatorInsets)
+    }
+
+    func testDefaultPolicyNeverWritesVisibilityDuringPagingRebindingOrDetach() {
+        for vertical in [false, true] {
+            for horizontal in [false, true] {
+                let pager = mount(height: 0)
+                let root = pager.records[0]!.controller.view!
+                let scroll = IndicatorWriteTrackingScrollView(frame: root.bounds)
+                scroll.showsVerticalScrollIndicator = vertical
+                scroll.showsHorizontalScrollIndicator = horizontal
+                scroll.visibilityWrites = 0
+                root.addSubview(scroll)
+                pager.setScrollView(scroll, forPageAt: 0)
+                pager.view.layoutIfNeeded()
+                scroll.contentSize.height = 1800
+                scroll.contentSize.height = 0
+                pager.scrollViewWillBeginDragging(pager.pagingView)
+                pager.scrollViewDidEndDragging(pager.pagingView, willDecelerate: false)
+                pager.setSelectedIndex(1, animated: true)
+                pager.setSelectedIndex(0, animated: false)
+                pager.scrollViewWillBeginDragging(pager.pagingView)
+                let replacement = UIScrollView(frame: root.bounds)
+                root.addSubview(replacement)
+                pager.setScrollView(replacement, forPageAt: 0)
+                XCTAssertEqual(scroll.visibilityWrites, 0)
+                XCTAssertEqual(scroll.showsVerticalScrollIndicator, vertical)
+                XCTAssertEqual(scroll.showsHorizontalScrollIndicator, horizontal)
+                XCTAssertTrue(replacement.showsVerticalScrollIndicator)
+                XCTAssertTrue(replacement.showsHorizontalScrollIndicator)
+            }
+        }
+    }
+
+    func testChangingIndicatorPolicyDuringPagingRestoresAndRecapturesLatestIntent() {
+        let pager = mount(height: 0)
+        let scroll = pager.currentScrollView!
+        scroll.showsHorizontalScrollIndicator = false
+        pager.scrollViewWillBeginDragging(pager.pagingView)
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        XCTAssertFalse(scroll.showsHorizontalScrollIndicator)
+        scroll.showsVerticalScrollIndicator = false
+        scroll.showsHorizontalScrollIndicator = true
+        XCTAssertFalse(scroll.showsHorizontalScrollIndicator)
+        pager.scrollIndicatorVisibilityPolicy = .preserve
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        XCTAssertTrue(scroll.showsHorizontalScrollIndicator)
+        // 重复赋值不应再次拍摄已经隐藏的 false，覆盖业务 true。
+        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
+        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
+        pager.scrollViewDidEndDragging(pager.pagingView, willDecelerate: false)
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        XCTAssertTrue(scroll.showsHorizontalScrollIndicator)
+        scroll.showsVerticalScrollIndicator = true
+        scroll.contentSize.height = 0
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        XCTAssertEqual(pager.selectedIndex, 0)
+        XCTAssertEqual(pager.collapseOffset, 0, accuracy: 0.01)
+    }
+
+    func testIndicatorPolicyChangeInsideVisibilityCallbackAppliesToAllCachedPages() {
+        let pager = mount()
+        var scrolls: [IndicatorWriteTrackingScrollView] = []
+        for index in 0 ..< 3 {
+            pager.setSelectedIndex(index, animated: false)
+            let root = pager.records[index]!.controller.view!
+            let scroll = IndicatorWriteTrackingScrollView(frame: root.bounds)
+            root.addSubview(scroll)
+            pager.setScrollView(scroll, forPageAt: index)
+            scrolls.append(scroll)
+        }
+        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
+        for scroll in scrolls {
+            scroll.onVisibilityChange = { [weak pager, weak scroll] in
+                guard scroll?.showsVerticalScrollIndicator == false else {
+                    return
+                }
+                scroll?.onVisibilityChange = nil
+                pager?.scrollIndicatorVisibilityPolicy = .preserve
+            }
+        }
+        pager.scrollViewWillBeginDragging(pager.pagingView)
+        XCTAssertEqual(pager.scrollIndicatorVisibilityPolicy, .preserve)
+        for scroll in scrolls {
+            scroll.onVisibilityChange = nil
+            XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+            XCTAssertTrue(scroll.showsHorizontalScrollIndicator)
+        }
+        pager.scrollViewDidEndDragging(pager.pagingView, willDecelerate: false)
+    }
+
+    func testReenteringIndicatorHidingDuringRestorationPreservesBothPreferences() {
+        let scroll = IndicatorWriteTrackingScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
+        let binding = SPScrollBinding(scrollView: scroll)
+        binding.indicatorsHiddenForPaging = true
+        scroll.onVisibilityChange = { [weak binding, weak scroll] in
+            guard scroll?.showsVerticalScrollIndicator == true else {
+                return
+            }
+            scroll?.onVisibilityChange = nil
+            binding?.indicatorsHiddenForPaging = true
+        }
+        binding.indicatorsHiddenForPaging = false
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        XCTAssertFalse(scroll.showsHorizontalScrollIndicator)
+        binding.indicatorsHiddenForPaging = false
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        XCTAssertTrue(scroll.showsHorizontalScrollIndicator)
+    }
+
+    func testDetachInsideIndicatorVisibilityCallbackDoesNotLeaveHiddenFlags() {
+        let scroll = IndicatorWriteTrackingScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
+        let binding = SPScrollBinding(scrollView: scroll)
+        scroll.onVisibilityChange = { [weak binding, weak scroll] in
+            guard scroll?.showsVerticalScrollIndicator == false else {
+                return
+            }
+            scroll?.onVisibilityChange = nil
+            binding?.detach()
+        }
+        binding.indicatorsHiddenForPaging = true
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        XCTAssertTrue(scroll.showsHorizontalScrollIndicator)
+        scroll.showsVerticalScrollIndicator = false
+        binding.setRange(200)
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+    }
+
+    func testBusinessIndicatorWritesInsideFrameworkVisibilityCallbacksArePreserved() {
+        for writesVertical in [false, true] {
+            let scroll = IndicatorWriteTrackingScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
+            let binding = SPScrollBinding(scrollView: scroll)
+            scroll.onVisibilityChange = { [weak scroll] in
+                guard let scroll, !scroll.showsVerticalScrollIndicator else {
+                    return
+                }
+                scroll.onVisibilityChange = nil
+                if writesVertical {
+                    // 同轴同值赋值仍是业务意图，不能与外层框架写入一起忽略。
+                    scroll.showsVerticalScrollIndicator = false
+                } else {
+                    scroll.showsHorizontalScrollIndicator = false
+                }
+            }
+            binding.indicatorsHiddenForPaging = true
+            binding.indicatorsHiddenForPaging = false
+            XCTAssertEqual(scroll.showsVerticalScrollIndicator, !writesVertical)
+            XCTAssertEqual(scroll.showsHorizontalScrollIndicator, writesVertical)
+        }
+        let scroll = IndicatorWriteTrackingScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
+        let binding = SPScrollBinding(scrollView: scroll)
+        binding.indicatorsHiddenForPaging = true
+        scroll.onVisibilityChange = { [weak scroll] in
+            guard let scroll, scroll.showsVerticalScrollIndicator else {
+                return
+            }
+            scroll.onVisibilityChange = nil
+            scroll.showsHorizontalScrollIndicator = false
+        }
+        binding.indicatorsHiddenForPaging = false
+        XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+        XCTAssertFalse(scroll.showsHorizontalScrollIndicator)
+    }
+
+    func testTemporaryIndicatorHidingRestoresOnBindingRelease() {
+        let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 500))
+        var binding: SPScrollBinding? = SPScrollBinding(scrollView: scroll)
+        binding?.indicatorsHiddenForPaging = true
+        scroll.showsVerticalScrollIndicator = false
+        scroll.showsHorizontalScrollIndicator = true
+        XCTAssertFalse(scroll.showsHorizontalScrollIndicator)
+        binding = nil
+        XCTAssertFalse(scroll.showsVerticalScrollIndicator)
+        XCTAssertTrue(scroll.showsHorizontalScrollIndicator)
     }
 
     func testCancelledPagingRestoresOutgoingPositionAfterNativeLayoutAdjustment() {
@@ -672,6 +855,7 @@ final class StickyPagerKitTests: XCTestCase {
 
     func testPagingHidesIndicatorsForOutgoingAndNewPagesUntilSettled() {
         let pager = mount()
+        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
         let outgoing = pager.currentScrollView!
         pager.scrollViewWillBeginDragging(pager.pagingView)
         XCTAssertFalse(outgoing.showsVerticalScrollIndicator)
@@ -692,6 +876,7 @@ final class StickyPagerKitTests: XCTestCase {
 
     func testPagingCancellationAndAnimatedSelectionRestoreIndicatorPreferences() {
         let pager = mount()
+        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
         let outgoing = pager.currentScrollView!
         outgoing.showsHorizontalScrollIndicator = false
         pager.scrollViewWillBeginDragging(pager.pagingView)
@@ -716,6 +901,7 @@ final class StickyPagerKitTests: XCTestCase {
 
     func testReplacingBindingDuringPagingKeepsIndicatorsHiddenAndRestoresOnReload() {
         let pager = mount()
+        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
         let old = pager.currentScrollView!
         pager.scrollViewWillBeginDragging(pager.pagingView)
         let replacement = UIScrollView(frame: old.frame)
@@ -2043,12 +2229,14 @@ private final class FixturePage: UIViewController {
 @MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {}
 @MainActor private final class IndicatorWriteTrackingScrollView: UIScrollView {
     var indicatorWrites = 0
-    override var showsVerticalScrollIndicator: Bool {
-        didSet { indicatorWrites += 1 }
+    var visibilityWrites = 0
+    var onVisibilityChange: (() -> Void)?
+    override dynamic var showsVerticalScrollIndicator: Bool {
+        didSet { indicatorWrites += 1; visibilityWrites += 1; onVisibilityChange?() }
     }
 
-    override var showsHorizontalScrollIndicator: Bool {
-        didSet { indicatorWrites += 1 }
+    override dynamic var showsHorizontalScrollIndicator: Bool {
+        didSet { indicatorWrites += 1; visibilityWrites += 1; onVisibilityChange?() }
     }
 
     override var verticalScrollIndicatorInsets: UIEdgeInsets {

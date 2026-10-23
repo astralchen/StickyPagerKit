@@ -10,6 +10,16 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         didSet { pagingView.isScrollEnabled = isPagingEnabled }
     }
 
+    /// 默认保留业务列表的指示器配置；可显式选择分页期间临时隐藏。
+    /// 分页中切换策略立即生效，不改变当前分页或 Header 状态。
+    public var scrollIndicatorVisibilityPolicy: SPScrollIndicatorVisibilityPolicy = .preserve {
+        didSet {
+            if oldValue != scrollIndicatorVisibilityPolicy {
+                updateScrollIndicatorVisibility()
+            }
+        }
+    }
+
     public var maximumCachedPageCount = 3 {
         didSet { evictPages() }
     }
@@ -70,9 +80,14 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             guard oldValue != isPaging else {
                 return
             }
-            for record in records.values {
-                record.binding?.indicatorsHiddenForPaging = isPaging
-            }
+            updateScrollIndicatorVisibility()
+        }
+    }
+
+    private func updateScrollIndicatorVisibility() {
+        for record in records.values {
+            // 显隐写入可触发业务回调并改变策略，后续页面必须读取最新状态。
+            record.binding?.indicatorsHiddenForPaging = isPaging && scrollIndicatorVisibilityPolicy == .hideDuringPaging
         }
     }
 
@@ -583,7 +598,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         }
         record.binding?.detach()
         record.binding = scroll.map(SPScrollBinding.init)
-        record.binding?.indicatorsHiddenForPaging = isPaging
+        record.binding?.indicatorsHiddenForPaging = isPaging && scrollIndicatorVisibilityPolicy == .hideDuringPaging
         record.binding?.setRange(effectiveLayout.collapseRange)
         record.binding?.onScroll = { [weak self, weak record] binding in
             guard let self, let record, !self.isLayingOutPages, !self.isTransitioningSize, !self.isPaging,

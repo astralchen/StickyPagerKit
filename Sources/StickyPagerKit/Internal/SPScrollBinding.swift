@@ -1,6 +1,6 @@
 import UIKit
 
-/// 仅管理框架贡献的 inset，不占用内容滚动视图的 delegate。
+/// 管理框架贡献的 inset 与显式启用的分页指示器隐藏，不占用业务 delegate。
 @MainActor
 internal final class SPScrollBinding {
     let scrollView: UIScrollView
@@ -13,13 +13,26 @@ internal final class SPScrollBinding {
     private var bottomContribution: CGFloat = 0
     private var baseInset: UIEdgeInsets
     private var baseIndicatorInset: UIEdgeInsets
-    private var requestedVerticalIndicator: Bool
-    private var requestedHorizontalIndicator: Bool
+    // 仅在临时隐藏期间保存业务意图；默认模式没有显隐恢复状态。
+    private var hiddenIndicatorPreferences: (vertical: Bool, horizontal: Bool)?
+    private enum IndicatorAxis { case vertical, horizontal }
+    private var indicatorNotificationDepth: [IndicatorAxis: Int] = [:]
+    private var internalIndicatorWriteDepth: [IndicatorAxis: Int] = [:]
+    private var updatingIndicatorVisibility = false
+    private var indicatorVisibilityGeneration: UInt = 0
     var indicatorsHiddenForPaging = false {
         didSet {
-            if oldValue != indicatorsHiddenForPaging {
-                updateIndicators()
+            guard oldValue != indicatorsHiddenForPaging, !detached else {
+                return
             }
+            indicatorVisibilityGeneration &+= 1
+            if indicatorsHiddenForPaging, hiddenIndicatorPreferences == nil {
+                hiddenIndicatorPreferences = (
+                    scrollView.showsVerticalScrollIndicator,
+                    scrollView.showsHorizontalScrollIndicator
+                )
+            }
+            updateIndicators()
         }
     }
 
@@ -52,8 +65,6 @@ internal final class SPScrollBinding {
         self.scrollView = scrollView
         baseInset = scrollView.contentInset
         baseIndicatorInset = scrollView.verticalScrollIndicatorInsets
-        requestedVerticalIndicator = scrollView.showsVerticalScrollIndicator
-        requestedHorizontalIndicator = scrollView.showsHorizontalScrollIndicator
         observations = [
             scrollView.observe(\.contentOffset, options: [.old, .new]) { [weak self] _, change in
                 MainActor.assumeIsolated {
@@ -89,23 +100,11 @@ internal final class SPScrollBinding {
                     self.updateIndicators()
                 }
             },
-            scrollView.observe(\.showsVerticalScrollIndicator, options: [.new]) { [weak self] _, _ in
-                MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.detached else {
-                        return
-                    }
-                    self.requestedVerticalIndicator = self.scrollView.showsVerticalScrollIndicator
-                    self.updateIndicators()
-                }
+            scrollView.observe(\.showsVerticalScrollIndicator, options: [.prior, .new]) { [weak self] _, change in
+                MainActor.assumeIsolated { self?.indicatorChanged(.vertical, change: change) }
             },
-            scrollView.observe(\.showsHorizontalScrollIndicator, options: [.new]) { [weak self] _, _ in
-                MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.detached else {
-                        return
-                    }
-                    self.requestedHorizontalIndicator = self.scrollView.showsHorizontalScrollIndicator
-                    self.updateIndicators()
-                }
+            scrollView.observe(\.showsHorizontalScrollIndicator, options: [.prior, .new]) { [weak self] _, change in
+                MainActor.assumeIsolated { self?.indicatorChanged(.horizontal, change: change) }
             },
             scrollView.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.updateGeometry() }
@@ -193,16 +192,8 @@ internal final class SPScrollBinding {
             baseIndicatorInset {
             scrollView.verticalScrollIndicatorInsets = baseIndicatorInset
         }
-        if scrollView
-            .showsVerticalScrollIndicator !=
-            requestedVerticalIndicator {
-            scrollView.showsVerticalScrollIndicator = requestedVerticalIndicator
-        }
-        if scrollView
-            .showsHorizontalScrollIndicator !=
-            requestedHorizontalIndicator {
-            scrollView.showsHorizontalScrollIndicator = requestedHorizontalIndicator
-        }
+        indicatorVisibilityGeneration &+= 1
+        updateIndicatorVisibility()
         scrollView.contentOffset.y = contentPosition - scrollView.adjustedContentInset.top
     }
 
@@ -248,14 +239,14 @@ internal final class SPScrollBinding {
     }
 
     private func updateIndicators() {
-        guard !updating, !detached else {
+        let wasUpdating = updating
+        updating = true
+        defer { updating = wasUpdating }
+        updateIndicatorVisibility()
+        guard !wasUpdating, !detached else {
             return
         }
-        updating = true
-        defer { updating = false }
-        // 仅有 Header 折叠距离的页面没有正文滚动进度；合成 inset 不应产生一条长指示器。
-        let visible = !indicatorsHiddenForPaging && requestedVerticalIndicator && maximumPosition > range + 0.001
-        if visible {
+        if scrollView.showsVerticalScrollIndicator {
             // 仅在需要显示时更新轨道；隐藏期间不处理指示器几何。
             var inset = baseIndicatorInset
             // 自动指示器已避让 Safe Area，手动模式仅补上仍被标签栏遮挡的轨道。
@@ -266,14 +257,75 @@ internal final class SPScrollBinding {
                 scrollView.verticalScrollIndicatorInsets = inset
             }
         }
-        if scrollView.showsVerticalScrollIndicator != visible {
-            scrollView.showsVerticalScrollIndicator = visible
+    }
+
+    private func indicatorChanged(_ axis: IndicatorAxis, change: NSKeyValueObservedChange<Bool>) {
+        if change.isPrior {
+            indicatorNotificationDepth[axis, default: 0] += 1
+            return
         }
-        let horizontalVisible = !indicatorsHiddenForPaging && requestedHorizontalIndicator
-        if scrollView
-            .showsHorizontalScrollIndicator !=
-            horizontalVisible {
-            scrollView.showsHorizontalScrollIndicator = horizontalVisible
+        let depth = indicatorNotificationDepth[axis, default: 0]
+        defer { indicatorNotificationDepth[axis] = depth - 1 }
+        if internalIndicatorWriteDepth[axis] == depth {
+            internalIndicatorWriteDepth[axis] = nil
+            return
+        }
+        guard !detached, let value = change.newValue else {
+            return
+        }
+        if hiddenIndicatorPreferences != nil {
+            switch axis {
+            case .vertical: hiddenIndicatorPreferences?.vertical = value
+            case .horizontal: hiddenIndicatorPreferences?.horizontal = value
+            }
+            indicatorVisibilityGeneration &+= 1
+        }
+        if axis == .vertical || hiddenIndicatorPreferences != nil {
+            updateIndicators()
+        }
+    }
+
+    private func writeIndicator(_ visible: Bool, axis: IndicatorAxis) {
+        let current = axis == .vertical ? scrollView.showsVerticalScrollIndicator : scrollView
+            .showsHorizontalScrollIndicator
+        guard current != visible else {
+            return
+        }
+        // 只忽略本次框架 setter 的成对通知；回调中业务嵌套赋值（包括同值）有自己的层级。
+        let previous = internalIndicatorWriteDepth[axis]
+        internalIndicatorWriteDepth[axis] = indicatorNotificationDepth[axis, default: 0] + 1
+        defer { internalIndicatorWriteDepth[axis] = previous }
+        switch axis {
+        case .vertical: scrollView.showsVerticalScrollIndicator = visible
+        case .horizontal: scrollView.showsHorizontalScrollIndicator = visible
+        }
+    }
+
+    private func updateIndicatorVisibility() {
+        // 业务属性回调可能切换策略或解绑；串行收敛到最新状态，旧操作不再写入下一轴。
+        guard !updatingIndicatorVisibility else {
+            return
+        }
+        updatingIndicatorVisibility = true
+        defer { updatingIndicatorVisibility = false }
+        while let preferences = hiddenIndicatorPreferences {
+            let generation = indicatorVisibilityGeneration
+            let hidden = indicatorsHiddenForPaging && !detached
+            let vertical = hidden ? false : preferences.vertical
+            let horizontal = hidden ? false : preferences.horizontal
+            writeIndicator(vertical, axis: .vertical)
+            if generation != indicatorVisibilityGeneration {
+                continue
+            }
+            writeIndicator(horizontal, axis: .horizontal)
+            if generation != indicatorVisibilityGeneration {
+                continue
+            }
+            // 两个方向均恢复后才清除意图，避免恢复中重新隐藏时采集到一半恢复的值。
+            if !hidden {
+                hiddenIndicatorPreferences = nil
+            }
+            break
         }
     }
 }
