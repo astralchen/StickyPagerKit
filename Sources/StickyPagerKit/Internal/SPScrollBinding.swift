@@ -5,6 +5,7 @@ import UIKit
 internal final class SPScrollBinding {
     let scrollView: UIScrollView
     var onScroll: (@MainActor (SPScrollBinding) -> Void)?
+    var onScrollDisabled: (@MainActor (SPScrollBinding) -> Void)?
     private var observations: [NSKeyValueObservation] = []
     private var updating = false
     private var changingExternalInset = false
@@ -106,6 +107,14 @@ internal final class SPScrollBinding {
             scrollView.observe(\.showsHorizontalScrollIndicator, options: [.prior, .new]) { [weak self] _, change in
                 MainActor.assumeIsolated { self?.indicatorChanged(.horizontal, change: change) }
             },
+            scrollView.observe(\.isScrollEnabled, options: [.new]) { [weak self] _, change in
+                MainActor.assumeIsolated {
+                    guard let self, !self.detached, change.newValue == false else {
+                        return
+                    }
+                    self.onScrollDisabled?(self)
+                }
+            },
             scrollView.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.updateGeometry() }
             },
@@ -182,6 +191,7 @@ internal final class SPScrollBinding {
         observations.forEach { $0.invalidate() }
         observations.removeAll()
         onScroll = nil
+        onScrollDisabled = nil
         let contentPosition = max(0, position - range)
         var restored = scrollView.contentInset
         restored.top -= topContribution
@@ -218,12 +228,12 @@ internal final class SPScrollBinding {
         // 自动 inset 已通过子页面 Safe Area 避让标签栏；仅补足 .never 等策略留下的遮挡。
         let uncoveredTop = max(0, overlappingTop - adjustment)
         topContribution = max(0, range - pageDisplacement) + uncoveredTop
-        bottomContribution = SPScrollGeometry.shortContentInset(
+        bottomContribution = range > 0 ? SPScrollGeometry.shortContentInset(
             height: scrollView.bounds.height + pageDisplacement,
             contentHeight: scrollView.contentSize.height,
             baseTop: baseInset.top + adjustment + uncoveredTop,
             baseBottom: baseInset.bottom + bottomAdjustment
-        )
+        ) : 0
         var inset = baseInset
         inset.top += topContribution
         inset.bottom += bottomContribution

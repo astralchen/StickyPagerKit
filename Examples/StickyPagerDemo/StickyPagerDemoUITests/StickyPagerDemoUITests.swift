@@ -8,6 +8,9 @@ final class StickyPagerDemoUITests: XCTestCase {
         UITestOrientation.set(.portrait)
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
+        if name.contains("testDisabledListStopsHeaderAndTabDraggingButAllowsPaging") {
+            app.launchArguments.append("--disabled-list-regression")
+        }
         if name.contains("testOptInPagingIndicatorVisibility") {
             app.launchArguments.append("--hide-indicators-during-paging")
         }
@@ -1404,6 +1407,29 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("page=empty")
         XCTAssertTrue(tab.isSelected)
         select(1); expect("page=list")
+    }
+
+    func testDisabledListStopsHeaderAndTabDraggingButAllowsPaging() throws {
+        select(1); expect("page=list"); expect("progress=0.00")
+        let before = try indicatorGeometry()
+        XCTAssertEqual(before["isScrollEnabled"], 0)
+        collapseHeaderByTouch()
+        expect("progress=0.00")
+        let tab = app.buttons["sp.tab.1"]
+        let start = tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: 0, dy: -app.windows.firstMatch.frame.height * 0.2))
+        )
+        expect("page=list"); expect("progress=0.00")
+        let after = try indicatorGeometry()
+        XCTAssertEqual(after["position"], before["position"])
+        XCTAssertEqual(after["offsetY"], before["offsetY"])
+        app.tables["demo.list"].swipeLeft()
+        expect("page=short")
+        select(1); expect("page=list")
+        XCTAssertEqual(try indicatorGeometry()["isScrollEnabled"], 0)
+        XCTAssertEqual(try indicatorGeometry()["position"], before["position"])
     }
 
     func testTabBarVerticalDragDoesNotSelectTappedItem() {

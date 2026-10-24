@@ -1024,6 +1024,166 @@ final class StickyPagerKitTests: XCTestCase {
         }
     }
 
+    func testDisabledBusinessScrollRejectsHeaderInputButKeepsPageCoordination() {
+        for position: CGFloat in [80, 650] {
+            let pager = mount()
+            let binding = pager.records[0]!.binding!
+            let scroll = binding.scrollView
+            scroll.contentInsetAdjustmentBehavior = .never
+            pager.view.layoutIfNeeded()
+            scroll.contentOffset.y = position - scroll.adjustedContentInset.top
+            scroll.isScrollEnabled = false
+            let pan = FixturePan()
+            XCTAssertFalse(pager.gestureRecognizerShouldBegin(pan))
+            let offset = scroll.contentOffset
+            let collapse = pager.collapseOffset
+            pan.send(to: pager, state: .began)
+            pan.send(to: pager, state: .changed, y: -300)
+            pan.testVelocity.y = -1000
+            pan.send(to: pager, state: .ended)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+            XCTAssertEqual(scroll.contentOffset, offset)
+            XCTAssertEqual(pager.collapseOffset, collapse)
+            pager.setSelectedIndex(1, animated: false)
+            pager.setSelectedIndex(0, animated: false)
+            XCTAssertEqual(binding.position, position, accuracy: 0.01)
+            XCTAssertFalse(scroll.isScrollEnabled)
+            // 程序化位置和布局仍按正常契约协调；不把禁用用户滚动当成坐标冻结。
+            scroll.contentOffset.y = 100 - scroll.adjustedContentInset.top
+            XCTAssertEqual(pager.collapseOffset, 100, accuracy: 0.01)
+            pager.layout.headerHeight += 20
+            pager.view.layoutIfNeeded()
+            XCTAssertFalse(scroll.isScrollEnabled)
+            scroll.isScrollEnabled = true
+            XCTAssertTrue(pager.gestureRecognizerShouldBegin(pan))
+            pan.send(to: pager, state: .began)
+            let start = binding.position
+            pan.send(to: pager, state: .changed, y: -20)
+            XCTAssertEqual(binding.position, start + 20, accuracy: 0.01)
+            pan.send(to: pager, state: .cancelled)
+        }
+    }
+
+    func testDisablingBusinessScrollStopsActiveHeaderDragAndInertia() {
+        let pager = mount()
+        let binding = pager.records[0]!.binding!
+        let scroll = binding.scrollView
+        scroll.contentInsetAdjustmentBehavior = .never
+        pager.view.layoutIfNeeded()
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -260)
+        XCTAssertEqual(binding.position, 260, accuracy: 0.01)
+        scroll.isScrollEnabled = false
+        scroll.isScrollEnabled = true
+        pan.send(to: pager, state: .changed, y: -400)
+        XCTAssertEqual(binding.position, 260, accuracy: 0.01)
+        pan.send(to: pager, state: .changed, y: -500)
+        XCTAssertEqual(binding.position, 260, accuracy: 0.01, "恢复开关后旧触摸不能继续驱动")
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -20)
+        pan.testVelocity.y = -500
+        pan.send(to: pager, state: .ended)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        XCTAssertGreaterThan(binding.position, 280)
+        scroll.isScrollEnabled = false
+        let stopped = binding.position
+        scroll.isScrollEnabled = true
+        for _ in 0 ..< 5 {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+            XCTAssertEqual(binding.position, stopped, accuracy: 0.01)
+        }
+        scroll.isScrollEnabled = true
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        XCTAssertEqual(binding.position, stopped, accuracy: 0.01, "恢复开关后旧惯性不能重启")
+    }
+
+    func testDisablingScrollDuringHeaderDragStartDoesNotReviveCancelledGesture() {
+        let pager = mount()
+        let root = pager.records[0]!.controller.view!
+        let scroll = OffsetCallbackScrollView(frame: root.bounds)
+        scroll.contentSize.height = 1800
+        scroll.contentInsetAdjustmentBehavior = .never
+        root.addSubview(scroll)
+        pager.setScrollView(scroll, forPageAt: 0)
+        pager.view.layoutIfNeeded()
+        let binding = pager.records[0]!.binding!
+        var didDisable = false
+        // 业务滚动视图可在非动画定位的同步回调里更新交互开关。
+        scroll.onSetContentOffset = { [weak scroll] in
+            guard !didDisable else {
+                return
+            }
+            didDisable = true
+            scroll?.isScrollEnabled = false
+            scroll?.isScrollEnabled = true
+        }
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        XCTAssertTrue(didDisable)
+        let stopped = binding.position
+        pan.send(to: pager, state: .changed, y: -100)
+        XCTAssertEqual(binding.position, stopped, accuracy: 0.01)
+        pan.testVelocity.y = -500
+        pan.send(to: pager, state: .ended)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        XCTAssertEqual(binding.position, stopped, accuracy: 0.01)
+        scroll.onSetContentOffset = nil
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: -20)
+        XCTAssertEqual(binding.position, stopped + 20, accuracy: 0.01)
+        pan.send(to: pager, state: .cancelled)
+    }
+
+    func testBackgroundAndDetachedScrollDisableDoNotCancelCurrentHeaderDrag() {
+        let pager = mount()
+        let old = pager.currentScrollView!
+        pager.setSelectedIndex(1, animated: false)
+        let binding = pager.records[1]!.binding!
+        binding.scrollView.contentInsetAdjustmentBehavior = .never
+        pager.view.layoutIfNeeded()
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        let start = binding.position
+        old.isScrollEnabled = false
+        pan.send(to: pager, state: .changed, y: -20)
+        XCTAssertEqual(binding.position, start + 20, accuracy: 0.01)
+        pan.send(to: pager, state: .cancelled)
+        source!.ids.removeFirst()
+        pager.reloadData()
+        pan.send(to: pager, state: .began)
+        let reloadedStart = binding.position
+        old.isScrollEnabled = true
+        old.isScrollEnabled = false
+        pan.send(to: pager, state: .changed, y: -20)
+        XCTAssertEqual(binding.position, reloadedStart + 20, accuracy: 0.01)
+        pan.send(to: pager, state: .cancelled)
+    }
+
+    func testExplicitDisabledScrollBindingKeepsLayoutAndProgrammaticPosition() {
+        let pager = mount()
+        let root = pager.records[0]!.controller.view!
+        let scroll = UIScrollView(frame: root.bounds)
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.contentSize.height = 1800
+        scroll.isScrollEnabled = false
+        root.addSubview(scroll)
+        pager.setScrollView(scroll, forPageAt: 0)
+        pager.view.layoutIfNeeded()
+        XCTAssertTrue(pager.currentScrollView === scroll)
+        scroll.contentOffset.y = 300 - scroll.adjustedContentInset.top
+        XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
+        let pan = FixturePan()
+        XCTAssertFalse(pager.gestureRecognizerShouldBegin(pan))
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: 200)
+        XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 300, accuracy: 0.01)
+        pager.setSelectedIndex(1, animated: false)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 300, accuracy: 0.01)
+        XCTAssertFalse(scroll.isScrollEnabled)
+    }
+
     func testHeaderDragAndInertiaStayWithinScrollBounds() {
         for height: CGFloat in [0, 100, 1800] {
             for bounces in [false, true] {
@@ -1100,6 +1260,77 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertGreaterThan(furthest, 80)
         XCTAssertEqual(binding.position, 200, accuracy: 0.01)
         XCTAssertEqual(pager.collapseOffset, 200, accuracy: 0.01)
+    }
+
+    func testZeroCollapseRangeKeepsBusinessBottomInsetAcrossGeometryChanges() {
+        for removesHeader in [false, true] {
+            for behavior: UIScrollView
+                .ContentInsetAdjustmentBehavior in [.automatic, .always, .scrollableAxes, .never] {
+                let pager = mount(inNavigation: true)
+                let scroll = pager.currentScrollView!
+                let base = UIEdgeInsets(top: 7, left: 3, bottom: 19, right: 5)
+                scroll.contentInsetAdjustmentBehavior = behavior
+                scroll.contentInset = base
+                let originalHeader = pager.headerView
+                let originalLayout = pager.layout
+                if removesHeader {
+                    pager.headerView = nil
+                } else {
+                    pager.layout.headerHeight = 0
+                    pager.layout.minimumHeaderHeight = 0
+                }
+                pager.view.layoutIfNeeded()
+                for height: CGFloat in [0, 100, 1800, 0] {
+                    scroll.contentSize.height = height
+                    pager.view.layoutIfNeeded()
+                    XCTAssertEqual(scroll.contentInset.bottom, base.bottom, accuracy: 0.01)
+                    XCTAssertEqual(scroll.contentInset.left, base.left)
+                    XCTAssertEqual(scroll.contentInset.right, base.right)
+                    XCTAssertEqual(pager.collapseOffset, 0)
+                    // 零折叠范围仍需避让标签栏，不能连同必要的顶部贡献一起移除。
+                    XCTAssertGreaterThanOrEqual(
+                        scroll.adjustedContentInset.top,
+                        pager.tabBar.bounds.height + base.top - 0.01
+                    )
+                }
+                window?.frame.size.height = 700
+                pager.view.setNeedsLayout()
+                pager.view.layoutIfNeeded()
+                XCTAssertEqual(scroll.contentInset.bottom, base.bottom, accuracy: 0.01)
+                pager.headerView = originalHeader
+                pager.layout = originalLayout
+                pager.view.layoutIfNeeded()
+                XCTAssertGreaterThan(scroll.contentInset.bottom, base.bottom)
+                pager.headerView = nil
+                pager.view.layoutIfNeeded()
+                XCTAssertEqual(scroll.contentInset.bottom, base.bottom, accuracy: 0.01)
+            }
+        }
+    }
+
+    func testZeroRangeCachedBindingPreservesUpdatedBusinessInsetOnRestoreAndDetach() {
+        let pager = mount(height: 0)
+        let scroll = pager.currentScrollView!
+        scroll.contentInsetAdjustmentBehavior = .never
+        pager.setSelectedIndex(1, animated: false)
+        let originalLayout = pager.layout
+        // 保留有高度的固定 Header，同样属于零折叠范围。
+        pager.layout.minimumHeaderHeight = pager.layout.headerHeight
+        let base = UIEdgeInsets(top: 11, left: 3, bottom: 37, right: 5)
+        scroll.contentInset = base
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(scroll.contentInset.bottom, base.bottom)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(scroll.contentInset.bottom, base.bottom)
+        pager.layout = originalLayout
+        pager.view.layoutIfNeeded()
+        XCTAssertGreaterThan(scroll.contentInset.bottom, base.bottom)
+        pager.layout.minimumHeaderHeight = pager.layout.headerHeight
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(scroll.contentInset.bottom, base.bottom)
+        source!.ids.removeFirst()
+        pager.reloadData()
+        XCTAssertEqual(scroll.contentInset, base)
     }
 
     func testBindingExternalInsetAndShortContentResize() {
@@ -2227,6 +2458,14 @@ private final class FixturePage: UIViewController {
 }
 
 @MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {}
+@MainActor private final class OffsetCallbackScrollView: UIScrollView {
+    var onSetContentOffset: (() -> Void)?
+    override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
+        super.setContentOffset(contentOffset, animated: animated)
+        onSetContentOffset?()
+    }
+}
+
 @MainActor private final class IndicatorWriteTrackingScrollView: UIScrollView {
     var indicatorWrites = 0
     var visibilityWrites = 0

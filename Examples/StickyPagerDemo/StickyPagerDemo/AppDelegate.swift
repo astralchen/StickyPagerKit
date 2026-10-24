@@ -524,6 +524,7 @@ private final class RegressionTableView: UITableView {
                 "indicatorTop": Double(verticalScrollIndicatorInsets.top),
                 "indicatorBottom": Double(verticalScrollIndicatorInsets.bottom),
                 "automaticIndicators": automaticallyAdjustsScrollIndicatorInsets ? 1 : 0,
+                "isScrollEnabled": isScrollEnabled ? 1 : 0,
                 "showsIndicator": showsVerticalScrollIndicator ? 1 : 0,
                 "showsHorizontalIndicator": showsHorizontalScrollIndicator ? 1 : 0,
                 "verticalHideCount": Double(verticalHideCount),
@@ -620,6 +621,14 @@ final class DemoList: UITableViewController {
         if count == 0 {
             let label = UILabel(); label.text = "暂无内容 · 仍可折叠 Header"; label.textAlignment = .center
             tableView.backgroundView = label
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // 在框架完成绑定后模拟业务关闭交互，验证 Header 不会绕过列表开关。
+        if ProcessInfo.processInfo.arguments.contains("--disabled-list-regression") {
+            tableView.isScrollEnabled = false
         }
     }
 

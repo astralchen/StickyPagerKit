@@ -519,6 +519,8 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 框架只持有自己添加的 inset 增量，解绑时移除。业务列表的 `bounces`、`alwaysBounceVertical` 和 `alwaysBounceHorizontal` 由业务配置，框架在绑定、布局与解绑时均不改写。业务需要更新 inset 时，赋值完整的业务基准值，框架随后重新叠加自身贡献；不要将读取到的、已经含框架贡献的 inset 再作为新基准写回。
 
+短／空内容只有在 Header 折叠范围大于 0 时才添加底部补齐 inset，以保证 Header 能完整折叠。折叠范围为 0（包括没有 Header）时，框架不补齐底部空白，保留业务底部 inset；顶部标签栏避让、系统安全区域与内容位置协调仍正常工作。运行时移除或恢复折叠范围，会相应移除或恢复这部分底部贡献。
+
 纵向滚动指示器避让标签栏覆盖区域，不重复添加 Header 避让距离；启用 UIKit 自动指示器 inset 时利用 Safe Area，关闭自动调整时由绑定补足标签栏遮挡高度。保留业务 `verticalScrollIndicatorInsets`、横向指示器 inset 及 UIKit 的自动安全区域调整。更新指示器 inset 时同样应赋值完整的业务基准值。隐藏的纵向指示器不更新轨道，恢复显示时再计算边距。
 
 `SPPageViewController.scrollIndicatorVisibilityPolicy` 默认 `.preserve`：绑定、布局、分页和解绑均不改写业务列表的 `showsVerticalScrollIndicator`、`showsHorizontalScrollIndicator`。短列表、空列表与长列表遵循相同规则，框架不再根据正文滚动范围自动隐藏指示器；实际绘制由 UIKit 决定。
@@ -534,6 +536,10 @@ pager.scrollIndicatorVisibilityPolicy = .preserve
 `.hideDuringPaging` 在横向分页拖动、减速及切页转场期间临时隐藏两个方向的指示器，覆盖缓存页及途中加载、重新绑定的主要滚动视图。完成、取消、解绑或切回 `.preserve` 时恢复最新业务设置；没有分页时不接管显隐。隐藏期间读取显隐属性得到实际值 `false`，业务赋值会更新待恢复配置，包括再次赋值 `false` 及显隐回调中的嵌套赋值，并在本次分页内继续保持隐藏。该策略不改变列表滚动位置、回弹、刷新和指示器 inset 契约，也不影响框架自身的分页滚动视图或标签栏选中指示器。
 
 列表原生拖动保留 UIKit 的减速和回弹。Header / 标签栏纵向拖动由框架 pan 识别器驱动同一坐标，Header 完全折叠后可继续滚动正文；拖动与 display link 惯性均限制在合法滚动范围内，到达边界即停止，不模拟列表越界或弹簧回弹；同一次拖动到达边界后立即反向移动即可响应，不需要先抵消越界距离。Header 内按钮、输入控件和独立手势区域优先处理自身操作。
+
+这里的业务滚动开关指 `viewControllerAt` 返回的内容页内部主要 `UITableView`／`UICollectionView`／`UIScrollView` 的 `isScrollEnabled`，不是数据源方法，也不同于容器控制横向切页的 `isPagingEnabled`。
+
+已绑定的业务列表设置 `isScrollEnabled = false` 后，Header／标签栏暂停整次纵向联动，不再通过这些手势折叠／展开 Header 或推进正文。关闭开关时立即终止正在进行的框架拖动和惯性；重新启用后由新手势恢复，旧拖动和旧惯性不会续接，包括业务滚动视图在框架开始拖动的同步定位回调中关闭后立即重新开启的情况。框架不修改业务开关，也不把它作为坐标冻结：必要的布局、切页位置恢复和业务程序化位置更新继续协调。没有绑定滚动视图的普通页面保留原有 Header 交互。若列表在自动发现之前就已禁用，现有自动发现规则仍会跳过它；需要布局与位置协调时，通过 `setScrollView(_:forPageAt:)` 显式绑定。
 
 一次 Header 拖动只由开始该次交互的识别器驱动，其他识别器不能改写位置或提前结束交互。替换标签栏、切页、重新绑定或布局变化会使旧拖动失效，后续新拖动可以重新开始。
 

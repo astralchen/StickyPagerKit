@@ -2,6 +2,62 @@
 
 验证日期：2026-10-15 至 2026-10-24。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-24：滚动职责边界提交前整合验证
+
+提交前同步远端 `main` 的 `d37f09e` 与 `04322f5`，保留标签栏布局数值、宽度分配模式及 Demo 的全部改动。代码与接入文档自动合并；验证记录仅发生新增段落冲突，双方历史证据完整保留。本次滚动容器、绑定及回归测试实现与复查版本一致。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 scheme 与运行目标；库测试通过仓库 UIKit application host 脚本执行，UI 通过官方 MCP 执行。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [整合后完整库](Results/20261024-scroll-boundary-push-library/summary.json) | **249 通过、0 失败、0 跳过** | 包含远端新增标签栏测试和本次滚动职责回归；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [整合后 Demo UI](Results/20261024-scroll-boundary-push-ui/summary.json) | **5 通过、0 失败、0 跳过** | Header 拖动、普通页面、禁用列表后的 Header／标签栏拖动与切页、标签栏纵向拖动、短／空／长内容指示器；`sourceChangedSinceRun=[]`，完整控制台三类运行时诊断均为 0。 |
+
+本次 5 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-scroll-boundary-push-ui/swiftformat-lint.txt)，`git diff --check` 通过。此前记录保留为各阶段验证，不以旧源码结果代替本次整合验证。未执行 Release、iPad、iOS 15 实际运行、真机和完整 Demo 测试套件。
+
+## 2026-10-24：滚动开关与零折叠范围职责边界复查
+
+复查发现并修复 1 项同步回调遗漏：Header 拖动开始时停止列表原生减速，业务 `UIScrollView` 子类可在 `setContentOffset(_:animated:)` 回调里关闭并立即开启滚动。原实现先取消交互，随后又登记同一次拖动，导致旧手势及惯性继续推进正文。现在先登记交互，再停止原生减速，返回后确认交互仍有效；同步回调中的取消不会被覆盖。未新增公开 API，也未改变业务滚动开关所有权、布局或切页协调。
+
+新增 3 项库回归：上述同步回调取消、后台页和已解绑列表关闭滚动不干扰当前拖动，以及固定高度 Header 的零折叠范围下缓存页更新业务 inset、恢复折叠范围与解绑。原有零范围几何回归扩展至 `.automatic`、`.always`、`.scrollableAxes`、`.never` 四种策略。零折叠范围底部贡献逻辑未发现额外缺陷，保持上一轮实现。同步 README 的回调取消语义。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 Demo 工程、scheme 和运行目标；库测试仍通过仓库脚本配置的 UIKit application host 执行。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [同步定位回调失败基线](Results/20261024-scroll-boundary-review-callback-baseline/summary.json) | **1 失败** | 实际子类回调已触发，旧拖动及惯性仍推进正文；保存修复前容器和测试源码。 |
+| [最终聚焦](Results/20261024-scroll-boundary-review-focused/summary.json) | **106 通过、0 失败、0 跳过** | 容器、绑定及分页回归；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [完整库测试](Results/20261024-scroll-boundary-review-library/summary.json) | **237 通过、0 失败、0 跳过** | 最终源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [Demo UI 聚焦](Results/20261024-scroll-boundary-review-ui/summary.json) | **5 通过、0 失败、0 跳过** | 官方 Xcode MCP：禁用列表后的 Header／标签栏拖动及切页、正常列表 Header 拖动、普通页面拖动、标签栏纵向拖动和短／空／长内容指示器；`sourceChangedSinceRun=[]`，完整控制台三类运行时诊断均为 0。 |
+
+首轮 `20261024-scroll-boundary-review-baseline` 中，后台页／解绑与缓存页 inset 两项通过；回调测试使用同值偏移 KVO，但 UIKit 没有发出该通知，属于夹具未触发预期条件，不作为框架缺陷证据。修正为业务滚动视图子类的实际定位回调后，重新建立上述失败基线。保留首轮日志和测试源码快照。
+
+最终 5 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-scroll-boundary-review-ui/swiftformat-lint.txt)，`git diff --check` 通过。保留上一轮所有修改，本轮没有提交或推送。
+
+**未覆盖：** Release、Swift 6.3 工具链、iPad、iOS 15 实际运行、真机和完整 Demo 测试套件。同步定位回调的精确时序由库测试夹具验证，UI 用例覆盖真实触摸下的正常路径和禁用路径。
+
+## 2026-10-23：业务滚动开关与零折叠范围的职责收敛
+
+按确认的选项 1：已绑定业务列表关闭 `isScrollEnabled` 后，Header／标签栏整次纵向联动暂停，不推动 Header 或正文。绑定观察关闭事件并立即取消框架旧拖动和惯性，手势入口、处理过程和惯性采样同时检查开关；同一帧重新开启不会续接旧交互。框架不写入业务开关，保留布局、业务程序化位置及切页恢复的协调；未绑定列表的普通页面保留原有交互。自动发现仍跳过预先禁用的列表，显式绑定可继续提供布局和位置协调。
+
+折叠范围为 0 时，底部补齐贡献归零；保留业务底部 inset、顶部标签栏避让及系统安全区域调整。折叠范围恢复为正数后，短／空内容仍可通过必要的底部补齐完成 Header 折叠。同步 README；本轮不改动动画终止策略、解绑偏移换算及 inset 基准赋值契约。
+
+新增 4 项库回归：禁用后拒绝输入但保留切页／布局／程序化位置协调，关闭并立即开启时旧拖动及惯性不续接，显式绑定预先禁用的列表，以及零折叠范围下短／空／长内容、尺寸变化、自动／手动 inset、移除与恢复 Header 的底部贡献。Demo 新增回归启动参数，在绑定后模拟业务禁用列表；UI 用例通过实际 Header 和标签栏拖动验证，并继续横向切页。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。已通过官方 Xcode MCP 核对工程、scheme 和目标；库测试需要仓库生成 UIKit application host 的 `.xctestrun`，使用脚本执行，UI 测试通过官方 MCP 执行。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前基线](Results/20261023-scroll-enabled-zero-range-baseline/summary.json) | **3 失败** | 原实现仍驱动禁用列表，并在零范围时补齐底部；保存当时容器、绑定和测试源码。 |
+| [中间聚焦](Results/20261023-scroll-enabled-zero-range-focused/summary.json) | **100 通过、2 失败** | 禁用开关测试直接断言自动 inset 调整过程中的原始 offset，出现 44 pt 差异；后续改用 `.never` 固定该组手势测试的坐标基准，自动 inset 的真实接入由 UI 用例覆盖。同时补上关闭事件即时取消和显式绑定用例。 |
+| [最终聚焦](Results/20261023-scroll-enabled-zero-range-final/summary.json) | **103 通过、0 失败、0 跳过** | 最终源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [完整库测试](Results/20261023-scroll-enabled-zero-range-library/summary.json) | **234 通过、0 失败、0 跳过** | 最终源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [Demo UI 聚焦](Results/20261023-scroll-enabled-zero-range-ui/summary.json) | **5 通过、0 失败、0 跳过** | 官方 Xcode MCP：禁用列表后的 Header／标签栏拖动及横向切页、正常列表 Header 拖动、普通页面拖动、标签栏纵向拖动和短／空／长内容指示器；`sourceChangedSinceRun=[]`，完整控制台三类运行时诊断均为 0。 |
+
+最终 5 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261023-scroll-enabled-zero-range-ui/swiftformat-lint.txt)，`git diff --check` 通过。失败基线和中间结果保留，不替代最终源码验证。本轮没有提交或推送。
+
+**未覆盖：** Release、Swift 6.3 工具链、iPad、iOS 15 实际运行、真机及完整 Demo 测试套件。
+
 ## 2026-10-24：布局模式审查修复与 Demo 窄卡片
 
 Demo 卡片在 `.fill` 下依据可用宽度、间距、项数和最小项宽计算等宽结果；不足 `max(160, 标题字体行高 × 6)` 时移除编号、缩小水平留白并居中显示两行以内的标题与副标题。布局选择写入内容配置，测量和实际显示共用；宽度恢复时重新插入编号。副标题的垂直压缩优先级略低于标题，消除初次布局高度竞争的歧义。保留 `.automatic` 默认策略与框架布局实现。

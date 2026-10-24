@@ -600,6 +600,13 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         record.binding = scroll.map(SPScrollBinding.init)
         record.binding?.indicatorsHiddenForPaging = isPaging && scrollIndicatorVisibilityPolicy == .hideDuringPaging
         record.binding?.setRange(effectiveLayout.collapseRange)
+        record.binding?.onScrollDisabled = { [weak self, weak record] binding in
+            guard let self, let record, record === self.currentRecord, record.binding === binding else {
+                return
+            }
+            // 关闭后立即废弃旧交互，即使同一帧重新开启也不续接原来的拖动或惯性。
+            self.stopAnimation()
+        }
         record.binding?.onScroll = { [weak self, weak record] binding in
             guard let self, let record, !self.isLayingOutPages, !self.isTransitioningSize, !self.isPaging,
                   record === self.currentRecord, self.transitionTarget == nil else {
@@ -870,6 +877,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
               transitionTarget == nil else {
             return false
         }
+        if record.binding?.scrollView.isScrollEnabled == false {
+            return false
+        }
         if let dragPan, dragPan !== pan {
             return false
         }
@@ -914,6 +924,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             return
         }
         let binding = record.binding
+        // 业务禁用列表滚动时暂停整次纵向联动；保留布局及切页使用的程序化协调。
+        guard binding?.scrollView.isScrollEnabled != false else {
+            stopAnimation()
+            return
+        }
         // 切页、重新绑定或布局变化后，旧触摸不能继续驱动新的滚动状态。
         if pan.state == .began {
             if let dragPan, dragPan !== pan {
@@ -924,8 +939,13 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         }
         switch pan.state {
         case .began:
-            stopAnimation(); binding?.stopDeceleration()
+            stopAnimation()
             dragRecord = record; dragBinding = binding; dragPan = pan
+            // 先登记交互，让停止原生减速时的同步业务回调也能取消本次拖动。
+            binding?.stopDeceleration()
+            guard dragPan === pan, dragRecord === record, dragBinding === binding else {
+                return
+            }
             dragStart = binding?.position ?? collapseOffset
         case .changed:
             let translation = pan.translation(in: view).y
@@ -985,6 +1005,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
                 .collapseRange {
                 stopAnimation()
             }
+            return
+        }
+        guard binding.scrollView.isScrollEnabled else {
+            stopAnimation()
             return
         }
         animationVelocity *= pow(binding.scrollView.decelerationRate.rawValue, dt * 1000)
