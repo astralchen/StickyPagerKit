@@ -8,7 +8,23 @@ internal final class SPScrollBinding {
     var onScrollDisabled: (@MainActor (SPScrollBinding) -> Void)?
     private var observations: [NSKeyValueObservation] = []
     private var updating = false
-    private var changingExternalInset = false
+    private enum InsetKind { case content, indicator }
+    private final class InsetObservation {
+        var depth = 0
+        var internalDepth: Int?
+        var externalDepth = 0
+        var externalStart: UIEdgeInsets?
+    }
+
+    private let contentInsetObservation = InsetObservation()
+    private let indicatorInsetObservation = InsetObservation()
+    private var changingExternalInset: Bool {
+        contentInsetObservation.externalDepth > 0 || indicatorInsetObservation.externalDepth > 0
+    }
+
+    private var pendingGeometryUpdate = false
+    private var pendingIndicatorUpdate = false
+    private var flushingInsetUpdates = false
     private var detached = false
     private var topContribution: CGFloat = 0
     private var bottomContribution: CGFloat = 0
@@ -80,26 +96,15 @@ internal final class SPScrollBinding {
                     self.onScroll?(self)
                 }
             },
-            scrollView.observe(\.contentInset, options: [.prior, .new]) { [weak self] _, change in
-                MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.detached else {
-                        return
-                    }
-                    // UIKit 在 inset setter 完成前可能先通知 offset/adjustedInset，不能在此期间覆盖业务值。
-                    self.changingExternalInset = change.isPrior
-                    if !change.isPrior {
-                        self.externalInsetsChanged()
-                    }
-                }
+            scrollView.observe(\.contentInset, options: [.prior, .old, .new]) { [weak self] _, change in
+                MainActor.assumeIsolated { self?.insetChanged(.content, change: change) }
             },
-            scrollView.observe(\.verticalScrollIndicatorInsets, options: [.new]) { [weak self] _, _ in
-                MainActor.assumeIsolated {
-                    guard let self, !self.updating, !self.detached else {
-                        return
-                    }
-                    self.baseIndicatorInset = self.scrollView.verticalScrollIndicatorInsets
-                    self.updateIndicators()
-                }
+            scrollView.observe(\.verticalScrollIndicatorInsets, options: [
+                .prior,
+                .old,
+                .new
+            ]) { [weak self] _, change in
+                MainActor.assumeIsolated { self?.insetChanged(.indicator, change: change) }
             },
             scrollView.observe(\.showsVerticalScrollIndicator, options: [.prior, .new]) { [weak self] _, change in
                 MainActor.assumeIsolated { self?.indicatorChanged(.vertical, change: change) }
@@ -177,10 +182,14 @@ internal final class SPScrollBinding {
     }
 
     func stopDeceleration() {
-        // UIKit 的非动画定位会终止当前滚动动画，不更换识别器或 delegate。
+        guard !detached, scrollView.isDecelerating else {
+            return
+        }
+        // 仅交接正在进行的原生减速；静止或业务程序化动画不发送额外的停止定位。
         updating = true
         scrollView.setContentOffset(scrollView.contentOffset, animated: false)
         updating = false
+        flushInsetUpdates()
     }
 
     func detach() {
@@ -192,11 +201,14 @@ internal final class SPScrollBinding {
         observations.removeAll()
         onScroll = nil
         onScrollDisabled = nil
-        let contentPosition = max(0, position - range)
+        let oldPosition = position
+        let contentPosition = oldPosition - SPScrollGeometry.collapse(oldPosition, range: range)
         var restored = scrollView.contentInset
         restored.top -= topContribution
         restored.bottom -= bottomContribution
-        scrollView.contentInset = restored
+        if scrollView.contentInset != restored {
+            scrollView.contentInset = restored
+        }
         if scrollView
             .verticalScrollIndicatorInsets !=
             baseIndicatorInset {
@@ -204,16 +216,100 @@ internal final class SPScrollBinding {
         }
         indicatorVisibilityGeneration &+= 1
         updateIndicatorVisibility()
-        scrollView.contentOffset.y = contentPosition - scrollView.adjustedContentInset.top
+        let desired = contentPosition - scrollView.adjustedContentInset.top
+        if abs(scrollView.contentOffset.y - desired) > 0.001 {
+            scrollView.contentOffset.y = desired
+        }
     }
 
-    private func externalInsetsChanged() {
-        guard !updating, !detached else {
+    private func insetObservation(_ kind: InsetKind) -> InsetObservation {
+        kind == .content ? contentInsetObservation : indicatorInsetObservation
+    }
+
+    private func insetChanged(_ kind: InsetKind, change: NSKeyValueObservedChange<UIEdgeInsets>) {
+        guard !detached else {
             return
         }
-        // 外部赋值视作新的业务基准；框架贡献随后重新叠加。
-        baseInset = scrollView.contentInset
-        updateGeometry()
+        let observation = insetObservation(kind)
+        if change.isPrior {
+            observation.depth += 1
+            guard observation.depth != observation.internalDepth else {
+                return
+            }
+            if observation.externalDepth == 0 {
+                observation.externalStart = change.oldValue
+            }
+            observation.externalDepth += 1
+            return
+        }
+        defer { observation.depth -= 1 }
+        guard observation.depth != observation.internalDepth else {
+            // 后续 KVO 观察者还可同步赋值；本次框架通知结束后不能继续占用该层级。
+            observation.internalDepth = nil
+            return
+        }
+        observation.externalDepth -= 1
+        guard observation.externalDepth == 0 else {
+            return
+        }
+        // 外部 setter 的嵌套赋值完成后再叠加贡献，避免中间回写污染外层通知。
+        switch kind {
+        case .content:
+            baseInset = Self.updatedBase(baseInset, from: observation.externalStart, to: scrollView.contentInset)
+            pendingGeometryUpdate = true
+        case .indicator:
+            baseIndicatorInset = Self.updatedBase(
+                baseIndicatorInset,
+                from: observation.externalStart,
+                to: scrollView.verticalScrollIndicatorInsets
+            )
+            pendingIndicatorUpdate = true
+        }
+        observation.externalStart = nil
+        flushInsetUpdates()
+    }
+
+    private func writeInset(_ inset: UIEdgeInsets, kind: InsetKind) {
+        let observation = insetObservation(kind)
+        let previous = observation.internalDepth
+        // 只屏蔽框架 setter 本身；其回调中的业务写入有独立通知层级。
+        observation.internalDepth = observation.depth + 1
+        defer { observation.internalDepth = previous }
+        switch kind {
+        case .content: scrollView.contentInset = inset
+        case .indicator: scrollView.verticalScrollIndicatorInsets = inset
+        }
+    }
+
+    private func flushInsetUpdates() {
+        guard !updating, !changingExternalInset, !detached, !flushingInsetUpdates else {
+            return
+        }
+        flushingInsetUpdates = true
+        defer { flushingInsetUpdates = false }
+        while !detached, pendingGeometryUpdate || pendingIndicatorUpdate {
+            if pendingGeometryUpdate {
+                pendingGeometryUpdate = false
+                updateGeometry()
+            } else {
+                pendingIndicatorUpdate = false
+                updateIndicators()
+            }
+        }
+    }
+
+    /// 仅变化的方向提供新业务基准；未变化方向不能把 getter 中的框架贡献再次计入。
+    private static func updatedBase(
+        _ base: UIEdgeInsets,
+        from oldValue: UIEdgeInsets?,
+        to newValue: UIEdgeInsets
+    ) -> UIEdgeInsets {
+        UIEdgeInsets(
+            top: oldValue?.top == newValue.top ? base.top : newValue.top,
+            left: oldValue?.left == newValue.left ? base.left : newValue.left,
+            bottom: oldValue?.bottom == newValue.bottom ? base.bottom : newValue.bottom,
+            right: oldValue?.right == newValue.right ? base.right : newValue.right
+        )
     }
 
     private func updateGeometry(preserving savedPosition: CGFloat? = nil) {
@@ -238,7 +334,12 @@ internal final class SPScrollBinding {
         inset.top += topContribution
         inset.bottom += bottomContribution
         if scrollView.contentInset != inset {
-            scrollView.contentInset = inset
+            writeInset(inset, kind: .content)
+        }
+        // 业务可在 inset 回调里解绑；旧更新不能覆盖解绑已还原的正文坐标。
+        guard !detached else {
+            updating = false
+            return
         }
         let desired = oldPosition - scrollView.adjustedContentInset.top
         if abs(scrollView.contentOffset.y - desired) > 0.001 {
@@ -251,9 +352,12 @@ internal final class SPScrollBinding {
     private func updateIndicators() {
         let wasUpdating = updating
         updating = true
-        defer { updating = wasUpdating }
+        defer {
+            updating = wasUpdating
+            flushInsetUpdates()
+        }
         updateIndicatorVisibility()
-        guard !wasUpdating, !detached else {
+        guard !wasUpdating, !changingExternalInset, !detached else {
             return
         }
         if scrollView.showsVerticalScrollIndicator {
@@ -264,7 +368,7 @@ internal final class SPScrollBinding {
             inset.top += max(0, overlappingTop - automaticTop)
             inset.top += max(0, range - SPScrollGeometry.collapse(position, range: range) - pageDisplacement)
             if scrollView.verticalScrollIndicatorInsets != inset {
-                scrollView.verticalScrollIndicatorInsets = inset
+                writeInset(inset, kind: .indicator)
             }
         }
     }

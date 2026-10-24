@@ -397,7 +397,6 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             return
         }
         stopAnimation()
-        currentRecord?.binding?.stopDeceleration()
         view.layoutIfNeeded()
         let isAdjacent = selectedIndex.map { abs(index - $0) == 1 } ?? false
         let animatePage = animated && isVisible && isAdjacent && pagingView.bounds.width > 0
@@ -740,8 +739,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         guard let incoming = loadPage(index) else {
             return
         }
-        isPaging = true
-        currentRecord?.binding?.stopDeceleration()
+        beginPaging()
         align(incoming)
         transitionTarget = index
         transitionAppearance = isVisible
@@ -816,6 +814,16 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         storedTabBar.cancelUserSelection()
+        // 每次真实分页输入都取消框架旧交互；只对业务原生减速交接去重。
+        stopAnimation()
+        beginPaging()
+    }
+
+    private func beginPaging() {
+        guard !isPaging else {
+            return
+        }
+        // 手势开始、候选页建立及候选页变化共用一次交接。
         isPaging = true
         stopAnimation()
         currentRecord?.binding?.stopDeceleration()

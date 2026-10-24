@@ -2,6 +2,54 @@
 
 验证日期：2026-10-15 至 2026-10-24。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-24：原生减速、解绑坐标与 inset 基准复查
+
+在上一轮未提交修改上修复三类同步交互遗漏：
+
+- 原生减速去重不再跳过每次分页输入对框架旧拖动／惯性的取消；业务原生减速仍按同一次分页只交接一次。
+- 内容与纵向指示器 inset 按 KVO 通知层级区分框架 setter 和业务嵌套 setter。外部赋值的嵌套回调完成前不叠加贡献；框架写入回调中的业务修改记入基准并在当前更新后处理，防止业务值丢失或中间贡献污染外层通知。按方向的数值契约及同方向读改写限制保持不变。
+- 业务在框架写入 contentInset 的同步回调中解绑后，旧几何更新立即退出，不再将已还原的正文位移覆盖为含 Header 折叠距离的旧位置。
+
+新增 5 项库回归：重复分页开始时取消框架拖动但不重复停止业务减速；两类 inset 在业务 setter／框架 setter 回调中的嵌套业务赋值；业务 KVO 观察者两种注册顺序下的 inset 赋值；同步回调解绑后停止旧坐标回写；自动 inset 下解绑保留负位移。README 同步上述边界，没有新增公开 API。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 Demo scheme 与目标；库测试继续使用仓库 UIKit application host 脚本。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [首次复查基线](Results/20261024-inset-handoff-review-baseline/summary.json) | **1 通过、2 失败** | 自动 inset 负位移解绑通过；分页旧拖动仍推进、嵌套 inset 业务基准丢失。保留当时实现与测试源码。首版指示器几何断言还混入初始归一化位移 13 的差异，后续将夹具显式定位到 0；业务基准丢失另由解绑后的 inset 断言确认。 |
+| [解绑回调基线](Results/20261024-inset-handoff-review-detach-baseline/summary.json) | **1 失败** | 解绑后正文位置应为 150，却被旧更新写回 350；保留修复前绑定和测试源码。 |
+| [观察者顺序基线](Results/20261024-inset-handoff-review-observer-baseline/summary.json) | **1 失败** | 框架自身通知已处理完，但层级标记仍使后续业务 KVO 写入被忽略，bottom 31 丢失为 19；修正为本次通知结束即释放标记。保留当时源码。 |
+| [最终聚焦](Results/20261024-inset-handoff-review-final-focused/summary.json) | **115 通过、0 失败、0 跳过** | 包含全部复查修复；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [最终完整库](Results/20261024-inset-handoff-review-final-library/summary.json) | **258 通过、0 失败、0 跳过** | 包含全部复查修复；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [最终 Demo UI](Results/20261024-inset-handoff-review-ui/summary.json) | **6 通过、0 失败、0 跳过** | 官方 Xcode MCP 执行；Header 拖动、快速切页、原生下拉刷新、禁用列表交互、嵌套列表位置恢复及 RTL 边界交接；`sourceChangedSinceRun=[]`，完整控制台三类运行时诊断均为 0。 |
+
+中间 `20261024-inset-handoff-review-focused` 的 113 项通过仅代表前两类修复完成的源码；`20261024-inset-handoff-review-final` 的 114 项与 `20261024-inset-handoff-review-library` 的 257 项通过包含解绑回调修复，但未包含随后发现的观察者顺序修复。保留各阶段结果与对应快照，不作为最终验证。
+
+本次 3 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-inset-handoff-review-ui/swiftformat-lint.txt)，`git diff --check` 通过。没有提交或推送。
+
+**证据边界：** 原生停止请求次数由可控减速状态的库夹具验证；嵌套 inset 与解绑回调由真实 UIWindow 下的子类回调和 KVO 观察者验证。解绑的业务坐标还原不等于系统布局期间像素完全静止。未执行 Release、Swift 6.3 工具链、iPad、iOS 15 实际运行、真机及完整 Demo 测试套件。
+
+## 2026-10-24：原生减速、解绑坐标与 inset 基准职责收敛
+
+仅在 Header／标签栏开始接管纵向拖动、或同一次分页首次开始时，停止 `isDecelerating == true` 的业务列表；移除程序化切页的重复停止入口，候选页建立与变化共用分页交接。静止列表和业务程序化滚动动画不发送额外停止定位；必要的布局和正文位置协调保留，不承诺业务动画跨这些定位继续运行。
+
+解绑使用 `q - clamp(q, 0...C)` 还原业务正文位移，保留负向位移，折叠范围为 0 时同样不会清零；inset／offset 相同时不额外回写。`contentInset` 与 `verticalScrollIndicatorInsets` 按各方向的新旧数值维护业务基准，变化方向使用新基准，未变化方向保留旧基准，避免只修改 bottom／left／right 时重复叠加其他方向贡献。同方向读改写不解释为业务增量，整组赋值中与实际值相同的分量也保留原基准。无新增公开 API，已同步 README。
+
+新增 4 项库回归：静止／减速列表在 Header、程序化切页与横向分页中的停止请求计数；零／正折叠范围、负位移／部分折叠／正文位移、刷新中／未刷新及重复解绑；内容 inset 多方向更新、原值回写、范围变化和解绑；指示器 inset 多方向更新、原值回写和解绑。原同步回调取消测试改为明确处于减速状态，继续验证真实停止请求中的业务取消不会被覆盖。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 Demo scheme 与运行目标；库测试使用仓库 UIKit application host 脚本，UI 通过官方 MCP 执行。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前基线](Results/20261024-inset-handoff-baseline/summary.json) | **4 失败** | 复现静止定位／重复停止、负位移清零与两类 inset 重复叠加，保留原实现和测试源码快照。首版解绑夹具另有非法横向位置被 UIKit 修正、刷新控件调整基准的干扰；后续给出合法横向范围，并在刷新布局后设置明确基准，不将这些夹具断言作为框架缺陷。 |
+| [聚焦回归](Results/20261024-inset-handoff-focused/summary.json) | **110 通过、0 失败、0 跳过** | 容器、绑定与分页，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [完整库回归](Results/20261024-inset-handoff-library/summary.json) | **253 通过、0 失败、0 跳过** | 最终源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [Demo UI 回归](Results/20261024-inset-handoff-ui/summary.json) | **6 通过、0 失败、0 跳过** | Header 拖动、快速切页、原生下拉刷新、禁用列表交互、嵌套列表位置恢复及 RTL 边界交接；`sourceChangedSinceRun=[]`，完整控制台三类运行时诊断均为 0。 |
+
+本次 3 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-inset-handoff-ui/swiftformat-lint.txt)，`git diff --check` 通过。没有提交或推送。
+
+**证据边界：** 停止请求的精确次数由可控减速状态的库夹具验证，UI 测试覆盖实际触摸交互；解绑的业务坐标还原不等于系统布局期间像素完全静止。未执行 Release、Swift 6.3 工具链、iPad、iOS 15 实际运行、真机及完整 Demo 测试套件。
+
 ## 2026-10-24：滚动职责边界提交前整合验证
 
 提交前同步远端 `main` 的 `d37f09e` 与 `04322f5`，保留标签栏布局数值、宽度分配模式及 Demo 的全部改动。代码与接入文档自动合并；验证记录仅发生新增段落冲突，双方历史证据完整保留。本次滚动容器、绑定及回归测试实现与复查版本一致。
