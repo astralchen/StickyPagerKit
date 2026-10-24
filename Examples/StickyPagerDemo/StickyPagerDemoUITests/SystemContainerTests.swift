@@ -136,8 +136,8 @@ final class SystemContainerTests: XCTestCase {
             "内容安全区域 \(safeContent) 不应被系统标签栏 \(systemTabsFrame) 遮挡"
         )
         XCTAssertEqual(try XCTUnwrap(values["automaticIndicators"]), 1)
-        let isShort = (status.value as? String)?.contains("page=short;") == true
-        XCTAssertEqual(try XCTUnwrap(values["showsIndicator"]), isShort ? 0 : 1)
+        // 长／短列表均保留业务默认显隐，框架不按正文范围自动隐藏指示器。
+        XCTAssertEqual(try XCTUnwrap(values["showsIndicator"]), 1)
         XCTAssertEqual(
             try XCTUnwrap(values["indicatorBottom"]),
             0,

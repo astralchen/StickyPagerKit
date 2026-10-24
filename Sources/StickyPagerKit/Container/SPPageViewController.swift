@@ -596,6 +596,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             stopAnimation()
         }
         record.binding?.detach()
+        if positions[record.identifier] == nil, let scroll {
+            // 尚未叠加框架滚动 inset：此时归一化位移就是业务正文位置。
+            // 已有记录（包括 0）继续按页面标识恢复，不被替换列表的初始值覆盖。
+            positions[record.identifier] = max(0, scroll.contentOffset.y + scroll.adjustedContentInset.top)
+        }
         record.binding = scroll.map(SPScrollBinding.init)
         record.binding?.indicatorsHiddenForPaging = isPaging && scrollIndicatorVisibilityPolicy == .hideDuringPaging
         record.binding?.setRange(effectiveLayout.collapseRange)

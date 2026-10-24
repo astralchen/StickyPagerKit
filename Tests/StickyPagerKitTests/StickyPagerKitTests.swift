@@ -20,15 +20,22 @@ final class StickyPagerKitTests: XCTestCase {
         height: CGFloat = 1800,
         inNavigation: Bool = false,
         mixedLayout: Bool? = nil,
-        rootScroll: Bool = false
+        rootScroll: Bool = false,
+        initialPositions: [Int: CGFloat] = [:],
+        initialAutomaticInsets: Bool = false,
+        hasHeader: Bool = true
     ) -> SPPageViewController {
         window?.closeForTesting()
         let source = FixtureSource(ids: ids, plain: plain, contentHeight: height)
         source.mixedLayout = mixedLayout
         source.rootScroll = rootScroll
+        source.initialPositions = initialPositions
+        source.initialAutomaticInsets = initialAutomaticInsets
         let pager = SPPageViewController()
         pager.dataSource = source
-        pager.headerView = UIView()
+        if hasHeader {
+            pager.headerView = UIView()
+        }
         pager.layout = SPPageLayout(headerHeight: 240, minimumHeaderHeight: 40)
         pager.reloadData()
         let window: UIWindow
@@ -49,6 +56,285 @@ final class StickyPagerKitTests: XCTestCase {
         pager.layout.headerHeight = 240 + pager.view.safeAreaInsets.top
         self.window = window; self.source = source; self.pager = pager
         return pager
+    }
+
+    func testInitialSelectedPageKeepsSeedAcrossWindowAttachmentAndReload() {
+        for rootScroll in [false, true] {
+            for automatic in [false, true] {
+                for hasHeader in [false, true] {
+                    let pager = mount(
+                        rootScroll: rootScroll,
+                        initialPositions: [0: 300],
+                        initialAutomaticInsets: automatic,
+                        hasHeader: hasHeader
+                    )
+                    XCTAssertEqual(pager.records[0]!.binding!.position, hasHeader ? 0 : 300, accuracy: 0.01)
+                    pager.reloadData()
+                    pager.setSelectedIndex(1, animated: false)
+                    let range: CGFloat = hasHeader ? 200 : 0
+                    pager.currentScrollView!.contentOffset.y = range + 1 - pager.currentScrollView!.adjustedContentInset
+                        .top
+                    pager.setSelectedIndex(0, animated: false)
+                    XCTAssertEqual(pager.records[0]!.binding!.position, range + 300, accuracy: 0.01)
+                }
+            }
+        }
+    }
+
+    func testRemovedPageIdentityCanAdoptNewBusinessPosition() {
+        let pager = mount()
+        pager.currentScrollView!.contentOffset.y = 500 - pager.currentScrollView!.adjustedContentInset.top
+        source!.ids.removeFirst()
+        pager.reloadData()
+        source!.initialPositions[0] = 80
+        source!.ids.insert(0, at: 0)
+        pager.reloadData()
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(pager.records[0]!.binding!.position, 280, accuracy: 0.01)
+    }
+
+    func testSafeAreaRepeatedContributionsAndNoOpWritesPreserveLatestBase() {
+        let pager = mount()
+        let controller = pager.records[0]!.controller
+        let safeArea = pager.records[0]!.safeArea
+        controller.additionalSafeAreaInsets = UIEdgeInsets(top: 11, left: 3, bottom: 17, right: 5)
+        for contribution: CGFloat in [0, 48, 80, 0, 48] {
+            safeArea.setTopContribution(contribution)
+            let actual = controller.additionalSafeAreaInsets
+            controller.additionalSafeAreaInsets = actual
+            controller.additionalSafeAreaInsets.left = 9
+            XCTAssertEqual(controller.additionalSafeAreaInsets.top, 11 + contribution)
+        }
+        source!.ids.removeFirst()
+        pager.reloadData()
+        XCTAssertNil(controller.parent)
+        XCTAssertEqual(controller.additionalSafeAreaInsets, UIEdgeInsets(top: 11, left: 9, bottom: 17, right: 5))
+    }
+
+    func testFirstAutomaticDiscoveryAdoptsPositionAndCacheRecreationUsesHistory() {
+        for rootScroll in [false, true] {
+            for automatic in [false, true] {
+                let pager = mount(rootScroll: rootScroll)
+                source!.initialPositions[1] = 300
+                source!.initialAutomaticInsets = automatic
+                pager.currentScrollView!.contentOffset.y = 200 - pager.currentScrollView!.adjustedContentInset.top
+                pager.setSelectedIndex(1, animated: false)
+                XCTAssertEqual(pager.records[1]!.binding!.position, 500, accuracy: 0.01)
+                pager.currentScrollView!.contentOffset.y = 450 - pager.currentScrollView!.adjustedContentInset.top
+                pager.maximumCachedPageCount = 1
+                pager.setSelectedIndex(0, animated: false)
+                XCTAssertNil(pager.records[1])
+                source!.initialPositions[1] = 80
+                pager.setSelectedIndex(1, animated: false)
+                XCTAssertEqual(pager.records[1]!.binding!.position, 450, accuracy: 0.01)
+            }
+        }
+    }
+
+    func testFirstBindingNormalizesOverscrollAndClampsShortContent() {
+        for initial: CGFloat in [-40, 300] {
+            let pager = mount(plain: [1])
+            pager.headerView = nil
+            pager.setSelectedIndex(1, animated: false)
+            let root = pager.records[1]!.controller.view!
+            let scroll = UIScrollView(frame: root.bounds)
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.contentSize.height = initial < 0 ? 1800 : 100
+            root.addSubview(scroll)
+            scroll.contentOffset.y = initial
+            pager.setScrollView(scroll, forPageAt: 1)
+            XCTAssertEqual(pager.records[1]!.binding!.position, 0, accuracy: 0.01)
+        }
+    }
+
+    func testSafeAreaCallbackUsesLatestContributionAndExternalDetachBase() {
+        for detach in [false, true] {
+            let pager = mount()
+            let controller = SafeAreaCallbackController()
+            pager.addChild(controller)
+            pager.view.addSubview(controller.view)
+            controller.didMove(toParent: pager)
+            controller.additionalSafeAreaInsets = UIEdgeInsets(top: 11, left: 3, bottom: 17, right: 5)
+            let safeArea = SPPageSafeArea(controller: controller)
+            safeArea.setTopContribution(48)
+            var didWrite = false
+            controller.onInsetChange = {
+                guard !didWrite else {
+                    return
+                }
+                didWrite = true
+                controller.additionalSafeAreaInsets.bottom = 31
+                if detach {
+                    safeArea.detach()
+                } else {
+                    safeArea.setTopContribution(80)
+                }
+            }
+            controller.additionalSafeAreaInsets.top = 23
+            XCTAssertEqual(controller.additionalSafeAreaInsets.top, detach ? 23 : 103)
+            safeArea.detach()
+            XCTAssertEqual(controller.additionalSafeAreaInsets, UIEdgeInsets(top: 23, left: 3, bottom: 31, right: 5))
+            controller.onInsetChange = nil
+        }
+    }
+
+    func testFirstBindingSeedsBusinessPositionWithoutHistory() {
+        for range: CGFloat in [0, 200] {
+            for collapse: CGFloat in (range == 0 ? [0] : [0, 80, 200]) {
+                for automatic in [false, true] {
+                    let pager = mount(plain: [1])
+                    if range == 0 {
+                        pager.headerView = nil
+                    }
+                    pager.currentScrollView!.contentOffset.y = collapse - pager.currentScrollView!.adjustedContentInset
+                        .top
+                    XCTAssertEqual(pager.collapseOffset, collapse, accuracy: 0.01)
+                    pager.setSelectedIndex(1, animated: false)
+                    let root = pager.records[1]!.controller.view!
+                    let scroll = UIScrollView(frame: root.bounds)
+                    scroll.contentInsetAdjustmentBehavior = automatic ? .automatic : .never
+                    scroll.contentInset = UIEdgeInsets(top: 13, left: 0, bottom: 17, right: 0)
+                    scroll.contentSize.height = 1800
+                    root.addSubview(scroll)
+                    root.layoutIfNeeded()
+                    scroll.contentOffset.y = 300 - scroll.adjustedContentInset.top
+                    pager.rediscoverScrollView(forPageAt: 1)
+                    let expectedCollapse = pager.collapseOffset
+                    XCTAssertEqual(
+                        pager.records[1]!.binding!.position,
+                        range == 0 ? 300 : (collapse < range ? expectedCollapse : 500),
+                        accuracy: 0.02
+                    )
+                    // 部分展开时临时对齐 Header，随后从另一页吸顶切回，仍恢复业务初始正文位置。
+                    pager.setSelectedIndex(0, animated: false)
+                    pager.currentScrollView!.contentOffset.y = range + 1 - pager.currentScrollView!.adjustedContentInset
+                        .top
+                    pager.setSelectedIndex(1, animated: false)
+                    XCTAssertEqual(pager.records[1]!.binding!.position, range + 300, accuracy: 0.02)
+                }
+            }
+        }
+    }
+
+    func testReplacementBindingKeepsExistingHistoryIncludingZero() {
+        for content: CGFloat in [0, 300] {
+            let pager = mount()
+            pager.currentScrollView!.contentOffset.y = 200 + content - pager.currentScrollView!.adjustedContentInset.top
+            let root = pager.records[0]!.controller.view!
+            let replacement = UIScrollView(frame: root.bounds)
+            replacement.contentInsetAdjustmentBehavior = .never
+            replacement.contentSize.height = 1800
+            root.addSubview(replacement)
+            replacement.contentOffset.y = 80
+            pager.setScrollView(replacement, forPageAt: 0)
+            XCTAssertEqual(pager.records[0]!.binding!.position, 200 + content, accuracy: 0.01)
+        }
+    }
+
+    func testSafeAreaNestedBusinessWritesSurviveSetterCallbacks() {
+        for frameworkWrite in [false, true] {
+            let pager = mount(plain: [1])
+            let controller = SafeAreaCallbackController()
+            pager.addChild(controller)
+            pager.view.addSubview(controller.view)
+            controller.didMove(toParent: pager)
+            let base = UIEdgeInsets(top: 11, left: 3, bottom: 17, right: 5)
+            controller.additionalSafeAreaInsets = base
+            let safeArea = SPPageSafeArea(controller: controller)
+            if !frameworkWrite {
+                safeArea.setTopContribution(48)
+            }
+            var didWrite = false
+            controller.onInsetChange = {
+                guard !didWrite else {
+                    return
+                }
+                didWrite = true
+                controller.additionalSafeAreaInsets.bottom = 31
+            }
+            if frameworkWrite {
+                safeArea.setTopContribution(48)
+            } else {
+                controller.additionalSafeAreaInsets.top = 23
+            }
+            var expected = base
+            expected.top = frameworkWrite ? 11 : 23
+            expected.bottom = 31
+            XCTAssertTrue(didWrite)
+            XCTAssertEqual(controller.additionalSafeAreaInsets.top, expected.top + 48)
+            XCTAssertEqual(controller.additionalSafeAreaInsets.bottom, 31)
+            safeArea.detach()
+            XCTAssertEqual(controller.additionalSafeAreaInsets, expected)
+            controller.onInsetChange = nil
+        }
+    }
+
+    func testSafeAreaKVOCallbackPreservesBusinessBaseInEitherOrder() {
+        for observeFirst in [false, true] {
+            let pager = mount()
+            let controller = UIViewController()
+            pager.addChild(controller)
+            pager.view.addSubview(controller.view)
+            controller.didMove(toParent: pager)
+            let base = UIEdgeInsets(top: 11, left: 3, bottom: 17, right: 5)
+            controller.additionalSafeAreaInsets = base
+            var armed = false
+            var didWrite = false
+            let observe = {
+                controller.observe(\.additionalSafeAreaInsets, options: [.new]) { controller, _ in
+                    MainActor.assumeIsolated {
+                        guard armed, !didWrite else {
+                            return
+                        }
+                        didWrite = true
+                        controller.additionalSafeAreaInsets.top = 23
+                        controller.additionalSafeAreaInsets.right = 9
+                    }
+                }
+            }
+            var observation: NSKeyValueObservation?
+            if observeFirst {
+                observation = observe()
+            }
+            let safeArea = SPPageSafeArea(controller: controller)
+            if !observeFirst {
+                observation = observe()
+            }
+            armed = true
+            safeArea.setTopContribution(48)
+            XCTAssertTrue(didWrite)
+            XCTAssertEqual(controller.additionalSafeAreaInsets.top, 71)
+            XCTAssertEqual(controller.additionalSafeAreaInsets.right, 9)
+            observation?.invalidate()
+            safeArea.detach()
+            XCTAssertEqual(controller.additionalSafeAreaInsets, UIEdgeInsets(top: 23, left: 3, bottom: 17, right: 9))
+        }
+    }
+
+    func testSafeAreaCallbackDetachDoesNotRestoreStaleContribution() {
+        let pager = mount()
+        let controller = SafeAreaCallbackController()
+        pager.addChild(controller)
+        pager.view.addSubview(controller.view)
+        controller.didMove(toParent: pager)
+        let base = UIEdgeInsets(top: 11, left: 3, bottom: 17, right: 5)
+        controller.additionalSafeAreaInsets = base
+        let safeArea = SPPageSafeArea(controller: controller)
+        var didDetach = false
+        controller.onInsetChange = {
+            guard !didDetach else {
+                return
+            }
+            didDetach = true
+            controller.additionalSafeAreaInsets.bottom = 31
+            safeArea.detach()
+        }
+        safeArea.setTopContribution(48)
+        safeArea.setTopContribution(80)
+        safeArea.detach()
+        XCTAssertTrue(didDetach)
+        XCTAssertEqual(controller.additionalSafeAreaInsets, UIEdgeInsets(top: 11, left: 3, bottom: 31, right: 5))
+        controller.onInsetChange = nil
     }
 
     func testPageRootTopAlignsWithTabBarAndSafeContentStaysBelowIt() throws {
@@ -2641,6 +2927,8 @@ final class StickyPagerKitTests: XCTestCase {
 
 @MainActor
 private final class FixtureSource: SPPageViewControllerDataSource {
+    var initialPositions: [Int: CGFloat] = [:]
+    var initialAutomaticInsets = false
     var mixedLayout: Bool?
     var rootScroll = false
     var ids: [Int]
@@ -2676,6 +2964,13 @@ private final class FixtureSource: SPPageViewControllerDataSource {
             scroll.contentSize = CGSize(width: 1, height: contentHeight)
             page.view = scroll
             page.scroll = scroll
+        }
+        if let position = initialPositions[ids[index]] {
+            page.loadViewIfNeeded()
+            let scroll = page.scroll!
+            scroll.contentInsetAdjustmentBehavior = initialAutomaticInsets ? .automatic : .never
+            scroll.contentInset = UIEdgeInsets(top: 13, left: 0, bottom: 17, right: 0)
+            scroll.contentOffset.y = position - scroll.adjustedContentInset.top
         }
         return page
     }
@@ -2916,5 +3211,12 @@ private final class SizeTransitionCoordinator: NSObject, UIViewControllerTransit
         let pending = completions
         completions.removeAll()
         pending.forEach { $0(self) }
+    }
+}
+
+@MainActor private final class SafeAreaCallbackController: UIViewController {
+    var onInsetChange: (() -> Void)?
+    override dynamic var additionalSafeAreaInsets: UIEdgeInsets {
+        didSet { onInsetChange?() }
     }
 }

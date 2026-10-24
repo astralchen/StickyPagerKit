@@ -2,6 +2,48 @@
 
 验证日期：2026-10-15 至 2026-10-24。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-24：首次绑定位置与安全区域同步回调复查
+
+重新核对首次取值时机、已有零／非零历史优先级、页面标识生命周期、KVO 嵌套通知与解绑恢复，未发现需再次修改实现的问题。本轮只补充库测试及验证记录，保留上一轮全部未提交修改。
+
+新增 3 项库回归：首个选中页在窗口挂载和 reload 后仍保留初始正文位置（根／子滚动视图、自动／手动 inset、有／无 Header）；删除页面标识后重新添加时采用新的业务初始位置；安全区域多次改变贡献、同值回写及修改其他方向后，页面移除仍恢复最新业务基准。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 Demo scheme 与目标；库测试继续使用仓库 UIKit application host 脚本。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [复查聚焦](Results/20261024-initial-position-review-focused/summary.json) | **126 通过、0 失败、0 跳过** | 包含新增 3 项边界测试；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [复查完整库](Results/20261024-initial-position-review-library/summary.json) | **269 通过、0 失败、0 跳过** | 当前源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+本轮未重跑 UI：与上一轮 [6 项 UI 通过结果](Results/20261024-initial-position-safearea-final-ui/summary.json) 的源码 SHA-256 比较，仅库测试文件变化，框架、Demo、UI 测试及构建配置均一致。该 UI 结果保留为上一轮证据，不计为本轮执行。
+
+4 个已修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-initial-position-review-focused/swiftformat-lint.txt)，`git diff --check` 通过。未执行 Release、Swift 6.3 工具链、iPad、iOS 15、真机或完整 Demo 测试套件。没有提交或推送。
+
+## 2026-10-24：首次绑定位置与安全区域同步回调职责收敛
+
+无历史位置时，在首次绑定叠加框架滚动 inset 前读取业务归一化正文位置；已有历史记录（包括 0）继续按页面标识恢复。保留共享 Header 对齐、有效范围钳制、缓存重建及后台页历史保护规则，不调整后台业务定位或其他交互开关，不新增公开 API。
+
+`SPPageSafeArea` 按 KVO 通知层级区分框架写入和业务嵌套写入，外部 setter 完成后再叠加标签栏贡献，框架写入期间的业务基准和贡献变更串行处理。同步回调中解绑时先保存最新业务基准并解除管理，旧更新不能再次恢复贡献；相同值不额外回写。README 同步位置初始化与安全区域回调契约。
+
+新增 8 项库回归，覆盖自动发现与显式绑定、零／正折叠范围、展开／部分折叠／吸顶、自动／手动 inset、根滚动视图／子视图、负位移与短内容、已有零／非零历史及缓存重建；安全区域覆盖业务与框架 setter 回调、两种 KVO 注册顺序、回调中贡献更新、外部赋值中解绑及重复解绑。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 Demo scheme 和目标；库测试使用仓库 UIKit application host 脚本。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前基线](Results/20261024-initial-position-safearea-baseline/summary.json) | **1 通过、4 失败** | 已有历史恢复通过；首次正文位置被覆盖、安全区域嵌套写入和解绑丢失基准失败。保留当时实现与测试快照。初版夹具设置折叠量的方式随后改为直接业务 offset 写入并显式断言；零折叠范围下 300 被覆盖为 0 的独立失败不受此调整影响。 |
+| [首轮聚焦](Results/20261024-initial-position-safearea-focused/summary.json) | **120 通过、0 失败、0 跳过** | 包含实现修复和首批 5 项新测试；之后补充 3 项边界测试，因此此轮不是最终源码验证。保留测试快照。 |
+| [最终聚焦](Results/20261024-initial-position-safearea-final-focused/summary.json) | **123 通过、0 失败、0 跳过** | 包含全部 8 项新增测试；框架和库测试源码一致，后续仅修改 `SystemContainerTests.swift` 的旧指示器断言；三类运行时诊断均为 0。 |
+| [完整库](Results/20261024-initial-position-safearea-library/summary.json) | **266 通过、0 失败、0 跳过** | 框架和库测试源码一致；`sourceChangedSinceRun` 仅列出后续修正旧断言的 `SystemContainerTests.swift`，不影响此库测试产物。三类运行时诊断均为 0。 |
+| [首次 Demo UI](Results/20261024-initial-position-safearea-ui/summary.json) | **3 用例通过、3 用例失败；另 1 项 runner 错误** | 三个系统容器用例仍断言短列表自动隐藏指示器，与已提交的默认保留业务显隐契约不一致。MCP 报告 3／3；xcresult 另外记录 runner 退出码 75，因此摘要为 3 通过、4 失败。保留源码快照与完整结果，不隐去运行器错误。 |
+| [最终 Demo UI](Results/20261024-initial-position-safearea-final-ui/summary.json) | **6 通过、0 失败、0 跳过** | 官方 Xcode MCP 执行；Header 拖动、快速分页、嵌套列表位置恢复及全部 3 项 SystemContainerTests（安全区域、旋转、系统标签切换、RTL）。`sourceChangedSinceRun=[]`，三类运行时诊断均为 0，无 runner 错误。 |
+
+修正系统容器 UI 测试中的旧短列表指示器断言，使其与现有业务默认显隐契约一致，没有调整指示器实现。
+
+本次 4 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-initial-position-safearea-final-ui/swiftformat-lint.txt)，`git diff --check` 通过。没有提交或推送。
+
+**证据边界：** 位置和同步回调语义由真实 UIWindow 下的库测试验证，不承诺初始原始 offset 或屏幕像素不变。未执行 Release、Swift 6.3 工具链、iPad、iOS 15 实际运行、真机及完整 Demo 测试套件。
+
 ## 2026-10-24：原生减速、解绑坐标与 inset 基准复查
 
 在上一轮未提交修改上修复三类同步交互遗漏：
