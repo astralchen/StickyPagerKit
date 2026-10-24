@@ -38,6 +38,15 @@ final class SPTabBarTests: XCTestCase {
         return (bar, bar.subviews.compactMap { $0 as? UICollectionView }.first!)
     }
 
+    func testStandaloneTabBarDoesNotParticipateInScrollToTop() {
+        let (bar, collection) = mount()
+        XCTAssertFalse(collection.scrollsToTop)
+        bar.setSelectedIndex(8, animated: false)
+        bar.setItems([SPTabBarItem(title: "短标签")])
+        bar.layoutIfNeeded()
+        XCTAssertFalse(collection.scrollsToTop)
+    }
+
     private func frame(_ index: Int, in collection: UICollectionView) -> CGRect {
         collection.collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))!.frame
     }

@@ -58,6 +58,42 @@ final class StickyPagerKitTests: XCTestCase {
         return pager
     }
 
+    func testInternalHostsPreserveBusinessScrollToTopThroughPagingAndDetach() {
+        for enabled in [false, true] {
+            let pager = mount()
+            let root = pager.records[0]!.controller.view!
+            let scroll = ScrollToTopTrackingView(frame: root.bounds)
+            scroll.contentSize.height = 1800
+            scroll.scrollsToTop = enabled
+            let owner = ScrollDelegate()
+            scroll.delegate = owner
+            root.addSubview(scroll)
+            scroll.scrollToTopWrites = 0
+            pager.setScrollView(scroll, forPageAt: 0)
+            pager.view.layoutIfNeeded()
+            // 分页与 Header 宿主均退出系统回顶部，业务配置和 delegate 保持所有权。
+            let hosts = pager.view.subviews.compactMap { $0 as? UIScrollView }
+            XCTAssertEqual(hosts.count, 2)
+            XCTAssertTrue(hosts.allSatisfy { !$0.scrollsToTop })
+            pager.setSelectedIndex(1, animated: false)
+            pager.setSelectedIndex(0, animated: false)
+            pager.reloadData()
+            XCTAssertEqual(scroll.scrollToTopWrites, 0)
+            XCTAssertEqual(scroll.scrollsToTop, enabled)
+            XCTAssertTrue(scroll.delegate === owner)
+            // 绑定后业务可改变偏好；框架在布局、重绑和页面移除时均不恢复旧值。
+            scroll.scrollsToTop = !enabled
+            scroll.scrollToTopWrites = 0
+            pager.rediscoverScrollView(forPageAt: 0)
+            pager.layout.tabBarHeight = 60
+            source!.ids.removeFirst()
+            pager.reloadData()
+            XCTAssertEqual(scroll.scrollToTopWrites, 0)
+            XCTAssertEqual(scroll.scrollsToTop, !enabled)
+            XCTAssertTrue(scroll.delegate === owner)
+        }
+    }
+
     func testInitialSelectedPageKeepsSeedAcrossWindowAttachmentAndReload() {
         for rootScroll in [false, true] {
             for automatic in [false, true] {
@@ -3218,5 +3254,12 @@ private final class SizeTransitionCoordinator: NSObject, UIViewControllerTransit
     var onInsetChange: (() -> Void)?
     override dynamic var additionalSafeAreaInsets: UIEdgeInsets {
         didSet { onInsetChange?() }
+    }
+}
+
+@MainActor private final class ScrollToTopTrackingView: UIScrollView {
+    var scrollToTopWrites = 0
+    override var scrollsToTop: Bool {
+        didSet { scrollToTopWrites += 1 }
     }
 }

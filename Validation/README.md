@@ -2,6 +2,23 @@
 
 验证日期：2026-10-15 至 2026-10-24。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-24：内部滚动宿主退出状态栏回顶部
+
+仅为分页容器和标签栏内部 Collection View 设置 `scrollsToTop = false`，与 Header 宿主已有配置一致。业务列表的 `scrollsToTop`、delegate 及原生回顶部路径保持业务／UIKit 所有权，自动发现和绑定接口未调整。README 同步此边界。
+
+新增 2 项库测试：内部宿主退出回顶部，同时业务 true／false、运行时更新、delegate 在绑定、切页、布局、重新发现及页面移除后保留；独立标签栏在选中、替换 Item 和布局后仍不参与回顶部。新增真实状态栏点击 UI 测试，并检查 Header 和正文回到顶部、选中页不变。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 scheme 与目标；库测试使用仓库 UIKit application host 脚本，UI 通过官方 MCP 执行。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [聚焦库测试](Results/20261024-scrolls-to-top-focused/summary.json) | **148 通过、0 失败、0 跳过** | 容器、标签栏与分页测试；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [聚焦 UI 测试](Results/20261024-scrolls-to-top-ui/summary.json) | **3 通过、0 失败、0 跳过** | 真实状态栏点击回顶部、Header／列表滚动、分页与快速选择；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0，无运行时警告。 |
+
+UI 测试的 MCP 导出副本缺少 `Info.plist`，首次摘要无法读取测试元数据；该副本保留为 `MCP-Incomplete.xcresult`，初次摘要保留为 `incomplete-export-summary.json`。随后归档 Xcode 同次运行的完整原始结果包为 `Result.xcresult`，重新生成上述摘要并确认 3 项通过；这是结果导出问题，不是测试失败。
+
+5 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-scrolls-to-top-ui/swiftformat-lint.txt)，`git diff --check` 通过。业务 `scrollsToTop` 两种取值及运行时修改由库测试覆盖，真实回顶部 UI 验证使用业务默认开启的列表。本轮未执行完整库／Demo 测试套件、Release、Swift 6.3 工具链、iPad、iOS 15 或真机验证。没有提交或推送。
+
 ## 2026-10-24：首次绑定位置与安全区域同步回调复查
 
 重新核对首次取值时机、已有零／非零历史优先级、页面标识生命周期、KVO 嵌套通知与解绑恢复，未发现需再次修改实现的问题。本轮只补充库测试及验证记录，保留上一轮全部未提交修改。

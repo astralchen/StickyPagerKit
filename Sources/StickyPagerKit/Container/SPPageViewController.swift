@@ -150,6 +150,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         view.backgroundColor = .systemBackground
         pagingView.isPagingEnabled = true
         pagingView.bounces = false
+        // 横向宿主不参与点状态栏回顶部，避免干扰业务正文列表。
+        pagingView.scrollsToTop = false
         pagingView.showsHorizontalScrollIndicator = false
         pagingView.showsVerticalScrollIndicator = false
         pagingView.contentInsetAdjustmentBehavior = .never

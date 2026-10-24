@@ -480,6 +480,8 @@ open class SPTabBar: UIView {
         }
         backgroundColor = .clear
         collectionView.backgroundColor = .clear
+        // 标签栏只负责横向导航，回顶部由业务正文列表处理。
+        collectionView.scrollsToTop = false
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.showsVerticalScrollIndicator = false
         collectionView.contentInsetAdjustmentBehavior = .never

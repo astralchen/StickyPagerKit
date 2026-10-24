@@ -827,6 +827,23 @@ final class StickyPagerDemoUITests: XCTestCase {
         }
     }
 
+    func testStatusBarTapReturnsBusinessListToTop() throws {
+        select(1)
+        expect("page=list")
+        let table = app.tables["demo.list"]
+        table.swipeUp()
+        expect("progress=1.00")
+        XCTAssertGreaterThan(contentPosition(), 0)
+        let statusBar = app.statusBars.firstMatch.exists ? app.statusBars
+            .firstMatch : XCUIApplication(bundleIdentifier: "com.apple.springboard").statusBars.firstMatch
+        XCTAssertTrue(statusBar.waitForExistence(timeout: 5))
+        // 点击实际状态栏左侧，避开中央系统区域；由 UIKit 发起原生回顶部。
+        statusBar.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        expect("progress=0.00")
+        XCTAssertEqual(contentPosition(), 0, accuracy: 1)
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+    }
+
     func testHeaderStartsAtScreenTopAndPageContentMeetsTabBar() {
         let header = app.otherElements["demo.headerView"]
         let tab = app.buttons["sp.tab.0"]
