@@ -694,6 +694,8 @@ final class StickyPagerKitTests: XCTestCase {
 
     func testAutomaticTabHeightUpdatesContainerAndCachedPages() {
         let pager = mount()
+        // 本用例验证视口约束下的换行增高；leading 使用自然宽度并允许横向滚动。
+        pager.tabBar.itemPositioning = .automatic
         let provider = AutomaticTabSource()
         pager.tabBar.contentDelegate = provider
         pager.tabBar.contentStyle = .custom

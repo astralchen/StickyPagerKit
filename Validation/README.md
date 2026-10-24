@@ -2,6 +2,125 @@
 
 验证日期：2026-10-15 至 2026-10-24。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-24：提交前复查
+
+复查本次频道样式、左右留白、选中字重、下划线宽度／圆角枚举、归档兼容、Demo 调用及所有新增／调整测试，未发现新的阻塞问题。核对现有终态结果与当前文件 SHA-256：294 项完整库测试和 3 项 UI 手势所对应的库、应用与测试源码未变化；唯一后续变化是 Demo 宿主窗口夹具，已单独复测 1 项通过且诊断清零。首轮失败及诊断证据继续保留，不将首轮 Demo 运行记为整体通过。
+
+本轮未修改实现或重复构建测试；19 个待提交 Swift 文件的 SwiftFormat lint 及 `git diff --check` 通过。验证范围沿用下述记录，不扩展为完整 Demo、Release、iPad、iOS 15 或真机均已验证。
+
+## 2026-10-24：统一宽度枚举与模式切换回归
+
+`SPTabBarIndicatorLayout.width` 统一为 `.automatic / .fixed(CGFloat)`，下划线工厂直接赋值该属性，不再按宽度模式切换尺寸上限。自动宽度由 `reference` 决定；显式 `limitsSizeToReference` 对两种模式均生效。`.title` 保留 Item 高度保护，固定宽度仍可超过短标题。模式切换不重置其他布局配置。保留圆角枚举与旧数值归档格式；旧宽度数值、null、缺省字段均可解码。迁移调用点及 README，修正菜单数量、默认排列描述。Demo 渐变改用 `state.cornerRadius`，不再写死半高。
+
+新增 4 项库回归，覆盖短标题模式切换、工厂与属性一致性、配置保留、分页中切换后双向完成／取消、RTL、三种参考区域与显式限宽、旧宽度字段及 Appearance 往返归档。扩展极矮标签用例到固定宽度。新增 1 项 Demo 宿主测试，在真实窗口检查自定义渐变的自动、直角、固定及上限圆角，并检查分页中的实际渐变图层。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug / iPhone 17 Pro / iOS 26.5 Simulator。官方 MCP 构建通过，并确认 Demo 新用例已被 scheme 收录；库测试使用独立 UIKit 宿主，Demo 测试沿用命令行路径避开本会话已记录的 MCP Runner 附加问题。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [首轮聚焦](Results/20261024-width-enum-focused/summary.json) | **51 通过、2 失败** | 新夹具替换 Item 后漏设选择，另一新断言精确比较约 1e-14 pt 的插值误差；修正初始化和浮点断言，保留失败记录。 |
+| [聚焦复测](Results/20261024-width-enum-focused-final/summary.json) | **53 通过、0 失败** | 此时源码一致，之后修复极矮标签高度保护。 |
+| [首轮完整库](Results/20261024-width-enum-library/summary.json) | **293 通过、1 失败** | 解除水平限宽同时丢失了自动下划线在 1 pt 高 Item 内的高度保护；修复实现并保留原断言，扩展固定宽度覆盖。 |
+| [边界复测](Results/20261024-width-enum-boundary/summary.json) | **67 通过、0 失败、0 跳过** | 指示器、频道样式与自动内容测试均通过，三类运行时诊断均为 0；后续仅 Demo 宿主夹具变化。 |
+| [最终完整库](Results/20261024-width-enum-library-final/summary.json) | **294 通过、0 失败、0 跳过** | 库源码与库测试一致，三类运行时诊断均为 0；后续仅 Demo 宿主夹具变化。 |
+| [Demo 首轮](Results/20261024-width-enum-demo/summary.json) | **断言 4 通过；诊断失败** | 3 项真实 UI 分页通过；新渐变宿主测试也通过，但窗口释放过早产生 1 次 appearance 不平衡，未将该运行记为整体通过。 |
+| [Demo 宿主修复复测](Results/20261024-width-enum-demo-unit-final/summary.json) | **1 通过、0 失败、0 跳过** | 按既有窗口夹具等待 appearance 完成再解绑，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+终态哈希审计：边界复测、完整库及 Demo 首轮的 `sourceChangedSinceRun` 均只包含 `Examples/StickyPagerDemo/StickyPagerDemoTests/DemoIndicatorTests.swift`。库、Demo 应用及 UI 测试源码未再变化，故仅重跑受影响的宿主用例；原始失败诊断保留。3 项 UI 覆盖默认文字等宽、固定 20 pt 的长短标题双向完成／取消，以及自定义指示器分页。
+
+SwiftFormat 0.64.0 与 `git diff --check` 通过。未执行完整 Demo 套件、Release、iPad、iOS 15 或真机验证。未提交或推送。
+
+## 2026-10-24：四种下划线实际演示
+
+运行最新 Demo，对比文字等宽／固定 20 pt 与自动圆角／直角的四种组合。复用长短标题手势步骤，新增两个直角 UI 用例；本轮未改动框架或 Demo 实现。每组均验证短→长、长→短的取消与完成，并检查当前页面及选中 Item。
+
+[本次结果](Results/20261024-underline-four-styles/summary.json)：**4 通过、0 失败、0 跳过**，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。环境为 Xcode 26.5 / Debug / iPhone 17 Pro / iOS 26.5 Simulator。沿用命令行 UI 测试，避开前轮已记录的官方 MCP Runner 附加问题；构建的 SwiftFormat 阶段通过。
+
+录屏与测试同步进行，导出四段标签栏局部原速视频，展示取消恢复和完成落点。逐帧核对长标题终态：文字等宽覆盖标题，固定宽度保持 20 pt；自动圆角为圆头，`.fixed(0)` 为直角。原始录屏保留双向操作。未重复完整库／Demo 套件、Release、iPad、RTL、iOS 15 或真机测试。
+
+## 2026-10-24：下划线宽度预设与圆角枚举
+
+`SPTabBarIndicatorLayout.underline` 与默认频道线条统一，等价于 `.underline(width: .content)`；`.underline(width: .fixed(20))` 居中对齐选中态标题并保持固定宽度。新增 `.title` 参考区域复用通用布局计算，删除默认线条的独立几何分支。预设仍支持高度、对齐、内缩、偏移、层级和自定义扩展；纯图标及自定义内容保持回退规则。`cornerRadius` 改为 `.automatic` / `.fixed(CGFloat)`，固定 0 表示直角；保持负值／非有限值归零及短边一半的上限。Appearance 归档沿用可选数值字段，兼容旧数值及缺省圆角。README 记录源码调用迁移及旧 Item 内缩布局的表达方式。
+
+新增 6 项库回归，覆盖固定宽度双向分页完成／取消、RTL、长短标题、图标角标、屏幕外选择、字体变化、自定义内容、非法宽度、布局定制、Appearance 复制与归档、旧圆角归档；原文字端点测试同时运行默认与显式下划线预设。Demo 增加固定 20 pt 下划线和圆角菜单，新增固定宽度长短标题双向真实手势测试。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug / iPhone 17 Pro / iOS 26.5 Simulator。官方 MCP 构建成功；库测试使用独立 UIKit application host，UI 沿用命令行路径避开本会话已记录的 MCP Runner 附加问题。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [首轮聚焦](Results/20261024-underline-api-focused/summary.json) | **47 通过、2 失败** | 新断言对约 1e-14 pt 的浮点误差使用了精确相等，Item Appearance 替换后也未同步布局；已修正测试。保留失败证据。 |
+| [聚焦复测](Results/20261024-underline-api-focused-final/summary.json) | **49 通过、0 失败** | 当时源码一致，三类运行时诊断均为 0。 |
+| [首轮完整库](Results/20261024-underline-api-library/summary.json) | **279 通过、11 失败** | 三组旧夹具仍假定显式 `.underline` 为 Item 内缩 12 pt；已用通用布局配置保留其原几何和滚动断言。保留失败证据。 |
+| [最终完整库](Results/20261024-underline-api-library-final/summary.json) | **290 通过、0 失败、0 跳过** | `sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [真实手势 UI](Results/20261024-underline-api-ui/summary.json) | **3 通过、0 失败、0 跳过** | 默认文字等宽、固定 20 pt 长短标题双向完成／取消，以及自定义指示器分页；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+SwiftFormat 0.64.0 检查及 `git diff --check` 通过。未执行 Release、完整 Demo 套件、iPad、iOS 15 或真机验证。未提交或推送。
+
+## 2026-10-24：长短标题分页演示
+
+Demo 的“页面 → 长短标题演示”提供“推荐”“编辑精选与深度阅读”“热点”标题，便于观察默认频道下划线宽度变化。新增 UI 用例覆盖短→长、长→短各自的取消和完成：取消拖动 32% 页面宽度并停住后松手，完成拖动 70%；分别断言当前页面及选中 Item。框架实现未改动。
+
+官方 Xcode MCP 构建通过；真实手势沿用命令行测试，避开前轮记录的 MCP Runner 附加问题。[本次结果](Results/20261024-channel-long-short/summary.json)：**1 通过、0 失败、0 跳过**，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。环境为 Xcode 26.5 / Debug / iPhone 17 Pro / iOS 26.5 Simulator。构建的 SwiftFormat 阶段及 `git diff --check` 通过。
+
+原速录屏覆盖双向宽度变化：完成后分别稳定在长、短标题下方；取消恢复原标题宽度和选中状态。录像剪去启动和多余等待，用于视觉演示；不据此代替前轮长英文标题端点几何测试。本轮未重复完整库和 Demo 测试，也未新增 iPad、RTL 或真机验证。
+
+## 2026-10-24：频道下划线分页端点复查与简化
+
+修复默认下划线在分页提交后随 semibold 标题再次伸缩的问题：内置图文使用独立测量副本解析选中态端点，保持可见标题、逻辑选择和回调提交时机不变。标题／纯图标的选中态几何与显式 `.content` 的实际内容区域分开缓存，继续校验 Item frame；自定义内容仍使用其声明的指示器区域。合并字体解析和 Dynamic Type 缩放入口，保留 Item 字体、Appearance 字体和默认字体的优先级；移除默认线条提前返回后的冗余回退分支。README 同步端点测量规则。
+
+新增 3 项库回归：长英文标题在 LTR／RTL 下完成分页后不再产生第二段宽度动画；双向取消恢复原端点、滚动位置及选择；显式字体与 `.content` 布局切换不会混用两类测量缓存。新增默认频道型真实分页完成／取消 UI 测试，与已有自定义指示器测试复用手势步骤。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug，iPhone 17 Pro / iOS 26.5 Simulator。官方 MCP 确认 Demo 工程，库测试使用独立 UIKit application host。UI 沿用命令行路径，避开本会话已记录的官方 MCP LLDB Runner 附加失败。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前回归](Results/20261024-channel-endpoints-red/summary.json) | **9 通过、2 失败** | 完成端点和显式字体用例捕获旧问题，取消用例通过；默认长英文标题提交后从约 203.7 pt 再伸长至 211.7 pt。保留失败证据。 |
+| [修复后聚焦](Results/20261024-channel-endpoints-focused/summary.json) | **101 通过、0 失败、0 跳过** | 频道样式、模型、指示器、基本交互及自定义内容；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [完整库](Results/20261024-channel-endpoints-library/summary.json) | **284 通过、0 失败、0 跳过** | `sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [UI 回归](Results/20261024-channel-endpoints-ui/summary.json) | **3 通过、0 失败、0 跳过** | 默认频道型、自定义指示器的真实分页完成与取消，以及 RTL 分页；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+本轮 3 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-channel-endpoints-focused/swiftformat-lint.txt)，`git diff --check` 通过。未执行完整 Demo 测试套件、Release、iPad、iOS 15 或真机验证。没有提交或推送。
+
+同日实际画面演示（iPhone 17 Pro 模拟器）：复用与当前源码一致的 Demo 构建，以 `test-without-building` 执行默认频道型完成／取消真实手势并同步录屏，[演示运行](Results/20261024-channel-live-recording/summary.json) **1 通过、0 失败**，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。短拖动后下划线回到“网格”；完成左滑后停在“列表”文字下方。录像仅剪去启动与等待，保留原速；未修改业务源码。
+
+## 2026-10-24：频道型默认样式与下划线主题色
+
+默认采用 `.leading` 内容宽度排列和 `.underline` 指示器，保留首尾 16 pt 滚动留白。选中标题使用同字号 semibold，沿用 Dynamic Type；显式 Item 字体属性和 Appearance 字体仍优先。下划线取实际标题的水平区域，在 Item 底部绘制 3 pt 线条；纯图标回退到图标区域，自定义内容使用其 `indicatorContentRect`。显式 `SPTabBarIndicatorLayout.underline` 保留 Item 左右内缩 12 pt 的原有预设。选择居中滚动策略不变。
+
+根据后续确认，未设置 `indicatorColor` 时下划线始终跟随 `SPTabBar.tintColor`，不受选中标题颜色覆盖影响；显式颜色优先，设回 nil 恢复动态跟随。胶囊与自定义指示器的默认颜色规则保持原样。README、公开注释与 Demo 指示器菜单同步更新。
+
+新增 8 项频道样式测试，覆盖 LTR／RTL、首尾留白、自然宽度、字重切换不挤动 Item、图文与角标、纯图标、显式字体和布局覆盖、大字号、标题和视口更新、屏幕外选择、分页插值及自定义内容。原有字体、宽度、胶囊和换行测试显式配置所验证的模式；角标测试改为检查标题相对按钮中心的位置，兼顾自然宽度扩展。颜色回归覆盖继承 tint、实时改色、标题色独立性、覆盖／恢复、深浅色及动画中刷新。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug，iPhone 17 Pro / iOS 26.5 Simulator。官方 MCP 确认打开的 Demo 工程；根库通过仓库 UIKit application host 执行。UI 沿用命令行流程，原因是本会话前轮官方 MCP 曾因 LLDB 无法附加 Runner 而未能执行测试。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [首轮聚焦](Results/20261024-channel-style-focused/summary.json) | **124 通过、2 失败** | 新增 8 项全部通过；失败来自附件测试的旧胶囊假设和准备 Cell 测试的字体断言，后续显式指定对应配置。保留原始失败证据。 |
+| [首轮完整库](Results/20261024-channel-style-library/summary.json) | **279 通过、2 失败** | 角标断言假定 Item 不扩宽，自动增高断言依赖 `.automatic`；已修正测试目的与配置。运行中追加主题色规则及测试修正，5 个文件列于 `sourceChangedSinceRun`，不作为最终源码证据。 |
+| [最终完整库](Results/20261024-channel-style-library-final/summary.json) | **281 通过、0 失败、0 跳过** | `sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [UI 交互回归](Results/20261024-channel-style-ui/summary.json) | **4 通过、0 失败、0 跳过** | 指示器预设与前景命中（含旋转）、标签居中和首尾定位、横向拖动保持页面、按住按钮拖动及 RTL 分页；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+已检查 UI 测试导出的[默认下划线截图](Results/20261024-channel-style-ui/Attachments/E80DA873-F029-4B1A-BD29-083F7EB302BE.png)：选中标题加粗，线条与标题等宽，不包含图标和角标。
+
+17 个修改／新增的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-channel-style-library-final/swiftformat-lint.txt)，`git diff --check` 通过。本轮未执行完整 Demo 测试套件、Release、iPad、iOS 15 或真机验证。没有提交或推送。
+
+## 2026-10-24：标签栏默认首尾留白 16 pt
+
+`SPTabBar.contentInsets` 默认改为 leading／trailing 各 16 pt、top／bottom 为 0。留白随内容滚动，视口仍延伸至安全区域／附件边界，固定附件和内置图文 padding 不变；显式 `.zero` 可取消默认留白。公开注释和 README 同步此契约。
+
+新增 2 项窗口几何回归，覆盖四种排列模式、LTR／RTL、左右安全区域、内容滚过首端留白、尾端留白、零值覆盖、单项／空列表和尺寸变化。原有宽度与间距算法夹具显式指定 `.zero`，继续验证无额外留白时的分配规则；Demo UI 首尾定位断言同步为 16 pt。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug，iPhone 17 Pro / iOS 26.5 Simulator。根库使用仓库 UIKit application host 脚本；官方 MCP 的 Demo 构建成功，但 UI Runner 因 LLDB 无法附加而启动失败，随后回退仓库命令行流程执行相同的三项 UI 测试。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [标签栏聚焦](Results/20261024-tab-insets-focused/summary.json) | **142 通过、0 失败、0 跳过** | 运行期间仅修改 Demo UI 对齐断言，该文件列于 `sourceChangedSinceRun`；库实现与库测试未变。 |
+| [完整库](Results/20261024-tab-insets-library/summary.json) | **273 通过、0 失败、0 跳过** | 最终源码，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [官方 MCP UI](Results/20261024-tab-insets-ui/summary.json) | **环境阻塞，3 项未执行** | xcresult 记录 1 条 Runner 启动失败：`Could not attach to pid`；保留原始结果及控制台日志。 |
+| [命令行 UI](Results/20261024-tab-insets-ui-cli/summary.json) | **3 通过、0 失败、0 跳过** | 标签居中与首尾定位、横向滚动保持页面、按住按钮后的拖动、RTL 分页；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+
+8 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-tab-insets-library/swiftformat-lint.txt)，`git diff --check` 通过。本轮未执行完整 Demo 测试套件、Release、iPad、旋转、iOS 15 或真机验证。没有提交或推送。
+
 ## 2026-10-24：内部滚动宿主退出状态栏回顶部
 
 仅为分页容器和标签栏内部 Collection View 设置 `scrollsToTop = false`，与 Header 宿主已有配置一致。业务列表的 `scrollsToTop`、delegate 及原生回顶部路径保持业务／UIKit 所有权，自动发现和绑定接口未调整。README 同步此边界。

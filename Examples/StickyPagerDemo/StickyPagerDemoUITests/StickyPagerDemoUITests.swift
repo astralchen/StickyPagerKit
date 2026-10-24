@@ -257,11 +257,11 @@ final class StickyPagerDemoUITests: XCTestCase {
             if abs(delta) < 1 {
                 return true
             }
-            // 无法继续居中时，必须有对应的真实内容端点与视口边界重合。
+            // 无法继续居中时，首尾 Item 与视口边界之间保留默认的 16 pt 内容留白。
             if delta < 0 {
-                return leftEdge.exists && abs(leftEdge.frame.minX - viewport.minX) < 1
+                return leftEdge.exists && abs(leftEdge.frame.minX - viewport.minX - 16) < 1
             }
-            return rightEdge.exists && abs(rightEdge.frame.maxX - viewport.maxX) < 1
+            return rightEdge.exists && abs(viewport.maxX - rightEdge.frame.maxX - 16) < 1
         }
         expectation(for: aligned, evaluatedWith: selected)
         waitForExpectations(timeout: 5)
@@ -1076,7 +1076,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         openGallery()
         let tabs = app.collectionViews["sp.tabBar.collection"]
         let originalHeight = tabs.frame.height
-        for mode in ["默认胶囊", "底部线条", "顶部固定线条", "跟随内容宽度", "内容背景", "自由布局与自定义视图", "隐藏指示器", "默认胶囊"] {
+        for mode in ["默认下划线", "胶囊", "顶部固定线条", "跟随内容宽度", "内容背景", "自由布局与自定义视图", "隐藏指示器", "默认下划线"] {
             app.buttons["配置"].tap()
             app.buttons["指示器"].tap()
             app.buttons[mode].tap()
@@ -1097,10 +1097,71 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
     }
 
-    func testCustomIndicatorPagingAndCancelledGesture() {
+    func testChannelIndicatorPagingAndCancelledGesture() {
+        verifyPagingAndCancelledGesture()
+    }
+
+    func testChannelIndicatorDifferentTitleLengths() {
+        verifyDifferentTitleLengths()
+    }
+
+    func testFixedUnderlineDifferentTitleLengths() {
         app.buttons["demo.pages"].tap()
         app.buttons["指示器"].tap()
-        app.buttons["自由布局与自定义视图"].tap()
+        app.buttons["固定宽度下划线（20 pt）"].tap()
+        verifyDifferentTitleLengths()
+    }
+
+    func testChannelIndicatorDifferentTitleLengthsWithSquareCorners() {
+        useSquareIndicatorCorners()
+        verifyDifferentTitleLengths()
+    }
+
+    func testFixedUnderlineDifferentTitleLengthsWithSquareCorners() {
+        app.buttons["demo.pages"].tap()
+        app.buttons["指示器"].tap()
+        app.buttons["固定宽度下划线（20 pt）"].tap()
+        useSquareIndicatorCorners()
+        verifyDifferentTitleLengths()
+    }
+
+    private func useSquareIndicatorCorners() {
+        app.buttons["demo.pages"].tap()
+        app.buttons["指示器"].tap()
+        app.buttons["指示器圆角"].tap()
+        app.buttons["直角"].tap()
+    }
+
+    private func verifyDifferentTitleLengths() {
+        app.buttons["demo.pages"].tap()
+        app.buttons["长短标题演示"].tap()
+        XCTAssertEqual(app.buttons["sp.tab.0"].label, "推荐")
+        XCTAssertEqual(app.buttons["sp.tab.1"].label, "编辑精选与深度阅读")
+
+        let pages = app.scrollViews["sp.pages"]
+        for (source, target, direction) in [(0, 1, -1.0), (1, 0, 1.0)] {
+            let start = pages.coordinate(withNormalizedOffset: CGVector(dx: direction < 0 ? 0.85 : 0.15, dy: 0.6))
+            // 停住后松手，避免短拖动因末端速度变成完成分页。
+            start.press(
+                forDuration: 0.05,
+                thenDragTo: start.withOffset(CGVector(dx: pages.frame.width * 0.32 * direction, dy: 0)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.4
+            )
+            expect(source == 0 ? "page=grid" : "page=list")
+            XCTAssertTrue(app.buttons["sp.tab.\(source)"].isSelected)
+            start.press(
+                forDuration: 0.05,
+                thenDragTo: start.withOffset(CGVector(dx: pages.frame.width * 0.7 * direction, dy: 0)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.2
+            )
+            expect(target == 0 ? "page=grid" : "page=list")
+            XCTAssertTrue(app.buttons["sp.tab.\(target)"].isSelected)
+        }
+    }
+
+    private func verifyPagingAndCancelledGesture() {
         let page = app.collectionViews["demo.grid"]
         let start = page.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.6))
         start.press(
@@ -1115,6 +1176,13 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("page=list")
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
         select(0); expect("page=grid")
+    }
+
+    func testCustomIndicatorPagingAndCancelledGesture() {
+        app.buttons["demo.pages"].tap()
+        app.buttons["指示器"].tap()
+        app.buttons["自由布局与自定义视图"].tap()
+        verifyPagingAndCancelledGesture()
         app.buttons["demo.pages"].tap(); app.buttons["切换自定义标签"].tap()
         app.collectionViews["demo.grid"].swipeLeft()
         expect("page=list")

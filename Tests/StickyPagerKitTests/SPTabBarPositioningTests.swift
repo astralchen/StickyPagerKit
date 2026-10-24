@@ -17,6 +17,10 @@ final class SPTabBarPositioningTests: XCTestCase {
         window.rootViewController = UIViewController()
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: width, height: 80))
+        // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
+        bar.itemPositioning = .automatic
+        // 此夹具显式使用零留白，隔离 Item 宽度与间距算法；默认留白由附件布局测试覆盖。
+        bar.contentInsets = .zero
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         window.rootViewController!.view.addSubview(bar)
         bar.items = (0 ..< count).map { SPTabBarItem(title: "标签 \($0)") }

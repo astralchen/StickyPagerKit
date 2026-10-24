@@ -1,9 +1,30 @@
 import UIKit
 
 /// 指示器的值类型布局配置；不参与标签或标签栏测量，允许超出标签，最终裁剪到安全视口。
-/// nil 宽高跟随参考区域；固定宽高不受参考区域限制。负尺寸归零，非有限值使用默认值。
+/// automatic 宽度及 nil 高度跟随参考区域；固定尺寸默认不受参考区域限制，可显式启用尺寸上限。
 public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
-    public enum Reference: String, Codable, Sendable { case item, content }
+    public enum Reference: String, Codable, Sendable {
+        case item, content
+        /// 水平跟随选中态标题（无标题时回退到内容），垂直跟随 Item，指示器高度不超过 Item。
+        case title
+    }
+
+    /// 指示器宽度策略；参考区域由 reference 独立决定。
+    public enum Width: Codable, Equatable, Sendable {
+        /// 填充内缩后的参考区域；下划线预设默认参考选中态标题。
+        case automatic
+        /// 固定宽度；显式启用 limitsSizeToReference 时仍受参考区域上限约束。
+        case fixed(CGFloat)
+    }
+
+    /// 指示器圆角策略，与宽度及展示样式独立。
+    public enum CornerRadius: Codable, Equatable, Sendable {
+        /// 使用最终宽高较小值的一半。
+        case automatic
+        /// 指定圆角；0 为直角，数值限制在 0 与短边一半之间。
+        case fixed(CGFloat)
+    }
+
     public enum HorizontalAlignment: String, Codable, Sendable { case leading, center, trailing }
     public enum VerticalAlignment: String, Codable, Sendable { case top, center, bottom }
     public enum Placement: String, Codable, Sendable { case background, foreground }
@@ -11,9 +32,20 @@ public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
     public var reference: Reference = .item
     public var horizontalAlignment: HorizontalAlignment = .center
     public var verticalAlignment: VerticalAlignment = .center
-    public var width: CGFloat?
+    /// 默认填充参考区域；切换宽度模式不改变其他布局配置。
+    public var width: Width {
+        get { storedWidth.map(Width.fixed) ?? .automatic }
+        set {
+            switch newValue {
+            case .automatic: storedWidth = nil
+            case let .fixed(width): storedWidth = width
+            }
+        }
+    }
+
     public var height: CGFloat?
-    /// 为 true 时宽高最多等于参考区域；内置预设启用，避免极小标签产生越界。
+    /// 为 true 时宽高最多等于参考区域，对 automatic 和 fixed 均生效。
+    /// 胶囊预设启用；下划线预设不启用，允许固定宽度超过短标题。
     public var limitsSizeToReference = false
     /// 正数内缩，负数外扩；固定尺寸仍按内缩后的区域对齐。
     public var horizontalInset: CGFloat = 0
@@ -21,8 +53,26 @@ public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
     /// 物理坐标偏移；x 正值始终向右。逻辑对齐使用 horizontalAlignment。
     public var offset: CGPoint = .zero
     public var placement: Placement = .background
-    /// nil 使用最终宽高较小值的一半；显式值也限制到该上限。
-    public var cornerRadius: CGFloat?
+    /// 默认自动圆角；可指定固定圆角或以 fixed(0) 使用直角。
+    public var cornerRadius: CornerRadius {
+        get { storedCornerRadius.map(CornerRadius.fixed) ?? .automatic }
+        set {
+            switch newValue {
+            case .automatic: storedCornerRadius = nil
+            case let .fixed(radius): storedCornerRadius = radius
+            }
+        }
+    }
+
+    // 归档沿用旧版可选数值字段，兼容历史 Appearance 的数值和缺省宽度／圆角。
+    private var storedWidth: CGFloat?
+    private var storedCornerRadius: CGFloat?
+    private enum CodingKeys: String, CodingKey {
+        case reference, horizontalAlignment, verticalAlignment, height, limitsSizeToReference
+        case storedWidth = "width"
+        case horizontalInset, verticalInset, offset, placement
+        case storedCornerRadius = "cornerRadius"
+    }
 
     public init() {}
 
@@ -34,17 +84,36 @@ public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
         return value
     }
 
+    /// 默认频道下划线：与标题等宽，位于 Item 底部，高 3 pt。
     public static var underline: Self {
+        underline(width: .automatic)
+    }
+
+    /// 下划线预设；固定宽度分页时只移动，跟随内容时同时插值位置和宽度。
+    public static func underline(width: Width) -> Self {
         var value = Self()
-        value.limitsSizeToReference = true
-        value.horizontalInset = 12
+        value.reference = .title
+        value.width = width
         value.height = 3
         value.verticalAlignment = .bottom
         return value
     }
 
     internal func frame(in context: SPTabBarIndicatorLayoutContext) -> CGRect {
-        let reference = reference == .item ? context.itemFrame : context.contentFrame
+        let reference: CGRect
+        switch self.reference {
+        case .item: reference = context.itemFrame
+        case .content: reference = context.contentFrame
+        case .title:
+            let left = max(context.itemFrame.minX, context.contentFrame.minX)
+            let right = min(context.itemFrame.maxX, context.contentFrame.maxX)
+            reference = CGRect(
+                x: left,
+                y: context.itemFrame.minY,
+                width: max(0, right - left),
+                height: context.itemFrame.height
+            )
+        }
         let dx = min(Self.finite(horizontalInset), reference.width / 2)
         let dy = min(Self.finite(verticalInset), reference.height / 2)
         let area = CGRect(
@@ -53,10 +122,18 @@ public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
             width: max(0, reference.width - 2 * dx),
             height: max(0, reference.height - 2 * dy)
         )
-        var w = width.map { max(0, Self.finite($0, fallback: area.width)) } ?? area.width
+        var w: CGFloat
+        switch width {
+        case .automatic: w = area.width
+        case let .fixed(value): w = max(0, Self.finite(value, fallback: area.width))
+        }
         var h = height.map { max(0, Self.finite($0, fallback: area.height)) } ?? area.height
         if limitsSizeToReference {
             w = min(w, reference.width)
+            h = min(h, reference.height)
+        }
+        // 标题下划线保持极矮 Item 的垂直保护，不因固定宽度解除水平上限而越界。
+        if self.reference == .title {
             h = min(h, reference.height)
         }
         let rtl = context.layoutDirection == .rightToLeft
@@ -91,7 +168,8 @@ public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
 }
 
 /// 所有 frame 均位于横向滚动内容坐标系；框架负责滚动转换，无需减去 contentOffset。
-/// contentFrame 为当前状态的图文区域（不含角标）；自定义内容未声明区域时回退到整项。
+/// contentFrame 通常为当前状态的图文区域（不含角标）；reference 为 title 时取选中态标题区域。
+/// 纯图标回退到图标区域，自定义内容未声明区域时回退到整项。
 @MainActor
 public struct SPTabBarIndicatorLayoutContext {
     public let item: SPTabBarItem

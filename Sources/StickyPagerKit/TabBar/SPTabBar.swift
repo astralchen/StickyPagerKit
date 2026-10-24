@@ -13,7 +13,7 @@ open class SPTabBar: UIView {
     public enum IndicatorStyle: Int, Sendable {
         /// 内置胶囊；默认在标签项四周内缩 4 pt，使用系统填充色。
         case capsule
-        /// 内置线条；默认位于底部，高 3 pt，跟随选中文字颜色。
+        /// 内置线条；默认位于 Item 底部，高 3 pt、与标题等宽，颜色跟随标签栏 tintColor。
         case underline
         /// 启用几何代理和自定义视图；缺失的部分独立回退到默认实现。
         case custom
@@ -21,7 +21,7 @@ open class SPTabBar: UIView {
         case none
     }
 
-    public var indicatorStyle: IndicatorStyle = .capsule {
+    public var indicatorStyle: IndicatorStyle = .underline {
         didSet {
             guard oldValue != indicatorStyle else {
                 return
@@ -60,11 +60,11 @@ open class SPTabBar: UIView {
         case leading
     }
 
-    /// 整栏标签的宽度分配，默认 automatic 保留自适应策略。
+    /// 整栏标签的宽度分配，默认 leading 按内容宽度靠逻辑起始端排列。
     /// automatic 优先满足内容宽度，其余项尽量等宽；fill 均分可用宽度，但不小于 minimumItemWidth。
     /// centered 与 leading 按内容宽度排列，分别整组居中或靠逻辑起始端；所有模式超出视口时均可横向滚动。
     /// fill 不以内容宽度撑开 Cell；自定义内容应支持压缩或换行。
-    public var itemPositioning: ItemPositioning = .automatic {
+    public var itemPositioning: ItemPositioning = .leading {
         didSet {
             if oldValue != itemPositioning {
                 refreshContentLayout()
@@ -109,7 +109,7 @@ open class SPTabBar: UIView {
 
     private var storedItemSpacing: CGFloat = 0
 
-    /// 标签内容四周的留白，默认零；水平首尾留白随内容滚动，上下留白参与建议栏高。
+    /// 标签内容四周的留白，默认左右各 16 pt、上下为零；水平首尾留白随内容滚动，上下留白参与建议栏高。
     /// 不作用于固定附件。负数及非有限分量归零，每个分量最多 1,000,000 pt。
     public var contentInsets: NSDirectionalEdgeInsets {
         get { storedContentInsets }
@@ -131,7 +131,7 @@ open class SPTabBar: UIView {
         }
     }
 
-    private var storedContentInsets: NSDirectionalEdgeInsets = .zero
+    private var storedContentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
     private let leadingAccessoryHost = SPTabBarAccessoryHost()
     private let trailingAccessoryHost = SPTabBarAccessoryHost()
     private var appliedAccessoryGeometry: AccessoryGeometry?
@@ -232,8 +232,14 @@ open class SPTabBar: UIView {
         setNeedsLayout()
     }
 
+    private struct IndicatorContentKey: Hashable {
+        let index: Int
+        let prefersTitle: Bool
+    }
+
+    // 默认线条的选中态标题与显式 content 的实际内容分开缓存。
     // prepare 前的同步回调仍可能读到旧 Item frame；缓存必须同时校验实际几何。
-    private var indicatorContentFrames: [Int: (itemFrame: CGRect, contentFrame: CGRect)] = [:]
+    private var indicatorContentFrames: [IndicatorContentKey: (itemFrame: CGRect, contentFrame: CGRect)] = [:]
     private var resolvingIndicator = false
 
     private let contentMeasurementHost = UIView()
@@ -396,11 +402,19 @@ open class SPTabBar: UIView {
             .titleTextAttributes(for: .normal)
         let selectedColor: UIColor = (attributes?[.foregroundColor] as? UIColor)
             ?? value.itemAppearance.selected.titleColor ?? tintColor ?? .systemBlue
-        let color: UIColor = value.indicatorColor ?? (indicatorStyle == .capsule ? .tertiarySystemFill : selectedColor)
+        let defaultColor: UIColor
+        switch indicatorStyle {
+        case .capsule: defaultColor = .tertiarySystemFill
+        case .underline: defaultColor = tintColor ?? .systemBlue
+        case .custom, .none: defaultColor = selectedColor
+        }
+        let color = value.indicatorColor ?? defaultColor
         let maximumRadius = min(indicator.bounds.width, indicator.bounds.height) / 2
-        let radius = layout.cornerRadius.map {
-            min(maximumRadius, max(0, SPTabBarIndicatorLayout.finite($0)))
-        } ?? maximumRadius
+        let radius: CGFloat
+        switch layout.cornerRadius {
+        case .automatic: radius = maximumRadius
+        case let .fixed(value): radius = min(maximumRadius, max(0, SPTabBarIndicatorLayout.finite(value)))
+        }
         indicator.isHidden = indicator.frame.isEmpty
         indicator.layer.zPosition = layout.placement == .background ? -1 : 1
         let customView = indicatorStyle == .custom ? indicatorView : nil
@@ -874,18 +888,19 @@ open class SPTabBar: UIView {
         }
     }
 
-    private func font(_ state: SPTabBarItemStateAppearance) -> UIFont {
-        state.font
-            .map { UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: $0, compatibleWith: traitCollection) } ??
-            titleFont
-    }
-
     private func itemFont(_ item: SPTabBarItem, style: SPTabBarItemStateAppearance, state: UIControl.State) -> UIFont {
         let attributes = item.titleTextAttributes(for: state) ?? item.titleTextAttributes(for: .normal)
-        guard let base = attributes?[.font] as? UIFont else {
-            return font(style)
+        if let base = (attributes?[.font] as? UIFont) ?? style.font {
+            return UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: base, compatibleWith: traitCollection)
         }
-        return UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: base, compatibleWith: traitCollection)
+        let font = titleFont
+        guard state.contains(.selected) else {
+            return font
+        }
+        let descriptor = font.fontDescriptor.addingAttributes([
+            .traits: [UIFontDescriptor.TraitKey.weight: UIFont.Weight.semibold]
+        ])
+        return UIFont(descriptor: descriptor, size: 0)
     }
 
     private func measuredSize(_ item: SPTabBarItem) -> CGSize {
@@ -1164,10 +1179,11 @@ open class SPTabBar: UIView {
         resolveCustomContents(width: contentViewport.width)
     }
 
-    private func configure(_ cell: UICollectionViewCell, item: SPTabBarItem, at index: Int) {
+    private func configure(_ cell: UICollectionViewCell, item: SPTabBarItem, at index: Int, selected: Bool? = nil) {
+        let isSelected = selected ?? (index == selectedIndex)
         if let content = customContent(at: index) {
             var state = UICellConfigurationState(traitCollection: traitCollection)
-            state.isSelected = index == selectedIndex
+            state.isSelected = isSelected
             state.isDisabled = !item.isEnabled
             cell.contentConfiguration = SPTabContentConfiguration.custom(SPCustomTabContentConfiguration(
                 content: content.configuration,
@@ -1188,9 +1204,9 @@ open class SPTabBar: UIView {
             return
         }
         let styles = appearance.itemAppearance
-        let state = !item.isEnabled ? styles.disabled : (index == selectedIndex ? styles.selected : styles.normal)
+        let state = !item.isEnabled ? styles.disabled : (isSelected ? styles.selected : styles.normal)
         let defaultColor: UIColor = !item
-            .isEnabled ? .tertiaryLabel : (index == selectedIndex ? tintColor : .secondaryLabel)
+            .isEnabled ? .tertiaryLabel : (isSelected ? tintColor : .secondaryLabel)
         let iconColor = state.iconColor ?? defaultColor
         let titleColor = state.titleColor ?? defaultColor
         var configuration = UIButton.Configuration.plain()
@@ -1206,9 +1222,9 @@ open class SPTabBar: UIView {
         configuration.title = item.title
         let baseImage = traitCollection.verticalSizeClass == .compact ? (item.landscapeImagePhone ?? item.image) : item
             .image
-        configuration.image = index == selectedIndex ? (item.selectedImage ?? baseImage) : baseImage
+        configuration.image = isSelected ? (item.selectedImage ?? baseImage) : baseImage
         let imageInsets = traitCollection.verticalSizeClass == .compact && item
-            .landscapeImagePhone != nil && (index != selectedIndex || item.selectedImage == nil) ? item
+            .landscapeImagePhone != nil && (!isSelected || item.selectedImage == nil) ? item
             .landscapeImagePhoneInsets : item.imageInsets
         configuration.image = configuration.image.map { image in
             let ratio = min(
@@ -1226,7 +1242,7 @@ open class SPTabBar: UIView {
         configuration.imagePlacement = stacked ? .top : .leading
         configuration.imagePadding = SPDefaultTabContentMetrics.imageTitleSpacing
         configuration.baseForegroundColor = iconColor
-        let controlState: UIControl.State = !item.isEnabled ? .disabled : (index == selectedIndex ? .selected : .normal)
+        let controlState: UIControl.State = !item.isEnabled ? .disabled : (isSelected ? .selected : .normal)
         let titleAttributes = item.titleTextAttributes(for: controlState) ?? item
             .titleTextAttributes(for: .normal) ?? [:]
         let resolvedFont = itemFont(item, style: state, state: controlState)
@@ -1239,7 +1255,7 @@ open class SPTabBar: UIView {
             }
             return result
         }
-        var traits: UIAccessibilityTraits = index == selectedIndex ? [.button, .selected] : .button
+        var traits: UIAccessibilityTraits = isSelected ? [.button, .selected] : .button
         if !item.isEnabled {
             traits.insert(.notEnabled)
         }
@@ -1392,8 +1408,8 @@ open class SPTabBar: UIView {
             item: items[index],
             index: index,
             itemFrame: frame,
-            contentFrame: layout.reference == .content || (indicatorStyle == .custom && indicatorLayoutDelegate != nil)
-                ? indicatorContentFrame(at: index, itemFrame: frame) : frame,
+            contentFrame: layout.reference != .item || (indicatorStyle == .custom && indicatorLayoutDelegate != nil)
+                ? indicatorContentFrame(at: index, itemFrame: frame, prefersTitle: layout.reference == .title) : frame,
             viewportFrame: collectionView.bounds,
             layoutDirection: tabLayout.isRightToLeft ? .rightToLeft : .leftToRight,
             traitCollection: traitCollection,
@@ -1412,8 +1428,9 @@ open class SPTabBar: UIView {
         return fallback
     }
 
-    private func indicatorContentFrame(at index: Int, itemFrame: CGRect) -> CGRect {
-        if let cached = indicatorContentFrames[index], cached.itemFrame == itemFrame {
+    private func indicatorContentFrame(at index: Int, itemFrame: CGRect, prefersTitle: Bool = false) -> CGRect {
+        let key = IndicatorContentKey(index: index, prefersTitle: prefersTitle)
+        if let cached = indicatorContentFrames[key], cached.itemFrame == itemFrame {
             return cached.contentFrame
         }
         let local: CGRect
@@ -1422,18 +1439,22 @@ open class SPTabBar: UIView {
                 ?? CGRect(origin: .zero, size: itemFrame.size)
         } else {
             // 独立布局副本避免依赖屏幕外 Cell，也不改变当前显示或交互状态。
+            // 默认线条按选中态测量两个端点，避免分页提交后再随加粗字体伸缩。
             let cell = UICollectionViewCell(frame: CGRect(origin: .zero, size: itemFrame.size))
             contentMeasurementHost.addSubview(cell)
             cell.semanticContentAttribute = tabLayout.isRightToLeft ? .forceRightToLeft : .forceLeftToRight
-            configure(cell, item: items[index], at: index)
+            configure(cell, item: items[index], at: index, selected: prefersTitle ? true : nil)
             cell.layoutIfNeeded()
-            let rect = (cell.contentView as? SPTabIndicatorContentGeometry)?.indicatorContentRect
+            let geometry = cell.contentView as? SPTabIndicatorContentGeometry
+            let title = prefersTitle ? geometry?.indicatorTitleRect : nil
+            let rect = title.flatMap { SPTabBarIndicatorLayout.valid($0) && !$0.isEmpty ? $0 : nil }
+                ?? geometry?.indicatorContentRect
             local = rect.flatMap { SPTabBarIndicatorLayout.valid($0) ? $0 : nil }
                 ?? CGRect(origin: .zero, size: itemFrame.size)
             cell.removeFromSuperview()
         }
         let result = local.offsetBy(dx: itemFrame.minX, dy: itemFrame.minY)
-        indicatorContentFrames[index] = (itemFrame, result)
+        indicatorContentFrames[key] = (itemFrame, result)
         return result
     }
 

@@ -18,6 +18,8 @@ final class SPTabBarAccessoryTests: XCTestCase {
         window.rootViewController = UIViewController()
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: 400, height: 60))
+        // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
+        bar.itemPositioning = .automatic
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         window.rootViewController!.view.addSubview(bar)
         bar.items = (0 ..< count).map { SPTabBarItem(title: "频道 \($0)") }
@@ -40,6 +42,59 @@ final class SPTabBarAccessoryTests: XCTestCase {
     private func frame(_ index: Int, _ list: UICollectionView) -> CGRect {
         list.layoutIfNeeded()
         return list.layoutAttributesForItem(at: IndexPath(item: index, section: 0))!.frame
+    }
+
+    func testDefaultInsetsScrollThroughViewportEdgesAndAllowZeroOverride() {
+        for rtl in [false, true] {
+            let (bar, list) = mount(rtl: rtl)
+            window.rootViewController!.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 30)
+            window.rootViewController!.view.layoutIfNeeded()
+            for mode: SPTabBar.ItemPositioning in [.automatic, .fill, .centered, .leading] {
+                bar.itemPositioning = mode
+                bar.layoutIfNeeded()
+                XCTAssertEqual(list.frame.minX, 20, accuracy: 0.01)
+                XCTAssertEqual(list.frame.maxX, 370, accuracy: 0.01)
+                XCTAssertEqual(list.contentSize.width, 832, accuracy: 0.01)
+                let left = frame(rtl ? 7 : 0, list)
+                let right = frame(rtl ? 0 : 7, list)
+                XCTAssertEqual(left.minX, 16, accuracy: 0.01)
+                XCTAssertEqual(list.contentSize.width - right.maxX, 16, accuracy: 0.01)
+                XCTAssertEqual(left.minY, 0)
+                XCTAssertEqual(left.height, list.bounds.height)
+                list.contentOffset.x = 0
+                XCTAssertNil(list.indexPathForItem(at: CGPoint(x: 8, y: 30)))
+                list.contentOffset.x = 24
+                XCTAssertLessThan(list.convert(left, to: bar).minX, list.frame.minX)
+                XCTAssertNotNil(list.indexPathForItem(at: CGPoint(x: list.bounds.minX + 8, y: 30)))
+                list.contentOffset.x = list.contentSize.width - list.bounds.width
+                XCTAssertEqual(list.frame.maxX - list.convert(right, to: bar).maxX, 16, accuracy: 0.01)
+                XCTAssertEqual(bar.selectedIndex, 0)
+            }
+            bar.contentInsets = .zero
+            bar.layoutIfNeeded()
+            XCTAssertEqual(frame(rtl ? 7 : 0, list).minX, 0, accuracy: 0.01)
+            XCTAssertEqual(list.contentSize.width, 800, accuracy: 0.01)
+            XCTAssertEqual(bar.selectedIndex, 0)
+        }
+    }
+
+    func testDefaultInsetsWithSingleAndEmptyItemsAcrossResize() {
+        for rtl in [false, true] {
+            let (bar, list) = mount(count: 1, rtl: rtl)
+            for width: CGFloat in [400, 240, 400] {
+                bar.frame.size.width = width
+                bar.layoutIfNeeded()
+                XCTAssertEqual(frame(0, list).minX, 16, accuracy: 0.01)
+                XCTAssertEqual(frame(0, list).width, width - 32, accuracy: 0.01)
+                XCTAssertEqual(list.contentSize.width, width, accuracy: 0.01)
+                XCTAssertNil(list.layer.mask)
+            }
+            bar.items = []
+            bar.layoutIfNeeded()
+            XCTAssertEqual(list.contentSize.width, list.bounds.width)
+            XCTAssertEqual(list.contentOffset.x, 0)
+            XCTAssertNil(list.layer.mask)
+        }
     }
 
     func testInitialRTLConfigurationKeepsSelectedFirstItemVisible() {
@@ -222,6 +277,8 @@ final class SPTabBarAccessoryTests: XCTestCase {
 
     func testRefreshPreservesOffsetProgressAndCandidateMeasurementIsPure() {
         let (bar, list) = mount()
+        // 使用胶囊验证附件／留白更新后的 Item 几何插值。
+        bar.indicatorStyle = .capsule
         let button = fixed(44)
         bar.trailingAccessoryView = button
         bar.layoutIfNeeded()

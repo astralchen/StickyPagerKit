@@ -1,6 +1,6 @@
 import UIKit
 
-/// 字体按 subheadline 的 Dynamic Type 比例缩放；nil 使用系统首选字体。
+/// 字体按 subheadline 的 Dynamic Type 比例缩放；nil 使用系统首选字体，选中态默认为 semibold。
 @MainActor
 public struct SPTabBarItemStateAppearance {
     public var font: UIFont?
@@ -32,7 +32,7 @@ public final class SPTabBarAppearance: UIBarAppearance {
         true
     }
 
-    /// nil 使用所选样式的默认颜色：胶囊使用 tertiarySystemFill，线条／自定义跟随选中文字颜色。
+    /// nil 使用所选样式的默认颜色：胶囊使用 tertiarySystemFill，线条跟随栏 tintColor，自定义跟随选中文字颜色。
     public var indicatorColor: UIColor? {
         didSet {
             for bar in bars.allObjects {

@@ -208,7 +208,7 @@ final class SPTabBarModelTests: XCTestCase {
         assertColor(1, .systemBlue)
     }
 
-    func testUnderlineUsesSelectedColorAndKeepsRoundedEndsDuringMotion() throws {
+    func testUnderlineUsesBarTintColorIndependentlyOfTitleAndKeepsRoundedEndsDuringMotion() throws {
         let item = SPTabBarItem(title: "第一项")
         let other = SPTabBarItem(title: "较长的第二项")
         window.rootViewController!.view.tintColor = .systemGreen
@@ -226,16 +226,16 @@ final class SPTabBarModelTests: XCTestCase {
         bar.tintColor = .systemBlue
         XCTAssertEqual(indicator.backgroundColor, .systemBlue)
         bar.standardAppearance.itemAppearance.selected.titleColor = .systemPurple
-        XCTAssertEqual(indicator.backgroundColor, .systemPurple)
+        XCTAssertEqual(indicator.backgroundColor, .systemBlue)
         item.setTitleTextAttributes([.foregroundColor: UIColor.systemRed], for: .selected)
-        XCTAssertEqual(indicator.backgroundColor, .systemRed)
+        XCTAssertEqual(indicator.backgroundColor, .systemBlue)
         bar.standardAppearance.indicatorColor = .systemOrange
         XCTAssertEqual(indicator.backgroundColor, .systemOrange)
         bar.tintColor = .systemTeal
         XCTAssertEqual(indicator.backgroundColor, .systemOrange)
         bar.standardAppearance.indicatorColor = nil
-        XCTAssertEqual(indicator.backgroundColor, .systemRed)
-        item.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .selected)
+        XCTAssertEqual(indicator.backgroundColor, .systemTeal)
+        bar.tintColor = .label
         for style: UIUserInterfaceStyle in [.light, .dark] {
             window.overrideUserInterfaceStyle = style
             XCTAssertEqual(

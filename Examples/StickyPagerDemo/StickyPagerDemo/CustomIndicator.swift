@@ -6,8 +6,20 @@ import StickyPagerKit
 final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
     func menu(for bar: SPTabBar) -> UIMenu {
         UIMenu(title: "指示器", children: [
-            action("默认胶囊", bar: bar, style: .capsule),
-            action("底部线条", bar: bar, style: .underline),
+            action("默认下划线", bar: bar, style: .underline),
+            UIAction(title: "固定宽度下划线（20 pt）") { [weak bar] _ in
+                guard let bar else {
+                    return
+                }
+                self.reset(bar)
+                bar.standardAppearance.indicatorLayout = .underline(width: .fixed(20))
+            },
+            UIMenu(title: "指示器圆角", children: [
+                radiusAction("自动圆角", radius: .automatic, bar: bar),
+                radiusAction("直角", radius: .fixed(0), bar: bar),
+                radiusAction("圆角 1 pt", radius: .fixed(1), bar: bar)
+            ]),
+            action("胶囊", bar: bar, style: .capsule),
             action("隐藏指示器", bar: bar, style: .none),
             UIAction(title: "顶部固定线条") { [weak bar] _ in
                 guard let bar else {
@@ -15,7 +27,7 @@ final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
                 }
                 self.reset(bar)
                 var layout = SPTabBarIndicatorLayout()
-                layout.width = 24
+                layout.width = .fixed(24)
                 layout.height = 4
                 layout.verticalAlignment = .top
                 bar.standardAppearance.indicatorLayout = layout
@@ -41,7 +53,7 @@ final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
                 layout.reference = .content
                 layout.horizontalInset = -6
                 layout.verticalInset = -3
-                layout.cornerRadius = 6
+                layout.cornerRadius = .fixed(6)
                 bar.indicatorStyle = .capsule
                 bar.standardAppearance.indicatorLayout = layout
             },
@@ -58,6 +70,22 @@ final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
                 bar.indicatorView = DemoIndicatorView()
             }
         ])
+    }
+
+    private func radiusAction(
+        _ title: String,
+        radius: SPTabBarIndicatorLayout.CornerRadius,
+        bar: SPTabBar
+    ) -> UIAction {
+        UIAction(title: title) { [weak bar] _ in
+            guard let bar else {
+                return
+            }
+            var layout = bar.standardAppearance
+                .indicatorLayout ?? (bar.indicatorStyle == .underline ? .underline : .capsule)
+            layout.cornerRadius = radius
+            bar.standardAppearance.indicatorLayout = layout
+        }
     }
 
     private func action(_ title: String, bar: SPTabBar, style: SPTabBar.IndicatorStyle) -> UIAction {
@@ -91,7 +119,7 @@ final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
 }
 
 @MainActor
-private final class DemoIndicatorView: SPTabBarIndicatorView {
+final class DemoIndicatorView: SPTabBarIndicatorView {
     private let gradient = CAGradientLayer()
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -109,7 +137,7 @@ private final class DemoIndicatorView: SPTabBarIndicatorView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradient.frame = bounds
-        gradient.cornerRadius = bounds.height / 2
+        gradient.cornerRadius = state.cornerRadius
         gradient.colors = [state.color.cgColor, UIColor.systemPink.cgColor]
         gradient.opacity = Float(0.65 + 0.35 * state.progress)
         CATransaction.commit()

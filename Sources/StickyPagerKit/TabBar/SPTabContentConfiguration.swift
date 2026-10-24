@@ -96,6 +96,7 @@ internal enum SPTabContentConfiguration: UIContentConfiguration {
 @MainActor
 internal protocol SPTabIndicatorContentGeometry: AnyObject {
     var indicatorContentRect: CGRect { get }
+    var indicatorTitleRect: CGRect? { get }
 }
 
 @MainActor
@@ -276,6 +277,16 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
             sendActions(for: .touchUpInside)
             return true
         }
+    }
+
+    var indicatorTitleRect: CGRect? {
+        layoutIfNeeded()
+        button.layoutIfNeeded()
+        guard let label = button.titleLabel, !(label.text ?? "").isEmpty,
+              !label.isHidden, !label.bounds.isEmpty else {
+            return nil
+        }
+        return label.convert(label.bounds, to: self)
     }
 
     var indicatorContentRect: CGRect {

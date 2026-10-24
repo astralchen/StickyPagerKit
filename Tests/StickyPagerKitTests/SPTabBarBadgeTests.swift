@@ -64,13 +64,15 @@ final class SPTabBarBadgeTests: XCTestCase {
                     bar.standardAppearance.itemAppearance.layout = stacked ? .stacked : .inline
                     layout(bar)
                     let (_, initialButton, _) = try views(bar)
-                    let initialTitle = try XCTUnwrap(initialButton.titleLabel).frame
+                    let initialTitleOffset = try XCTUnwrap(initialButton.titleLabel).frame.midX - initialButton.bounds
+                        .midX
                     for value in ["8", "12", "99+", "新", "上新", "جديد"] {
                         item.badgeValue = value
                         layout(bar)
                         let (content, button, badge) = try views(bar)
                         let title = try XCTUnwrap(button.titleLabel)
-                        XCTAssertEqual(title.frame.midX, initialTitle.midX, accuracy: 0.5)
+                        // 内容宽度排列会随角标扩宽 Item；标题相对按钮中心的位置仍保持不变。
+                        XCTAssertEqual(title.frame.midX - button.bounds.midX, initialTitleOffset, accuracy: 0.5)
                         var anchor = title.convert(title.bounds, to: content)
                         if let icon = button.imageView, image != nil {
                             let iconFrame = icon.convert(icon.bounds, to: content)

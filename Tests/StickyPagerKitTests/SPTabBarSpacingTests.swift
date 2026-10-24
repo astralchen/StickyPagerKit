@@ -18,6 +18,10 @@ final class SPTabBarSpacingTests: XCTestCase {
         window.rootViewController = UIViewController()
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: width, height: 60))
+        // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
+        bar.itemPositioning = .automatic
+        // 此夹具显式使用零留白，隔离 Item 宽度与间距算法；默认留白由附件布局测试覆盖。
+        bar.contentInsets = .zero
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         window.rootViewController!.view.addSubview(bar)
         bar.items = (0 ..< count).map { SPTabBarItem(title: "标签 \($0)") }
@@ -132,6 +136,13 @@ final class SPTabBarSpacingTests: XCTestCase {
             bar.delegate = spy
             bar.minimumItemWidth = 100
             bar.indicatorStyle = .underline
+            // 滚动与动画用例保留 Item 两侧内缩 12 pt 的显式几何；文字预设由频道测试覆盖。
+            var indicatorLayout = SPTabBarIndicatorLayout()
+            indicatorLayout.height = 3
+            indicatorLayout.verticalAlignment = .bottom
+            indicatorLayout.horizontalInset = 12
+            indicatorLayout.limitsSizeToReference = true
+            bar.standardAppearance.indicatorLayout = indicatorLayout
             bar.layoutIfNeeded()
             let items = bar.items
             collection.contentOffset.x = 120

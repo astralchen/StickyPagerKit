@@ -233,6 +233,14 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                         .image == nil ? nil : UIImage(systemName: index.isMultiple(of: 2) ? "star.fill" : "folder.fill")
                 }
             },
+            UIAction(title: "长短标题演示") { [weak self] _ in
+                guard let self else {
+                    return
+                }
+                for (item, title) in zip(self.tabBar.items, ["推荐", "编辑精选与深度阅读", "热点"]) {
+                    item.title = title
+                }
+            },
             UIAction(title: "更新角标和标题") { [weak self] _ in
                 guard let item = self?.tabBar.items.first else {
                     return

@@ -19,6 +19,10 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
     private func mount(_ source: any SPTabBarContentDelegate, count: Int = 2) -> SPTabBar {
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 100, width: 320, height: 80))
+        // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
+        bar.itemPositioning = .automatic
+        // 此夹具显式使用零留白，隔离 Item 宽度与间距算法；默认留白由附件布局测试覆盖。
+        bar.contentInsets = .zero
         window.rootViewController!.view.addSubview(bar)
         bar.items = (0 ..< count).map { SPTabBarItem(title: "标签 \($0)") }
         bar.contentDelegate = source
@@ -189,7 +193,7 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         for explicit in [false, true] {
             source.explicitSize = explicit ? size : nil
             let bar = mount(source)
-            for style: SPTabBarIndicatorLayout in [.capsule, .underline] {
+            for style: SPTabBarIndicatorLayout in [.capsule, .underline, .underline(width: .fixed(20))] {
                 bar.standardAppearance.indicatorLayout = style
                 bar.layoutIfNeeded()
                 let indicator = collection(bar).subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
@@ -199,6 +203,9 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(indicator.frame.minY, 0)
                 XCTAssertLessThanOrEqual(indicator.frame.maxY, 1)
                 XCTAssertEqual(indicator.frame.height, style == .capsule ? 0 : 1, accuracy: 0.01)
+                if style.width == .fixed(20) {
+                    XCTAssertEqual(indicator.frame.width, 20, accuracy: 0.01)
+                }
             }
             bar.removeFromSuperview()
         }

@@ -18,6 +18,9 @@ final class SPTabBarIndicatorTests: XCTestCase {
         window.rootViewController = UIViewController()
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: 320, height: 60))
+        // 此夹具保留胶囊作为几何基线，频道型默认线条由专门用例覆盖。
+        bar.indicatorStyle = .capsule
+        bar.itemPositioning = .automatic
         window.rootViewController!.view.addSubview(bar)
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         bar.items = ["短", "较长的第二个标题", "第三项", "第四个标签", "第五项"].map { SPTabBarItem(title: $0) }
@@ -214,7 +217,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
         let item = frame(2, collection)
         let appearance = SPTabBarAppearance(barAppearance: bar.standardAppearance)
         var layout = SPTabBarIndicatorLayout()
-        layout.width = 23
+        layout.width = .fixed(23)
         layout.height = 5
         appearance.indicatorLayout = layout
         bar.standardAppearance = appearance
@@ -289,7 +292,15 @@ final class SPTabBarIndicatorTests: XCTestCase {
         XCTAssertEqual(indicator.frame, item.insetBy(dx: 4, dy: 4))
         XCTAssertEqual(indicator.backgroundColor, .tertiarySystemFill)
         bar.indicatorStyle = .underline
-        XCTAssertEqual(indicator.frame, CGRect(x: item.minX + 12, y: item.maxY - 3, width: item.width - 24, height: 3))
+        let cell = collection.cellForItem(at: IndexPath(item: 0, section: 0))!
+        let button = cell.contentView.subviews.compactMap { $0 as? UIButton }.first!
+        button.layoutIfNeeded()
+        let title = button.titleLabel!
+        let titleFrame = title.convert(title.bounds, to: collection)
+        XCTAssertEqual(indicator.frame.minX, titleFrame.minX, accuracy: 0.01)
+        XCTAssertEqual(indicator.frame.width, titleFrame.width, accuracy: 0.01)
+        XCTAssertEqual(indicator.frame.maxY, item.maxY, accuracy: 0.01)
+        XCTAssertEqual(indicator.frame.height, 3)
         XCTAssertEqual(indicator.backgroundColor, .systemPink)
         bar.indicatorStyle = .capsule
         XCTAssertEqual(indicator.frame, item.insetBy(dx: 4, dy: 4))
@@ -312,7 +323,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
             bar.indicatorStyle = style
             for value in cases {
                 var layout = SPTabBarIndicatorLayout()
-                layout.width = value.width
+                layout.width = .fixed(value.width)
                 layout.height = value.height
                 bar.standardAppearance.indicatorLayout = layout
                 XCTAssertEqual(indicator.bounds.size, CGSize(width: value.width, height: value.height))
@@ -326,11 +337,11 @@ final class SPTabBarIndicatorTests: XCTestCase {
         }
     }
 
-    func testExplicitCornerRadiusClampsAndNilRestoresAutomaticRadius() {
+    func testFixedCornerRadiusClampsAndAutomaticRestoresRadius() {
         let (bar, _, indicator) = mount()
         for size in [CGSize(width: 40, height: 10), CGSize(width: 20, height: 20), CGSize(width: 10, height: 40)] {
             var layout = SPTabBarIndicatorLayout()
-            layout.width = size.width
+            layout.width = .fixed(size.width)
             layout.height = size.height
             let maximumRadius: CGFloat = size.width == size.height ? 10 : 5
             let cases: [(radius: CGFloat, expected: CGFloat)] = [
@@ -342,10 +353,10 @@ final class SPTabBarIndicatorTests: XCTestCase {
                 (.infinity, 0)
             ]
             for value in cases {
-                layout.cornerRadius = value.radius
+                layout.cornerRadius = .fixed(value.radius)
                 bar.standardAppearance.indicatorLayout = layout
                 XCTAssertEqual(indicator.layer.cornerRadius, value.expected)
-                bar.standardAppearance.indicatorLayout?.cornerRadius = nil
+                bar.standardAppearance.indicatorLayout?.cornerRadius = .automatic
                 XCTAssertEqual(indicator.layer.cornerRadius, maximumRadius)
                 XCTAssertEqual(indicator.bounds.size, size)
             }
@@ -355,7 +366,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
     func testOverridesSurviveStyleChangesAndNilRestoresCurrentPreset() {
         let (bar, collection, indicator) = mount()
         var layout = SPTabBarIndicatorLayout()
-        layout.width = 22; layout.height = 5
+        layout.width = .fixed(22); layout.height = 5
         layout.verticalAlignment = .top
         bar.standardAppearance.indicatorLayout = layout
         bar.standardAppearance.indicatorColor = .systemOrange
@@ -551,17 +562,17 @@ final class SPTabBarIndicatorTests: XCTestCase {
         }
     }
 
-    func testPresetsAndFixedTopGeometryDoNotChangeContentMeasurement() {
+    func testPresetsAndFixedTopGeometryDoNotChangeContentMeasurement() throws {
         let (bar, collection, indicator) = mount()
         let item = frame(0, collection)
         XCTAssertEqual(indicator.frame, item.insetBy(dx: 4, dy: 4))
         let size = bar.sizeThatFits(CGSize(width: 320, height: 0))
         let contentSize = collection.contentSize
         var layout = SPTabBarIndicatorLayout()
-        layout.width = 24; layout.height = 5
+        layout.width = .fixed(24); layout.height = 5
         layout.verticalAlignment = .top
         layout.offset.y = 2
-        layout.cornerRadius = 1
+        layout.cornerRadius = .fixed(1)
         layout.placement = .foreground
         bar.standardAppearance.indicatorLayout = layout
         bar.layoutIfNeeded()
@@ -575,7 +586,12 @@ final class SPTabBarIndicatorTests: XCTestCase {
         bar.standardAppearance.indicatorLayout = .capsule
         bar.standardAppearance.indicatorLayout = .underline
         bar.standardAppearance.indicatorColor = nil
-        XCTAssertEqual(indicator.frame, CGRect(x: item.minX + 12, y: 57, width: item.width - 24, height: 3))
+        let cell = try XCTUnwrap(collection.cellForItem(at: IndexPath(item: 0, section: 0)))
+        let button = try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? UIButton }.first)
+        cell.layoutIfNeeded(); button.layoutIfNeeded()
+        let title = try XCTUnwrap(button.titleLabel)
+        let titleFrame = title.convert(title.bounds, to: collection)
+        XCTAssertEqual(indicator.frame, CGRect(x: titleFrame.minX, y: 57, width: titleFrame.width, height: 3))
         bar.indicatorStyle = .none
         XCTAssertTrue(indicator.isHidden)
     }
@@ -674,7 +690,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
         bar.setNeedsLayout(); bar.layoutIfNeeded()
         XCTAssertEqual(indicator.frame, frame(0, collection).insetBy(dx: 4, dy: 4))
         var layout = SPTabBarIndicatorLayout()
-        layout.width = -.infinity; layout.height = -8
+        layout.width = .fixed(-.infinity); layout.height = -8
         layout.offset = CGPoint(x: CGFloat.nan, y: CGFloat.infinity)
         bar.standardAppearance.indicatorLayout = layout
         XCTAssertTrue(indicator.frame.origin.x.isFinite)
@@ -686,7 +702,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
         for rtl in [false, true] {
             let (bar, collection, indicator) = mount(rtl: rtl)
             var layout = SPTabBarIndicatorLayout()
-            layout.width = 12; layout.height = 4
+            layout.width = .fixed(12); layout.height = 4
             layout.horizontalAlignment = .leading
             layout.horizontalInset = 5
             bar.standardAppearance.indicatorLayout = layout
@@ -796,12 +812,12 @@ final class SPTabBarIndicatorTests: XCTestCase {
         child.view.layoutIfNeeded(); bar.setNeedsLayout(); bar.layoutIfNeeded()
         XCTAssertGreaterThan(indicator.frame.width, original)
         let appearance = SPTabBarAppearance()
-        layout.reference = .item; layout.width = 19; layout.height = 8
+        layout.reference = .item; layout.width = .fixed(19); layout.height = 8
         appearance.indicatorLayout = layout
         bar.items[0].standardAppearance = appearance
         bar.layoutIfNeeded()
         XCTAssertEqual(indicator.frame.width, 19)
-        bar.items[0].standardAppearance?.indicatorLayout?.width = 25
+        bar.items[0].standardAppearance?.indicatorLayout?.width = .fixed(25)
         XCTAssertEqual(indicator.frame.width, 25)
         XCTAssertEqual(indicator.frame.midX, frame(0, collection).midX, accuracy: 0.01)
     }
@@ -844,12 +860,15 @@ final class SPTabBarIndicatorTests: XCTestCase {
     func testArchiveRetainsNonfiniteConfigurationAndLayoutNormalizesIt() throws {
         let appearance = SPTabBarAppearance()
         appearance.indicatorLayout = .capsule
-        appearance.indicatorLayout?.width = .nan
+        appearance.indicatorLayout?.width = .fixed(.nan)
         appearance.indicatorLayout?.height = -10
         appearance.indicatorLayout?.offset.x = .infinity
         let data = try NSKeyedArchiver.archivedData(withRootObject: appearance, requiringSecureCoding: true)
         let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(ofClass: SPTabBarAppearance.self, from: data))
-        XCTAssertTrue(decoded.indicatorLayout?.width?.isNaN == true)
+        guard case let .fixed(width) = decoded.indicatorLayout?.width else {
+            return XCTFail("归档应保留固定宽度模式")
+        }
+        XCTAssertTrue(width.isNaN)
         XCTAssertEqual(decoded.indicatorLayout?.height, -10)
         let (bar, _, indicator) = mount()
         bar.standardAppearance = decoded
@@ -862,13 +881,13 @@ final class SPTabBarIndicatorTests: XCTestCase {
     func testAppearanceCopyAndArchivePreserveLayoutValues() throws {
         let appearance = SPTabBarAppearance()
         var layout = SPTabBarIndicatorLayout()
-        layout.reference = .content; layout.width = 32; layout.height = 7
+        layout.reference = .content; layout.width = .fixed(32); layout.height = 7
         layout.offset = CGPoint(x: -2, y: 5); layout.placement = .foreground
         appearance.indicatorLayout = layout
         appearance.indicatorColor = nil
         let (bar, _, _) = mount()
         bar.standardAppearance = appearance
-        appearance.indicatorLayout?.width = 99
+        appearance.indicatorLayout?.width = .fixed(99)
         XCTAssertEqual(bar.standardAppearance.indicatorLayout, layout)
         let data = try NSKeyedArchiver.archivedData(withRootObject: bar.standardAppearance, requiringSecureCoding: true)
         let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(ofClass: SPTabBarAppearance.self, from: data))
