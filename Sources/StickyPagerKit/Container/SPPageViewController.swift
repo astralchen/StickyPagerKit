@@ -122,9 +122,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     private var effectiveLayout: SPPageLayout {
         var value = layout.normalized
-        // 配置高度作为下限；辅助字号需要更高的标签栏，0 仍表示隐藏。
-        if value.tabBarHeight > 0 {
-            value.tabBarHeight = max(value.tabBarHeight, storedTabBar.sizeThatFits(view.bounds.size).height)
+        // 只有内容策略参与测量；固定高度和隐藏不会被内容需求撑开。
+        if case let .content(minimum) = value.tabBarSizing {
+            value.tabBarSizing = .fixed(max(minimum, storedTabBar.sizeThatFits(view.bounds.size).height))
         }
         if storedHeaderView == nil && storedHeaderController ==
             nil {
@@ -236,7 +236,19 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             self.view.layoutIfNeeded()
             for record in self.records.values {
                 self.align(record)
+                // 恢复 offset 可能触发自适应列表再次布局；在转场保护结束前消化回写。
+                record.controller.view.setNeedsLayout()
+                record.controller.view.layoutIfNeeded()
+                if let binding = record.binding {
+                    // 延迟行高结算也可能缩短范围；保存新底部，避免下次缩放恢复过期位置。
+                    self.positions[record.identifier] = min(
+                        self.positions[record.identifier] ?? 0,
+                        max(0, binding.maximumPosition - self.effectiveLayout.collapseRange)
+                    )
+                }
+                self.align(record)
             }
+            // 事务结束后立即交还原生定位；不依据空闲期行高／offset 的相关性回滚业务写入。
             self.isTransitioningSize = false
         }
         if !queued {
@@ -247,9 +259,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     open override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let l = effectiveLayout
+        let wasLayingOut = isLayingOutPages
         isLayingOutPages = true
         previousBoundsSize = view.bounds.size
-        defer { isLayingOutPages = false }
+        // 子页布局可能重入容器；内层返回时不能撤销外层仍在使用的保护。
+        defer { isLayingOutPages = wasLayingOut }
         let rangeChanged = previousCollapseRange != l.collapseRange
         if rangeChanged {
             // 旋转、导航栏显隐或安全区域变化时，已吸顶的页面继续吸顶。
@@ -493,10 +507,13 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         }
         cancelPaging()
         stopAnimation()
-        collapseOffset = min(collapseOffset, effectiveLayout.collapseRange)
-        previousCollapseRange = effectiveLayout.collapseRange
+        let range = effectiveLayout.collapseRange
+        let wasCollapsed = previousCollapseRange.map { $0 > 0 && collapseOffset >= $0 } ?? false
+        // 内容自适应导致 Header 增高时，沿用安全区域变化的吸顶契约，保留正文位置。
+        collapseOffset = wasCollapsed ? range : min(collapseOffset, range)
+        previousCollapseRange = range
         for record in records.values {
-            record.binding?.setRange(effectiveLayout.collapseRange)
+            record.binding?.setRange(range)
             align(record)
         }
         view.setNeedsLayout()
@@ -824,6 +841,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         // 每次真实分页输入都取消框架旧交互；只对业务原生减速交接去重。
         stopAnimation()
         beginPaging()
+        pagingView.preserveAcceptedPanDisplacement()
     }
 
     private func beginPaging() {
@@ -868,6 +886,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        // 原生 pan 取消不是松手选页；即便已越过半页，也恢复原页和未提交的 appearance。
+        if scrollView.panGestureRecognizer.state == .cancelled {
+            cancelPaging()
+            return
+        }
         if !decelerate {
             settlePaging()
         }

@@ -19,9 +19,9 @@ final class SPTabBarSpacingTests: XCTestCase {
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: width, height: 60))
         // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
-        bar.itemPositioning = .automatic
+        bar.layoutConfiguration.itemSizing = .balanced
         // 此夹具显式使用零留白，隔离 Item 宽度与间距算法；默认留白由附件布局测试覆盖。
-        bar.contentInsets = .zero
+        bar.layoutConfiguration.contentInsets = .zero
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         window.rootViewController!.view.addSubview(bar)
         bar.items = (0 ..< count).map { SPTabBarItem(title: "标签 \($0)") }
@@ -49,7 +49,7 @@ final class SPTabBarSpacingTests: XCTestCase {
     func testSpacingDefaultsNormalizationAndEmptyOrSingleItem() {
         for count in [0, 1] {
             let (bar, collection) = mount(count: count)
-            XCTAssertEqual(bar.itemSpacing, 0)
+            XCTAssertEqual(bar.layoutConfiguration.itemSpacing, 0)
             for (input, expected): (CGFloat, CGFloat) in [
                 (20, 20),
                 (-2, 0),
@@ -58,9 +58,9 @@ final class SPTabBarSpacingTests: XCTestCase {
                 (-.infinity, 0),
                 (2_000_000, 1_000_000)
             ] {
-                bar.itemSpacing = input
+                bar.layoutConfiguration.itemSpacing = input
                 bar.layoutIfNeeded()
-                XCTAssertEqual(bar.itemSpacing, expected)
+                XCTAssertEqual(bar.layoutConfiguration.itemSpacing, expected)
                 XCTAssertEqual(collection.contentSize.width, collection.bounds.width)
                 XCTAssertEqual(collection.contentOffset.x, 0)
                 if count == 1 {
@@ -75,7 +75,7 @@ final class SPTabBarSpacingTests: XCTestCase {
         let source = SpacingContentSource()
         bar.contentDelegate = source
         bar.contentStyle = .custom
-        bar.itemSpacing = 20
+        bar.layoutConfiguration.itemSpacing = 20
         bar.layoutIfNeeded()
         XCTAssertEqual(frame(0, in: collection).width, 200)
         XCTAssertEqual(frame(1, in: collection).width, 80)
@@ -88,7 +88,7 @@ final class SPTabBarSpacingTests: XCTestCase {
             XCTAssertFalse(view is UIButton)
             hit = view.superview
         }
-        bar.minimumItemWidth = 200
+        bar.layoutConfiguration.minimumItemWidth = 200
         bar.layoutIfNeeded()
         XCTAssertEqual(collection.contentSize.width, 640)
         assertGaps(bar, collection, spacing: 20)
@@ -100,8 +100,8 @@ final class SPTabBarSpacingTests: XCTestCase {
             let (bar, collection) = mount(width: 320, rtl: rtl)
             let source = SpacingContentSource()
             bar.contentDelegate = source
-            bar.minimumItemWidth = 180
-            bar.itemSpacing = 24
+            bar.layoutConfiguration.minimumItemWidth = 180
+            bar.layoutConfiguration.itemSpacing = 24
             window.frame.size.width = bar.bounds.width
             window.rootViewController!.view.frame = window.bounds
             window.rootViewController!.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 30)
@@ -134,7 +134,7 @@ final class SPTabBarSpacingTests: XCTestCase {
             let (bar, collection) = mount(count: 8, width: 320, rtl: rtl)
             let spy = SpacingSelectionSpy()
             bar.delegate = spy
-            bar.minimumItemWidth = 100
+            bar.layoutConfiguration.minimumItemWidth = 100
             bar.indicatorStyle = .underline
             // 滚动与动画用例保留 Item 两侧内缩 12 pt 的显式几何；文字预设由频道测试覆盖。
             var indicatorLayout = SPTabBarIndicatorLayout()
@@ -146,11 +146,11 @@ final class SPTabBarSpacingTests: XCTestCase {
             bar.layoutIfNeeded()
             let items = bar.items
             collection.contentOffset.x = 120
-            bar.itemSpacing = 16
+            bar.layoutConfiguration.itemSpacing = 16
             bar.layoutIfNeeded()
             XCTAssertEqual(collection.contentOffset.x, 120, accuracy: 1)
             bar.setTransitionProgress(from: 0, to: 1, progress: 0.4)
-            bar.itemSpacing = 32
+            bar.layoutConfiguration.itemSpacing = 32
             bar.layoutIfNeeded()
             let a = frame(0, in: collection), b = frame(1, in: collection)
             let indicator = collection.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
@@ -165,7 +165,7 @@ final class SPTabBarSpacingTests: XCTestCase {
             XCTAssertEqual(spy.selections, 0)
             bar.setSelectedIndex(0, animated: false)
             collection.contentOffset.x = maximum
-            bar.itemSpacing = 0
+            bar.layoutConfiguration.itemSpacing = 0
             bar.layoutIfNeeded()
             XCTAssertEqual(
                 collection.contentOffset.x,
@@ -180,8 +180,8 @@ final class SPTabBarSpacingTests: XCTestCase {
         let source = SpacingContentSource()
         bar.contentDelegate = source
         bar.contentStyle = .custom
-        bar.minimumItemWidth = 100
-        bar.itemSpacing = 16
+        bar.layoutConfiguration.minimumItemWidth = 100
+        bar.layoutConfiguration.itemSpacing = 16
         bar.indicatorStyle = .none
         bar.setSelectedIndex(0, animated: false)
         bar.layoutIfNeeded()
@@ -189,7 +189,7 @@ final class SPTabBarSpacingTests: XCTestCase {
         bar.advanceSelectionAnimation(to: 0.5)
         let midway = collection.contentOffset.x
         let calls = source.calls
-        bar.itemSpacing = 16
+        bar.layoutConfiguration.itemSpacing = 16
         bar.layoutIfNeeded()
         XCTAssertEqual(source.calls, calls)
         XCTAssertEqual(collection.contentOffset.x, midway, accuracy: 1)
@@ -197,7 +197,7 @@ final class SPTabBarSpacingTests: XCTestCase {
         XCTAssertGreaterThan(collection.contentOffset.x, midway)
         bar.setSelectedIndex(0, animated: true)
         bar.advanceSelectionAnimation(to: 0.5)
-        bar.itemSpacing = 32
+        bar.layoutConfiguration.itemSpacing = 32
         bar.layoutIfNeeded()
         XCTAssertEqual(collection.contentOffset.x, 0, accuracy: 1)
         bar.advanceSelectionAnimation(to: 1)

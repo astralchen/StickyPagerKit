@@ -4,8 +4,48 @@ import StickyPagerKit
 /// 同一组预设可用于独立标签栏和分页容器。
 @MainActor
 final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
+    weak var contentProvider: DemoTabContentProvider?
+    private var requestedStyle: SPTabBar.IndicatorStyle?
+
+    /// 自动模式下卡片只用边框表达选择，文字使用下划线；显式选择的样式跨内容切换保留。
+    func updateContentStyle(on bar: SPTabBar) {
+        let usesCustomContent = bar.contentStyle == .custom && contentProvider != nil
+        let style = requestedStyle ??
+            (usesCustomContent && contentProvider?.usesCompactContent == false ? .none : .underline)
+        if style == .underline, usesCustomContent {
+            if bar.standardAppearance.indicatorLayout == nil {
+                bar.standardAppearance.indicatorLayout = .underline
+            }
+            if bar.indicatorLayoutDelegate !== self {
+                bar.indicatorLayoutDelegate = self
+            }
+            bar.indicatorStyle = .custom
+        } else {
+            bar.indicatorStyle = style
+        }
+    }
+
+    func selectStyle(_ style: SPTabBar.IndicatorStyle, on bar: SPTabBar) {
+        reset(bar)
+        requestedStyle = style
+        bar.standardAppearance.indicatorLayout = nil
+        updateContentStyle(on: bar)
+    }
+
+    func useAutomaticStyle(on bar: SPTabBar) {
+        reset(bar)
+        requestedStyle = nil
+        updateContentStyle(on: bar)
+    }
+
     func menu(for bar: SPTabBar) -> UIMenu {
         UIMenu(title: "指示器", children: [
+            UIAction(title: "自动匹配内容") { [weak bar] _ in
+                guard let bar else {
+                    return
+                }
+                self.useAutomaticStyle(on: bar)
+            },
             action("默认下划线", bar: bar, style: .underline),
             UIAction(title: "固定宽度下划线（20 pt）") { [weak bar] _ in
                 guard let bar else {
@@ -54,6 +94,7 @@ final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
                 layout.horizontalInset = -6
                 layout.verticalInset = -3
                 layout.cornerRadius = .fixed(6)
+                self.requestedStyle = .capsule
                 bar.indicatorStyle = .capsule
                 bar.standardAppearance.indicatorLayout = layout
             },
@@ -65,6 +106,7 @@ final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
                 var layout = SPTabBarIndicatorLayout()
                 layout.placement = .foreground
                 bar.standardAppearance.indicatorLayout = layout
+                self.requestedStyle = .custom
                 bar.indicatorStyle = .custom
                 bar.indicatorLayoutDelegate = self
                 bar.indicatorView = DemoIndicatorView()
@@ -82,7 +124,7 @@ final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
                 return
             }
             var layout = bar.standardAppearance
-                .indicatorLayout ?? (bar.indicatorStyle == .underline ? .underline : .capsule)
+                .indicatorLayout ?? (bar.indicatorStyle == .capsule ? .capsule : .underline)
             layout.cornerRadius = radius
             bar.standardAppearance.indicatorLayout = layout
         }
@@ -93,20 +135,44 @@ final class DemoIndicatorProvider: SPTabBarIndicatorLayoutDelegate {
             guard let bar else {
                 return
             }
-            self.reset(bar)
-            bar.indicatorStyle = style
+            self.selectStyle(style, on: bar)
         }
     }
 
     private func reset(_ bar: SPTabBar) {
+        requestedStyle = .underline
         bar.indicatorStyle = .underline
         bar.indicatorLayoutDelegate = nil
         bar.indicatorView = nil
         bar.standardAppearance.indicatorColor = nil
         bar.standardAppearance.indicatorLayout = nil
+        updateContentStyle(on: bar)
     }
 
     func tabBar(_ tabBar: SPTabBar, indicatorFrameFor context: SPTabBarIndicatorLayoutContext) -> CGRect? {
+        if requestedStyle != .custom, tabBar.contentStyle == .custom, let contentProvider {
+            guard context.layout.reference != .item else {
+                return nil
+            }
+            let content = contentProvider.indicatorContentFrame(on: tabBar, context: context)
+            let layout = context.layout
+            var width: CGFloat
+            switch layout.width {
+            case .automatic: width = max(0, content.width - 2 * layout.horizontalInset)
+            case let .fixed(value): width = max(0, value)
+            }
+            if layout.limitsSizeToReference {
+                width = min(width, content.width)
+            }
+            let height = min(context.itemFrame.height, layout.height ?? 3)
+            // Demo 下划线预设均居中、底部对齐；title 跟随 Item 底部，content 跟随内容底部。
+            return CGRect(
+                x: content.midX - width / 2 + layout.offset.x,
+                y: (layout.reference == .title ? context.itemFrame.maxY : content.maxY) - height + layout.offset.y,
+                width: width,
+                height: height
+            )
+        }
         // 大小与纵向位置随标签变化，分页时四个 frame 分量一起插值。
         let height: CGFloat = context.index.isMultiple(of: 2) ? 6 : 10
         return CGRect(

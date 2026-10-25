@@ -357,7 +357,6 @@ final class SPTabBarModelTests: XCTestCase {
         appearance.backgroundColor = .systemPink
         appearance.indicatorLayout = .underline
         appearance.indicatorColor = nil
-        appearance.itemAppearance.layout = .inline
         appearance.itemAppearance.selected.font = .systemFont(ofSize: 25)
         appearance.itemAppearance.disabled.badgeTextColor = .systemGreen
         let bar = mount([SPTabBarItem(title: "A")])
@@ -370,7 +369,6 @@ final class SPTabBarModelTests: XCTestCase {
         let data = try NSKeyedArchiver.archivedData(withRootObject: bar.standardAppearance, requiringSecureCoding: true)
         let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(ofClass: SPTabBarAppearance.self, from: data))
         XCTAssertEqual(decoded.indicatorLayout, .underline)
-        XCTAssertEqual(decoded.itemAppearance.layout, .inline)
         XCTAssertEqual(decoded.itemAppearance.selected.font?.pointSize, 25)
         XCTAssertEqual(decoded.backgroundColor, .systemPink)
         XCTAssertEqual(decoded.itemAppearance.disabled.badgeTextColor, .systemGreen)
@@ -588,9 +586,9 @@ final class SPTabBarModelTests: XCTestCase {
             let item = SPTabBarItem(title: "图文", image: UIImage(systemName: "star"))
             let bar = mount([item])
             bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
-            bar.standardAppearance.itemAppearance.layout = .stacked
+            bar.defaultContentLayout.imagePlacement = .stacked
             let stackedHeight = bar.sizeThatFits(.zero).height
-            bar.standardAppearance.itemAppearance.layout = .inline
+            bar.defaultContentLayout.imagePlacement = .inline
             XCTAssertGreaterThan(stackedHeight, bar.sizeThatFits(.zero).height)
             for badge: String? in [nil, "", "99+"] {
                 item.badgeValue = badge

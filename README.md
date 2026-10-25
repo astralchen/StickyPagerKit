@@ -140,7 +140,9 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 | `SPTabBar` | `UIView` | 自绘、可滚动、分页进度联动 |
 | `SPTabBarItem` | `UIBarItem` | 标签内容、对象身份、动态更新 |
 | `SPTabBarAppearance` | `UIBarAppearance` | 栏背景、阴影、选中标识、复制与安全归档 |
-| `SPTabBarItemAppearance` | `struct` | 图文排列和状态集合 |
+| `SPTabBarItemAppearance` | `struct` | 状态外观集合 |
+| `SPTabBarLayoutConfiguration` | `struct` | 项宽策略、整组对齐、间距与外围留白 |
+| `SPTabBarDefaultContentLayout` | `struct` | 内置图文排列、内部留白、图标尺寸与最小高度 |
 | `SPTabBarItemStateAppearance` | `struct` | 单个状态的文字、图标和角标样式 |
 
 `UIBarItem` 是抽象基类，本库显式实现其属性存储、变更通知和归档；Item／State 外观不负责栏背景，因此不继承 `UIBarAppearance`。
@@ -162,9 +164,9 @@ favorites.title = "我的收藏" // 自动更新标题和布局
 
 默认角标采用顶部尾端悬浮布局：上下图文以图标为定位基准，纯文字与横向图文以整体内容为基准；LTR 显示在右上角，阿拉伯文等 RTL 界面镜像到左上角，方向由布局环境决定，与角标字符串的语言无关。数字、`99+` 和“上新”等中文短文本按实际字体测量并居中显示，宽度至少等于高度，多字符自然扩展为胶囊。框架优先使用标签原有留白，空间不足时对称扩展理想宽度，保持图文居中；角标不计入指示器的内容区域。`nil` 隐藏、空字符串显示圆点的语义不变。自定义 `UIContentConfiguration` 仍自行绘制角标，框架仅提供 Item 的无障碍值回退，不额外叠加默认角标。
 
-`items` 可以直接设置，也可调用 `setItems(_:)`；重复对象导致整次更新被拒绝。重排按对象身份保留选择，选中对象被移除则清空。`selectedItem` 可以设为 nil；不属于 items 的对象会被拒绝并保留原选择。`selectedIndex` 是只读索引映射；索引选择方法仍作为便利入口保留。分页容器的 `setSelectedIndex(_:animated:)` 和稳定页面 ID 规则不变。
+`items` 可以直接设置，也可调用 `setItems(_:)`；重复对象导致整次更新被拒绝。重排按对象身份保留选择，选中对象被移除则清空。`selectedItem` 可以设为 nil；不属于 items 的对象会被拒绝并保留原选择。`selectedIndex` 是只读索引映射；索引选择方法仍作为便利入口保留。`setSelectedIndex(nil, animated:)` 明确清空选择；负数或越界索引忽略，保留选择、滚动、动画及分页进度。分页容器的 `setSelectedIndex(_:animated:)` 和稳定页面 ID 规则不变。
 
-`delegate` 是弱引用，必须由业务方持有。`tabBar(_:shouldSelect:)` 可以否决标签点击；`tabBar(_:didSelect:)` 只在标签点击成功提交后调用，重复点击当前项也通知一次。程序化选择不会发送标签栏代理事件。独立标签栏自行提交选择；嵌入 `SPPageViewController` 后由容器在切页完成时提交，取消、中断、重载或替换栏会废弃旧点击请求。页面手势和程序化切页由 `SPPageViewControllerDelegate` 报告。`isEnabled = false` 仅禁止点击和无障碍激活，不阻止滑动或程序化进入对应页面。
+`delegate` 是弱引用，必须由业务方持有。`tabBar(_:shouldSelect:)` 可以否决标签点击；`tabBar(_:didSelect:)` 只在标签点击成功提交后调用，重复点击当前项也通知一次。程序化选择不会发送标签栏代理事件。独立标签栏自行提交选择；嵌入 `SPPageViewController` 后由容器在切页完成时提交，取消、中断、重载或替换栏会废弃旧点击请求。页面手势和程序化切页由 `SPPageViewControllerDelegate` 报告。视觉选中样式与逻辑提交分开：容器接受点击后立即显示目标标签的选中外观；分页拖动到达 50% 时预览目标项，退回阈值以下恢复起始项；取消或重载恢复已提交项。`selectedIndex`、无障碍选中标记及代理回调仍在页面提交后更新；视觉预览不额外发送回调。`isEnabled = false` 仅禁止点击和无障碍激活，不阻止滑动或程序化进入对应页面。
 
 `SPTabBarAppearance` 继承 `UIBarAppearance`，复用背景材质、颜色、图片、阴影和三种 configureWith…Background 方法，支持 NSCopying 与 NSSecureCoding；`SPTabBarItemAppearance`、`SPTabBarItemStateAppearance` 保持主线程值类型。赋值给栏或 Item 时复制 Appearance，后续修改原对象不会影响宿主；通过宿主的 `standardAppearance` getter 修改当前实例或嵌套状态会立即刷新。选中 Item 的 `standardAppearance` 非 nil 时覆盖栏级外观，取消覆盖后回退到栏级设置。Item 的 `setTitleTextAttributes(_:for:)` 支持 font、foregroundColor、shadow，并优先于相应外观状态；未配置的状态使用 normal 属性。
 
@@ -174,7 +176,7 @@ appearance.configureWithOpaqueBackground() // 也可使用默认材质或透明�
 appearance.backgroundColor = .secondarySystemBackground
 tabs.standardAppearance = appearance // 复制配置，不共享可变外观
 
-tabs.standardAppearance.itemAppearance.layout = .automatic
+tabs.defaultContentLayout.imagePlacement = .automatic
 tabs.tintColor = .systemBlue // 默认选中文字和模板图标跟随 tintColor
 // 显式外观可覆盖默认颜色：
 tabs.standardAppearance.itemAppearance.selected.titleColor = .systemPurple
@@ -183,31 +185,91 @@ tabs.indicatorStyle = .capsule
 
 默认频道型组合使用 `.leading` 排列和 `.underline` 指示器，首尾各保留 16 pt 滚动留白。内置选中标题默认使用与普通态同字号的 semibold，继续适配 Dynamic Type；显式 Item 字体属性或 Appearance 状态字体优先。各状态最大测量尺寸参与 Item 布局，避免切换字重挤动相邻项。选择仍沿用尽量居中的滚动规则。
 
-### 标签宽度分配
+### 标签布局与默认尺寸规范
 
-`SPTabBar.itemPositioning` 使用框架自己的 `SPTabBar.ItemPositioning`，属性及已有枚举值命名参考 UIKit，并扩展 `.leading`：
+`SPTabBar.layoutConfiguration` 是标签组布局的统一值类型配置。项宽策略 `itemSizing` 与整组 `alignment` 独立；默认 `.content` + `.leading`。
 
-| 模式 | 宽度与排列 |
+| 项宽策略 | 分配规则 |
 | --- | --- |
-| `.automatic` | 保留原策略：优先满足各项内容宽度，其余项尽量等宽，铺满可用区域；总需求超宽时横向滚动。 |
-| `.fill` | 扣除间距后均分可用宽度，每项不小于 `minimumItemWidth`；最小宽度与间距之和超宽时横向滚动。长内容不撑开单项。 |
-| `.centered` | 每项使用内容测量宽度与 `minimumItemWidth` 的较大值，不拉伸；放得下时整组居中，超宽时横向滚动。 |
-| `.leading`（默认） | 与 `.centered` 使用相同项宽和固定间距，整组靠逻辑起始端排列，余量全部留在 trailing；超宽时横向滚动。 |
+| `.content` | 使用内容理想宽度，遵守最小宽度和可选的 `maximumItemWidth`。 |
+| `.equal` | 扣除留白和间距后均分可用宽度；不小于 `minimumItemWidth`，必要时横向滚动。 |
+| `.balanced` | 先满足较宽项，再把余量均分给较窄项；保留原 `.automatic` 的连续分配算法。 |
+| `.fixed(width)` | 所有项使用指定宽度与 `minimumItemWidth` 的较大值，超宽时横向滚动。 |
+
+`alignment` 支持 `.leading`、`.center`、`.trailing`，仅对未填满视口的剩余空间生效。RTL 镜像视觉排列和逻辑边距，索引不变。选中项仍尽量滚动到视口中央；组对齐不改变选中滚动策略。空列表不因留白单独产生滚动。
 
 ```swift
-tabs.itemPositioning = .automatic // 余量自适应分配
-tabs.itemPositioning = .fill      // 强制等宽
-tabs.itemPositioning = .centered  // 按内容宽度，整组居中
-tabs.itemPositioning = .leading   // 默认：按内容宽度，靠逻辑起始端
+var layout = tabs.layoutConfiguration
+layout.itemSizing = .content
+layout.maximumItemWidth = 160
+layout.minimumItemWidth = 44
+layout.alignment = .center
+layout.itemSpacing = 12
+layout.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16)
+tabs.layoutConfiguration = layout // 一次应用整组配置，避免中间布局
+
+// 固定项宽与末尾对齐可独立组合。
+layout.itemSizing = .fixed(80)
+layout.alignment = .trailing
+tabs.layoutConfiguration = layout
 ```
 
-可用宽度先扣除左右安全区域、固定附件及 `contentInsets` 水平留白；`itemSpacing` 在所有模式中均生效。RTL 仅镜像排列，不改变逻辑索引。`.automatic` 保持框架原策略，不采用系统 UITabBar 按设备类型选择布局的规则。
+布局先从栏宽扣除左右安全区域与附件，再扣除配置中的水平留白和项间距。`maximumItemWidth` 只影响 `.content`，小于最小宽度时以最小宽度为准；其他策略保留该配置但不使用它。最小项宽默认 44，间距默认 0；负数归零，非有限最小宽度回退到 44、非有限间距归零、非有限最大宽度视为不限。固定宽度非有限时回退到 44。有限长度最多 1,000,000 pt。
 
-`.leading` 从扣除安全区域、附件后的 `contentInsets.leading` 开始排列；RTL 下从右侧开始，余量留在左侧。单项不拉伸，空列表不产生额外滚动范围；超宽时与 `.centered` 的布局相同。选中项仍沿用现有滚动定位规则，不会强制贴到起始边缘。
+自定义自动内容先求理想宽度，再按最终分配宽度测高。`.balanced` 和 `.equal` 在首选测量阶段尝试视口内的宽度；`.content` 和 `.fixed` 先取自然宽度，随后由统一分配器限制。`.equal`、`.fixed` 和设置上限的 `.content` 要求内容支持压缩或换行，业务 required 最小宽度不会撑开最终 Cell。内置长标题在这些策略下截断；显式 `SPTabBarContent.size` 仍是理想尺寸覆盖，不是最终 Cell 尺寸。
 
-默认内容、自定义内容与回退项共用此策略。自定义自动测量内容在 `.centered` 和 `.leading` 下使用自然首选宽度，不受视口宽度限制；其他模式沿用视口内的首选宽度测量。内容高度按最终分配宽度重新测量。`.fill` 下内置长标题按按钮配置截断；自定义内容应支持压缩或换行，业务 required 最小宽度不能撑开 Cell，可能超出其布局区域。显式 `SPTabBarContent.size` 的高度仍由业务提供。运行时切换自动刷新测量、滚动范围和指示器，保留 Item 身份、选择与分页进度，不发送选择回调。
+`defaultContentLayout` 只控制内置图文及回退项，不影响自定义内容内部布局：
 
-Demo 的“页面 → 标签布局模式”和“标签外观 → 配置 → 标签布局模式”均可切换四种模式，菜单每次打开时根据当前模式显示勾选。切换只改变宽度分配，不重置内容、间距、附件、方向或当前选择。手机上可先在独立“标签外观 → 配置”选择“紧凑编号内容”，观察 `.centered` 两侧留白与 `.leading` 单侧留白的区别；“默认内容”恢复图文，“自定义卡片”恢复卡片。通过“留白与附件 → 切换布局方向”可对比 RTL；分页页保留原有多频道内容，适合观察超宽滚动。自定义卡片在 `.fill` 分配宽度不足时隐藏编号并缩小留白，标题和副标题居中、最多两行；恢复充足宽度后重新显示编号。此布局选择在配置阶段完成，自动测量与显示保持一致。“自动图文排列”只调整标签内部图文关系，与整栏的“自动分配”相互独立。
+```swift
+var content = tabs.defaultContentLayout
+content.imagePlacement = .inline // automatic / stacked / inline
+content.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
+content.minimumHeight = 32
+content.iconSize = CGSize(width: 20, height: 20)
+content.imageTitleSpacing = 8
+tabs.defaultContentLayout = content
+```
+
+默认内部留白为上下各 11、左右各 16 pt，最小内容高度 44 pt，图标区域 24 × 24 pt，图文间距 4 pt。图标保持比例；任一图标尺寸分量为零时隐藏图标，不生成零尺寸图片。非对称内部留白同时作用于测量与按钮布局。角标按配置后的尾端留白计算额外宽度。字体仍来自 Appearance，按 Dynamic Type 缩放并预留普通、选中、禁用状态中的最大尺寸。数值归一化沿用有限长度上限；非有限高度、图标尺寸、间距分别恢复默认值，非法 inset 分量归零。较小的 Item 不额外扩大点击区域。
+
+图标光栅化最多使用 1024 × 1024 像素，避免极大逻辑尺寸申请过大的位图；正常尺寸保持默认屏幕分辨率。通过 renderer 的每点像素比例保留逻辑尺寸和宽高比，见 [Apple 的 scale 说明](https://developer.apple.com/documentation/uikit/uigraphicsimagerendererformat/scale)。
+
+### 栏高策略与布局所有权
+
+容器通过 `SPPageLayout.tabBarSizing` 决定实际栏高：
+
+```swift
+pager.layout.tabBarSizing = .content(minimum: 44) // 默认，随内容或附件增高
+pager.layout.tabBarSizing = .fixed(44)           // 固定高度，超出内容在栏内裁切
+pager.layout.tabBarSizing = .hidden              // 隐藏并移除对应安全区域贡献
+pager.layout.tabBarSizing = .content(minimum: 0) // 无宿主高度下限，仍按内容测量
+```
+
+内容策略的最终高度为 `max(minimum, 标签内容所需高度 + 外围上下留白, 两端附件理想高度)`。内置内容另有 `defaultContentLayout.minimumHeight`，自定义内容不承担该下限。固定策略不随内容增高；自定义视图保持至少其测得的理想高度，顶部对齐并裁切到 Item 内，恢复足够栏高后显示完整内容。点击与无障碍入口仍只覆盖实际 Item 区域，外围上下留白不包含在裁切区域内。隐藏策略不请求容器高度测量。独立标签栏由宿主调用 `sizeThatFits(_:)` 取得建议高度并设置 frame，不读取分页容器配置。
+
+容器负责整栏 frame、Header 吸顶位置及页面安全区域贡献；标签栏负责 Item、附件和指示器的内部几何；自定义内容负责自己的内部视图。背景和分隔线继续铺满栏宽，交互内容避让左右安全区域。
+
+Demo Header 的品牌名单行显示并按可用宽度缩放，说明文字独立换行，两者继续响应 Dynamic Type。“高度”按钮的 220／300 pt 是演示内容的高度下限。大字号时，Demo 按实际文字高度加顶部安全区域自动增高；字号恢复或旋转后重新测量，避免文字被标签栏截断。该适配由 Demo 自己负责，框架的 `SPPageLayout.headerHeight` 仍表示业务指定的 Header 总高度。
+
+### 布局 API 迁移
+
+本轮移除旧的 `ItemPositioning` 与散落的标签组布局属性，迁移对应关系如下。`minimumItemWidth` 保留为配置中独立的公共下限，所有宽度策略使用同一规则。
+
+| 旧入口 | 新入口 |
+| --- | --- |
+| `itemPositioning = .automatic` | `layoutConfiguration.itemSizing = .balanced` |
+| `itemPositioning = .fill` | `layoutConfiguration.itemSizing = .equal` |
+| `itemPositioning = .centered` | `.itemSizing = .content`、`.alignment = .center` |
+| `itemPositioning = .leading` | `.itemSizing = .content`、`.alignment = .leading` |
+| `itemSpacing` / `minimumItemWidth` / `contentInsets` | 同名字段移到 `layoutConfiguration` |
+| `standardAppearance.itemAppearance.layout` | `defaultContentLayout.imagePlacement` |
+| `layout.tabBarHeight = h` | `layout.tabBarSizing = .content(minimum: h)`；原 0 映射 `.hidden` |
+
+旧 `tabBarHeight` 属性和带该标签的初始化仍作为兼容入口，正值表示最小高度、0 或负值隐藏；读取内容策略返回下限，读取固定策略返回固定值，不表示实际测量高度。`.content(minimum: 0)` 与隐藏明确不同。
+
+布局配置不进入 Appearance 复制或安全归档。历史 Appearance 中的 `SP.layout` 字段不再控制图文排列，需要业务显式迁移到 `defaultContentLayout.imagePlacement`；其他外观字段继续解码。Item 的 `standardAppearance` 仍保持“选中时覆盖整栏主题”的现有语义，但不再切换图文排列。本轮保留内容模式、指示器模式和代理入口，以及原有交互回调语义。
+
+Demo 的“页面”与“标签外观 → 配置”均提供“标签布局模式”和“默认内容尺寸”。前者包含均衡、等宽、内容居中、起始／末尾对齐和固定宽度居中；后者提供默认、紧凑和宽松图文。切换布局只更新项宽和对齐，保留间距、附件、方向、内容及当前选择。自定义卡片仍根据等宽策略选择紧凑内容；最终尺寸上下文和自定义几何协议留待后续阶段。
 
 ### 运行时属性更新与布局刷新
 
@@ -215,12 +277,12 @@ Demo 的“页面 → 标签布局模式”和“标签外观 → 配置 → 标
 
 | 属性或输入 | 影响范围 | 刷新方式 |
 | --- | --- | --- |
-| `itemPositioning`、`itemSpacing`、`minimumItemWidth`、`contentInsets` | Item 宽度分配、位置、滚动范围；上下留白也影响建议栏高 | setter 自动重新测量并安排布局；归一化后相同值不重复刷新 |
+| `layoutConfiguration`、`defaultContentLayout` | Item 宽度分配、位置、滚动范围；上下留白也影响建议栏高 | setter 自动重新测量并安排布局；归一化后相同值不重复刷新 |
 | `contentStyle`、`contentDelegate` | 内容配置、理想尺寸和内容指示器区域 | 模式变化或自定义模式下更换代理自动刷新；业务自有数据变化调用 `reloadContent()` |
 | `leadingAccessoryView`、`trailingAccessoryView` | 固定附件、剩余标签视口、建议栏高 | 替换自动刷新；已有附件的内容、约束或 `isHidden` 变化调用 `invalidateAccessoryLayout()` |
 | Item 的 `title`、`image`、`selectedImage`、`landscapeImagePhone`、`badgeValue`、状态文字属性中的字体 | 内容测量、栏高、Item 几何及内容指示器区域 | 自动通知所有宿主重新测量、配置内容并安排布局 |
-| Item 的 `imageInsets`、`landscapeImagePhoneInsets` | 图标绘制及内容配置 | 自动刷新；图标槽位仍按默认的 24 pt 规则测量 |
-| 栏级／所选 Item 的 `standardAppearance`，其中的 `itemAppearance.layout` 和各状态 `font` | 图文排列、字体测量、建议栏高及指示器 | 赋值时复制；通过宿主 getter 修改嵌套值也自动刷新 |
+| Item 的 `imageInsets`、`landscapeImagePhoneInsets` | 图标绘制及内容配置 | 自动刷新；图标槽位按 `defaultContentLayout.iconSize` 测量 |
+| 栏级／所选 Item 的 `standardAppearance`，其中的各状态 `font` | 字体测量、建议栏高及指示器 | 赋值时复制；通过宿主 getter 修改嵌套值也自动刷新 |
 | `indicatorStyle`、`indicatorLayoutDelegate`、`indicatorView`、Appearance 的 `indicatorLayout` 全部字段 | 指示器参考区域、对齐、宽高、内缩、偏移、圆角和层级 | 自动重算指示器，不参与标签测量；外部几何数据变化调用 `reloadIndicator()` |
 | Appearance 的 `indicatorColor` | 指示器颜色 | 仅刷新渲染，保留选择动画与分页进度 |
 | `tintColor`，Item 的颜色、启用状态、无障碍和大内容查看属性，Appearance 的状态颜色、背景和阴影 | 默认内容渲染、交互和装饰；自定义内容也可能据此改变尺寸 | 自动更新；通用内容刷新会核对实际测量，几何不变时不打断滚动或选择动画；阴影图片高度在布局时更新 |
@@ -231,12 +293,12 @@ Item 和 Appearance 的通用属性刷新与间距、留白使用相同的内容
 
 ### 内容留白与固定附件
 
-`contentInsets: NSDirectionalEdgeInsets` 默认左右各 16 pt、上下为 0；首尾留白随标签内容滚动，不是固定的视口边距。显式设置 `.zero` 可取消这层留白。内置图文原有的 Item 内边距仍保留，自定义内容也享有这层首尾留白。`leadingAccessoryView` 和 `trailingAccessoryView` 默认 nil。三者都属于标签栏布局配置，不属于 Appearance，不参与其复制或归档。
+`layoutConfiguration.contentInsets: NSDirectionalEdgeInsets` 默认左右各 16 pt、上下为 0；首尾留白随标签内容滚动，不是固定的视口边距。显式设置 `.zero` 可取消这层留白。内置图文原有的 Item 内边距仍保留，自定义内容也享有这层首尾留白。`leadingAccessoryView` 和 `trailingAccessoryView` 默认 nil。内容留白属于值类型布局配置，附件视图属于独立的运行时扩展，不属于 Appearance，不参与其复制或归档。
 
 ```swift
 let tabs = pager.tabBar
 // 水平首尾留白随标签内容滚动，上下留白参与建议栏高。
-tabs.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+tabs.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
 
 let more = UIButton(type: .system)
 more.setImage(UIImage(systemName: "line.3.horizontal"), for: .normal)
@@ -262,7 +324,7 @@ tabs.invalidateAccessoryLayout()
 
 附件由标签栏强持有，框架管理 frame、承载区域和裁切，不应与其他宿主共享，也不要添加连接附件与标签栏的外部定位约束。同一对象不能同时用于两端，跨端重复赋值会忽略该次操作并保留原状态；替换或移除后旧附件从框架层级移除。正常情况下附件保持理想尺寸并垂直居中；两端理想宽度总和超过安全宽度时，按宽度比例分配不重叠的区域，分别朝逻辑外侧对齐并裁切，标签视口可以缩为零。恢复宽度后恢复正常显示；固定栏高不足时也在栏内裁切，不扩大栏外点击范围。
 
-建议高度为 `max(标签内容高度 + top + bottom, leading 附件高度, trailing 附件高度)`。内容高度使用扣除附件和水平留白后的宽度测量。容器仍将 `SPPageLayout.tabBarHeight` 作为最小栏高，0 隐藏整个标签栏及附件。候选 `sizeThatFits(_:)` 不修改当前附件 frame、Cell、偏移或指示器。附件内容、内部约束或可见性变化后调用 `invalidateAccessoryLayout()`；替换附件、修改留白、旋转、安全区域和相关 traits 变化由框架安排更新。
+建议高度为 `max(标签内容高度 + top + bottom, leading 附件高度, trailing 附件高度)`。内容高度使用扣除附件和水平留白后的宽度测量。容器使用 `SPPageLayout.tabBarSizing`：内容策略测量建议高度，固定策略裁切，`.hidden` 隐藏整个标签栏及附件。候选 `sizeThatFits(_:)` 不修改当前附件 frame、Cell、偏移或指示器。附件内容、内部约束或可见性变化后调用 `invalidateAccessoryLayout()`；替换附件、修改留白、旋转、安全区域和相关 traits 变化由框架安排更新。
 
 #### UI／UX 行为
 
@@ -287,6 +349,10 @@ tabs.invalidateAccessoryLayout()
 未显式覆盖时，胶囊在标签四周内缩 4 pt，使用 `.tertiarySystemFill`；默认线条与当前标题等宽、在 Item 底部对齐、高 3 pt，颜色跟随 `SPTabBar.tintColor`；纯图标项回退到图标区域，自定义内容使用 `indicatorContentRect` 的水平范围（未声明时回退到整项），并限制到 Item 内。显式 `indicatorLayout = .underline` 与默认频道线条一致，也可使用 `.underline(width: .fixed(20))` 固定宽度并居中对齐文字；固定宽度不受文字宽度限制。同一固定宽度用于所有 Item 时，分页只移动、不伸缩。自定义模式缺少几何代理时使用布局配置或胶囊几何，缺少视图时使用内置绘制，默认颜色跟随选中文字。切回内置样式或 `.none` 保留自定义对象，但不调用代理或视图更新。
 
 Appearance 的 `indicatorLayout` 和 `indicatorColor` 默认均为 nil，表示采用当前样式的默认值；显式配置优先于样式，切换样式不会清除配置，设回 nil 恢复当前样式默认值。下划线颜色不随 Item 标题属性或 `selected.titleColor` 改变；优先级为显式 `indicatorColor` → 栏 `tintColor`，运行时更新主题色立即生效。指示器是否启用统一由 `SPTabBar.indicatorStyle` 控制；`.none` 表示不需要指示器，切回其他模式时按当前选择或分页进度恢复显示。
+
+Demo 默认启用“自动匹配内容”：完整卡片和固定栏高下的紧凑卡片仅通过边框及标题颜色表达选择，不叠加下划线；内置图文和纯文字继续使用标题下划线，紧凑自定义文字排除两侧各 12 pt 的内部留白。内置标题按选中态文字布局宽度测量，不计入 Item 留白、图标或角标，也不为贴合字形边缘统一减去固定宽度。应在静止选中态比较宽度，分页过程中仍对两个端点插值。
+
+在“指示器”菜单显式选择下划线、胶囊或自定义视图后，选择会跨内容切换保留；再次选择“自动匹配内容”恢复上述默认规则。卡片显式使用下划线时，对齐可见卡片边界（完整卡片排除左右各 4 pt 的外部留白），固定宽度仍遵守显式配置。Demo 通过现有 `SPTabBarIndicatorLayoutDelegate` 按最终 Item 几何计算自定义端点，不依赖可见 Cell；框架的内容／指示器独立组合 API 及选中回调时机保持不变。
 
 ```swift
 // 内置底部线条；nil 颜色始终跟随标签栏的 tintColor。
@@ -385,30 +451,30 @@ tabs.indicatorView = customIndicatorView
 
 自定义视图继承 `SPTabBarIndicatorView`，在 `update(_:)` 中读取来源/目标索引、连续进度、当前 frame、颜色和圆角；索引为 nil 表示对应端点没有选中项。框架强持有视图并管理 frame、隐藏、层级与交互；业务只布局内部子视图，不修改根视图 frame/transform。替换或设为 nil 会移除旧视图；不能把同一视图交给多个标签栏。代理和视图不进入 Appearance 的复制与归档；布局值和颜色可以复制与安全归档。
 
-指示器是装饰，不参与标签宽度、栏高或点击区域测量；需要预留空间时，在标签内容中提供留白，并用 `SPPageLayout.tabBarHeight` 或独立宿主栏高保证空间。允许超出单项，但始终随内容滚动并裁剪到扣除附件后的标签视口，不能跨到附件、Header 或页面上。前景/背景层都不拦截触摸，也不增加无障碍焦点。
+指示器是装饰，不参与标签宽度、栏高或点击区域测量；需要预留空间时，在标签内容中提供留白，并用 `SPPageLayout.tabBarSizing` 的内容下限或独立宿主栏高保证空间。允许超出单项，但始终随内容滚动并裁剪到扣除附件后的标签视口，不能跨到附件、Header 或页面上。前景/背景层都不拦截触摸，也不增加无障碍焦点。
 
 点击、程序化切换和分页共享位置与宽高插值。标签栏的滚动动画独立于指示器是否存在，`.none` 或零尺寸指示器不会关闭标签栏的滚动动画。自定义指示器在程序动画开始时先接收 `progress = 0` 和起始 frame，再按动画进度更新；连续点击从当前 frame 接续，不提前发送目标完成态。取消返回选中项；分页期间修改指示器配置或栏尺寸会保留进度并重新计算端点，程序动画期间修改配置则落到当前选中项，保留已有滚动偏移。每项几何使用该 Item 的 Appearance 或栏级回退；颜色、层级和圆角使用当前已选 Item 的外观，提交选择时更新；Item 外观不会改变标签栏的 `indicatorStyle`。内置图文的默认及显式下划线预设均按各端点的选中态标题（纯图标时为选中态图标）测量，避免分页完成后因字重改变再伸缩一次；此测量不提前改变可见标题或提交选择，取消时恢复原端点。显式 `.content` 布局仍使用当前实际内容区域，自定义内容仍使用其声明的区域。交互分页按手势进度更新，减少动态效果时程序化选择直接完成。
 
 独立“标签外观”和分页“页面”菜单的“指示器”子菜单展示七种效果：默认下划线、固定 20 pt 下划线、胶囊、顶部固定线条、跟随内容宽度、内容背景、自由布局与自定义视图；另提供不使用指示器的隐藏选项，以及自动圆角、直角、固定 1 pt 圆角设置。自定义渐变视图使用框架解析后的 `state.cornerRadius`，与内置指示器遵循相同设置。
 
-默认使用系统材质背景和文字等宽下划线。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中指示器支持布局预设、自定义几何，并通过 `.none` 关闭。图标保持比例放入 24 pt 区域，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
+默认使用系统材质背景和文字等宽下划线。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中指示器支持布局预设、自定义几何，并通过 `.none` 关闭。图标默认保持比例放入 24 pt 区域，可通过 `defaultContentLayout.iconSize` 修改，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
 
 默认文字和模板图标采用 UITabBar 风格：未选中为 `.secondaryLabel`，选中跟随标签栏的 `tintColor`（包括从父视图继承的颜色），禁用为 `.tertiaryLabel`。显式状态颜色优先；`titleColor`、`iconColor` 设为 nil 时恢复该状态的默认颜色。默认模式下，运行时改变 tint 会立即刷新可见标签，不改变滚动位置和选中动画。深浅色使用动态颜色解析。
 
-默认标签宽度按正常、选中、禁用状态的最大内容尺寸预留，避免选择时字体变化导致跳动。默认 `.leading` 使用各项内容宽度与 `minimumItemWidth` 的较大值，靠逻辑起始端排列，不拉伸余量；总需求超出视口则横向滚动。默认最小项宽为 44 pt，默认图文高度仍至少 44 pt；选中项尽量居中，首尾受内容边界限制。布局和字体变化重新对齐，普通刷新保留用户手动滚动位置。RTL 仅反转视觉顺序，逻辑索引不变。
+默认标签宽度按正常、选中、禁用状态的最大内容尺寸预留，避免选择时字体变化导致跳动。默认 `.content` + `.leading` 使用各项内容宽度与 `minimumItemWidth` 的较大值，靠逻辑起始端排列，不拉伸余量；总需求超出视口则横向滚动。默认最小项宽为 44 pt，默认图文高度仍至少 44 pt；选中项尽量居中，首尾受内容边界限制。布局和字体变化重新对齐，普通刷新保留用户手动滚动位置。RTL 仅反转视觉顺序，逻辑索引不变。
 
-`SPTabBar.itemSpacing` 控制相邻 Item 布局区域之间的固定水平间距，默认 `0`，适用于默认、自定义和回退内容。它不属于 Item 内部留白，不计入 `minimumItemWidth`，也不替代标签栏两侧 Safe Area；首尾不额外增加间距。负值和非有限值归零，超过 1,000,000 pt 截到该上限。
+`SPTabBar.layoutConfiguration.itemSpacing` 控制相邻 Item 布局区域之间的固定水平间距，默认 `0`，适用于默认、自定义和回退内容。它不属于 Item 内部留白，不计入 `minimumItemWidth`，也不替代标签栏两侧 Safe Area；首尾不额外增加间距。负值和非有限值归零，超过 1,000,000 pt 截到该上限。
 
 ```swift
-tabs.itemSpacing = 16 // 相邻 Item 之间留出 16 pt
-tabs.minimumItemWidth = 44 // 单个 Item 的最小布局宽度，不含间距
+tabs.layoutConfiguration.itemSpacing = 16 // 相邻 Item 之间留出 16 pt
+tabs.layoutConfiguration.minimumItemWidth = 44 // 单个 Item 的最小布局宽度，不含间距
 ```
 
 有 n 个 Item 时，总间距为 `max(0, n - 1) × itemSpacing`。先从扣除附件后的标签视口中减去水平内容留白和总间距，再按现有策略分配 Item 宽度；超出视口时，滚动内容宽度为 Item 宽度之和、总间距及水平首尾留白之和。自动内容按扣除间距后实际分配的宽度计算高度；空列表和单项不产生额外间距。间隙不属于任意 Item 的点击区域，也不增加无障碍元素。
 
 运行时修改间距无需重设 Items，保留对象身份、当前选择和选择回调语义。几何变化时，手动偏移限制到新滚动范围，程序动画落到当前选中项，分页交互保持进度并重算端点；归一化后的间距未变化时不触发刷新。居中、边缘渐隐和指示器均跟随最终布局，`.none` 下滚动动画照常工作。Demo 的“页面”及“标签外观 → 配置”中均可通过“标签间距”选择 0、8、16、24 pt。
 
-背景铺满容器，内部 Collection View 和指示器共用扣除左右安全区域及固定附件后的标签视口；附件在各自区域独立接收点击。超出视口的内容在仍有隐藏项的一侧使用 16 pt 渐隐；材质背景不参与渐隐。`tabBarHeight` 是最小高度（0 隐藏），实际高度综合内容测量、上下内容留白和附件理想高度；变化后容器更新页面边界并保留滚动位置。独立宿主应在布局时使用 `sizeThatFits(_:)`。降低透明度时改用不透明系统背景，减少动态效果时关闭程序化选中动画。角标、选中和禁用状态同步无障碍信息。
+背景铺满容器，内部 Collection View 和指示器共用扣除左右安全区域及固定附件后的标签视口；附件在各自区域独立接收点击。超出视口的内容在仍有隐藏项的一侧使用 16 pt 渐隐；材质背景不参与渐隐。`tabBarSizing` 显式选择内容最小高度、固定高度或隐藏；变化后容器更新页面边界并保留滚动位置。独立宿主应在布局时使用 `sizeThatFits(_:)`。降低透明度时改用不透明系统背景，减少动态效果时关闭程序化选中动画。角标、选中和禁用状态同步无障碍信息。
 
 分页和非相邻选择继续共享选中标识与居中偏移的连续进度；连续点击从当前位置接续。按住标签按钮后横向拖动时允许 Collection View 接管手势。自定义栏可重写 `setItems(_:)`、`setSelectedItem(_:animated:)` 和 `setTransitionProgress(from:to:progress:)`，调用 super 保持模型同步，使用 `requestSelection(of:)` 发送用户请求。通过 `pager.tabBar = CustomTabBar()` 替换。
 
@@ -479,33 +545,33 @@ pager.tabBar.reloadContent()
 配置与测量遵循以下约定：
 
 - `context` 提供当前 `UICellConfigurationState`、tintColor、视觉方向、扣除左右安全区域、固定附件和水平内容留白后的可用宽度，以及当前生效 Appearance 的独立副本。尚未布局时宽度可能为 0。业务决定如何使用 Item 和 Appearance；框架不会把默认样式强加给自定义内容。
-- `SPTabBarContent(configuration:)` 默认自动测量，`size == nil`。框架用独立的内容视图调用 `systemLayoutSizeFitting`：先以压缩目标求首选宽度，再由普通 Auto Layout 测量宿主以水平优先级 999 尝试视口内的首选宽度（未知视口或 `.centered`／`.leading` 时使用内容首选宽度）；业务 required 最小宽度可以影响首选宽度，但不会改变 `.fill` 的最终项宽。然后由布局应用 `minimumItemWidth` 和 `itemPositioning` 分配宽度，以水平 `.required`、垂直 `.fittingSizeLevel` 定宽求高度；`.fill` 的水平测量优先级为 999，以避免与业务 required 最小宽度冲突，Cell 仍严格使用分配宽度。所有 Cell 高度取各项所需高度的最大值，并受容器最低栏高约束；`tabBarHeight == 0` 仍隐藏标签栏。
+- `SPTabBarContent(configuration:)` 默认自动测量，`size == nil`。框架用独立的内容视图调用 `systemLayoutSizeFitting`：先以压缩目标求首选宽度，再由普通 Auto Layout 测量宿主以水平优先级 999 尝试视口内的首选宽度（未知视口或 `.content`／`.fixed` 时使用内容首选宽度）；业务 required 最小宽度可以影响首选宽度，但不会改变 `.equal` 的最终项宽。然后由布局应用 `minimumItemWidth` 和 `layoutConfiguration.itemSizing` 分配宽度，以水平 `.required`、垂直 `.fittingSizeLevel` 定宽求高度；限制内容宽度的策略（`.equal`、`.fixed`、设上限的 `.content`）的水平测量优先级为 999，以避免与业务 required 最小宽度冲突，Cell 仍严格使用分配宽度。内容策略下，建议高度取各项所需高度的最大值，再由容器应用最低栏高；固定策略裁切，`.hidden` 隐藏标签栏。所有 Cell 使用扣除外围上下留白后的实际栏高。
 - 自定义视图需要完整的内部 Auto Layout 约束或能参与求解的 `intrinsicContentSize`。例如多行 UILabel 应连接内容视图四边，框架不额外添加业务内边距。`targetSize` 本身不是最大尺寸；普通 UIView 只重写 `sizeThatFits` 也不代表它一定参与 Auto Layout 测量。手动布局视图可继续提供显式尺寸，或自行实现 `systemLayoutSizeFitting`。
-- 仍可使用 `SPTabBarContent(configuration: configuration, size: CGSize(width: 160, height: 76))` 跳过自动测量；它是理想尺寸覆盖，最终宽度由 `itemPositioning` 决定，可扩展，也可在 `.fill` 下小于理想宽度。`size` 现在为 `CGSize?`，旧的显式尺寸初始化调用保持可用，读取属性的代码需要处理 nil；赋值 nil 可恢复自动测量。显式尺寸和自动测量结果必须为有限正数且不超过 1,000,000 pt，否则该项回退到默认内容；理想尺寸不再混入 Cell 最小宽度，高度不额外设下限（自动测量尺寸向上取整到 pt）。显式尺寸不限制到视口；自动测量可能压缩可换行内容。
-- `SPPageLayout.tabBarHeight` 是最小栏高，默认 44，设为 0 时隐藏。正值时实际栏高为 `max(tabBarHeight, 内容所需高度 + 上下内容留白, 两端附件理想高度)`，不是固定高度。例如自定义内容需要 28 pt 时，配置 32 / 60 / 44，实际栏高分别为 32 / 60 / 44；内容需要 80 pt 时，这三个配置都得到 80。默认图文及回退项保留自身至少 44 pt 的规则，因此混用时仍可能把整栏撑高。宽度由标签栏自身的 `itemPositioning`、`minimumItemWidth`、`itemSpacing` 和分配规则控制，不由 `SPPageLayout` 控制。
-- `SPTabBar.minimumItemWidth` 默认 44 pt，同时作用于默认、自定义及回退项。0 表示不额外设下限，负数归零，非有限值恢复为 44，超过 1,000,000 pt 截到该上限。它是 Cell 最小布局宽度，不改变业务返回的理想尺寸，也不扩大 Cell 外的命中区域。较小的宽度或栏高属于业务主动选择的紧凑交互，不能据此认为仍有 44 × 44 pt 点击区域。
-- `.automatic` 的宽度分配连续：320 pt 视口中，理想宽度 `[160, 44]` 得到 `[160, 160]`，变成 `[161, 44]` 后得到 `[161, 159]`，不会再跳到 `[218.5, 101.5]`。这是对原“固有宽度加平均剩余空间”策略的行为调整。减少最小宽度不会关闭剩余空间分配，两个短标签仍可能等宽填满整栏。
-- 内容根视图须适应实际分配宽度，包括 `.fill` 下的压缩。其他模式允许内部 required 最小宽度撑开单项并横向滚动；`.fill` 不会因此增宽，业务需自行降级内容或约束。根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
+- 仍可使用 `SPTabBarContent(configuration: configuration, size: CGSize(width: 160, height: 76))` 跳过自动测量；它是理想尺寸覆盖，最终宽度由 `layoutConfiguration.itemSizing` 决定，可扩展，也可在 `.equal` 下小于理想宽度。`size` 现在为 `CGSize?`，旧的显式尺寸初始化调用保持可用，读取属性的代码需要处理 nil；赋值 nil 可恢复自动测量。显式尺寸和自动测量结果必须为有限正数且不超过 1,000,000 pt，否则该项回退到默认内容；理想尺寸不再混入 Cell 最小宽度，高度不额外设下限（自动测量尺寸向上取整到 pt）。显式尺寸不限制到视口；自动测量可能压缩可换行内容。
+- `SPPageLayout.tabBarSizing` 默认 `.content(minimum: 44)`。内容高度 28 pt 时，下限 32 / 60 / 44 分别得到实际高度 32 / 60 / 44；内容需要 80 pt 时，这三个下限均得到 80。`.fixed(32)` 始终使用 32，`.hidden` 隐藏。内置图文与回退项另遵守 `defaultContentLayout.minimumHeight`；宽度统一由 `layoutConfiguration` 控制。
+- `SPTabBar.layoutConfiguration.minimumItemWidth` 默认 44 pt，同时作用于默认、自定义及回退项。0 表示不额外设下限，负数归零，非有限值恢复为 44，超过 1,000,000 pt 截到该上限。它是 Cell 最小布局宽度，不改变业务返回的理想尺寸，也不扩大 Cell 外的命中区域。较小的宽度或栏高属于业务主动选择的紧凑交互，不能据此认为仍有 44 × 44 pt 点击区域。
+- `.balanced` 的宽度分配连续：320 pt 视口中，理想宽度 `[160, 44]` 得到 `[160, 160]`，变成 `[161, 44]` 后得到 `[161, 159]`，不会再跳到 `[218.5, 101.5]`。这是对原“固有宽度加平均剩余空间”策略的行为调整。减少最小宽度不会关闭剩余空间分配，两个短标签仍可能等宽填满整栏。
+- 内容根视图须适应实际分配宽度，包括 `.equal` 下的压缩。`.balanced` 和未设上限的 `.content` 允许内部 required 最小宽度撑开单项并横向滚动；`.equal` 不会因此增宽，业务需自行降级内容或约束。根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
 - 未设置代理、代理释放后下一次标签栏布局、返回 nil 或尺寸无效时，对应项回退到默认内容。允许同一栏混用默认项和自定义项。
 - 内容和尺寸会缓存。Item、选择、Appearance、tint、traits、可用宽度、RTL 或模式变化会重新获取配置；业务自有数据变化需调用 `reloadContent()`。提供方法应同步、无副作用，不得在其中修改标签栏或 Item、触发布局或重载。自动测量由框架构造独立视图；不要在代理回调中自行构造或缓存正在显示的视图。状态样式宜保持约束尺寸稳定，或为显式尺寸取各状态最大值。
 - `reloadContent()` 不发送选择回调。内容及指示器端点几何不变时保留手动滚动偏移、正在进行的选择动画和分页进度；几何变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.default` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
 - `sizeThatFits(_:)` 只测量建议宽度对应的高度，不提交配置、不改变当前 Cell 布局、偏移或指示器。实际布局时才采用实际视口的配置与尺寸。显示快照与最近一次候选测量分开缓存，重复询问相同宽度不会反复调用代理或构造测量视图；候选宽度变化仍可能触发代理，所以回调不能假定标签栏已经改变 frame。
 - 测量视图处于隐藏、无交互和无障碍入口的独立宿主中，继承标签栏 traits、tint 和视觉方向，完成测量后移除；不会借用正在显示的 Cell。`makeContentView()` 和配置更新可能用于测量，不能依赖可见性或触发业务副作用。配置需独立描述完整内容。业务异步数据变化后调用 `reloadContent()`；仅在某个显示视图上调用 `invalidateIntrinsicContentSize()` 不会自动清除标签栏缓存。
-- 自定义配置的 `updated(for:)` 接收 `UICellConfigurationState`，其中包含选中、禁用和真实按压高亮。高亮变化仅更新内容配置，不重新询问尺寸。提供方法的 `context.state` 高亮为 false；框架只保证 traits、选中、禁用和运行时按压高亮，不承诺同步 Cell 的焦点、编辑或多选状态。`UIContentView.configuration` 应覆盖旧状态并复用子视图。默认、自定义及回退模式共用同一个框架内容容器和激活按钮；切换模式不会重建整个 Cell 内容容器。兼容的业务配置通过 `configuration` 原位更新；业务配置不兼容时仅替换内部自定义视图。iOS 16+ 使用 `supports(_:)` 判断业务配置兼容性，iOS 15 按配置类型判断。离开自定义模式会释放业务视图，恢复时按当前配置重新创建，不隐藏缓存旧内容。
+- 自定义配置的 `updated(for:)` 接收 `UICellConfigurationState`，其中包含视觉选中预览、禁用和真实按压高亮。点击立即预览目标项，分页过半预览目标项，回退或取消时恢复；提供方法的 `context.state.isSelected` 仍表示已提交的逻辑选择，状态外观应在 `updated(for:)` 中处理。高亮变化仅更新内容配置，不重新询问尺寸。提供方法的 `context.state` 高亮为 false；框架只保证 traits、选中、禁用和运行时按压高亮，不承诺同步 Cell 的焦点、编辑或多选状态。`UIContentView.configuration` 应覆盖旧状态并复用子视图。默认、自定义及回退模式共用同一个框架内容容器和激活按钮；切换模式不会重建整个 Cell 内容容器。兼容的业务配置通过 `configuration` 原位更新；业务配置不兼容时仅替换内部自定义视图。iOS 16+ 使用 `supports(_:)` 判断业务配置兼容性，iOS 15 按配置类型判断。离开自定义模式会释放业务视图，恢复时按当前配置重新创建，不隐藏缓存旧内容。
 - 每个标签保留一个由框架管理的整项点击和无障碍入口。自定义视图内部控件不参与命中测试或独立无障碍导航；如需标签内的独立按钮，当前接口不提供该交互模型。点击否决、禁用、程序化选择和分页手势的回调语义均沿用原规则。
 - `SPTabBarContent.accessibilityLabel`、`accessibilityHint`、`accessibilityValue` 可覆盖描述；nil 沿用 Item 标题／描述与角标值。选中和禁用 traits 由框架维护，避免重复暴露内部标签。
 
-完整自定义视图示例见 [CustomTabContent.swift](Examples/StickyPagerDemo/StickyPagerDemo/CustomTabContent.swift)：编号、标题、副标题组成卡片，演示按压、选中、禁用、Dynamic Type 与 RTL。Demo 首页“标签外观”→“配置”→“自定义卡片”，或分页 Demo“页面”→“切换自定义标签”即可查看；`--open-demo --custom-tabs` 可直接启动。Demo 的卡片内部使用 Auto Layout 和 UILabel 固有尺寸，不再手算文字宽高。“页面”→“切换多行副标题”使用包含换行的两段文字，确保宽屏也能演示多行测量、栏高增长与恢复；“刷新自定义内容”演示同尺寸更新后保持手动滚动位置。“切换紧凑标签”使用仅含 UILabel 的 `UIContentView`，通过字体固有尺寸和内边距约束自动测量；“标签栏最小高度”菜单可选择 32、60、隐藏或默认 44，演示紧凑内容低于 44 和隐藏后恢复。该菜单不限制大字号所需高度。“页面”→“标签宽度”提供紧凑编号内容、24／44／120 最小项宽，以及首项内部 required 最小宽度为 `max(480, availableWidth + 80)` pt 的示例；后者在 `.automatic`、`.centered` 和 `.leading` 下可超出视口并横向滚动，不适用于要求内容可压缩的 `.fill`。最小项宽是下限，显式 `.automatic` 模式下内容较少时余量仍会均分。
+完整自定义视图示例见 [CustomTabContent.swift](Examples/StickyPagerDemo/StickyPagerDemo/CustomTabContent.swift)：编号、标题、副标题组成卡片，演示按压、选中、禁用、Dynamic Type 与 RTL。Demo 首页“标签外观”→“配置”→“自定义卡片”，或分页 Demo“页面”→“切换自定义标签”即可查看；`--open-demo --custom-tabs` 可直接启动。Demo 的卡片内部使用 Auto Layout 和 UILabel 固有尺寸，不再手算文字宽高。“页面”→“切换多行副标题”使用包含换行的两段文字，确保宽屏也能演示多行测量、栏高增长与恢复；“刷新自定义内容”演示同尺寸更新后保持手动滚动位置。“切换紧凑标签”使用仅含 UILabel 的 `UIContentView`，通过字体固有尺寸和内边距约束自动测量；“标签栏高度”菜单可选择最小 32／60／44、固定 32／60 或隐藏，演示紧凑内容低于 44 和隐藏后恢复。其中最小栏高随大字号内容增高。Demo 的固定栏高不足以容纳卡片时，自动收起编号和副标题，显示带选中边框的单行紧凑卡片；标题字号按扣除 `layoutConfiguration.contentInsets.top/bottom` 后的 Item 可用高度适配；在固定栏高下切换无留白、对称或非对称留白也会重新适配。切回最小栏高后恢复完整卡片，并将外围留白计入栏高。其他业务自定义内容仍遵守框架的裁切契约。“页面”→“标签宽度”提供紧凑编号内容、24／44／120 最小项宽，以及首项内部 required 最小宽度为 `max(480, availableWidth + 80)` pt 的示例；后者在 `.balanced` 和未设置宽度上限的 `.content` 下可超出视口并横向滚动，不适用于要求内容可压缩的 `.equal`。最小项宽是下限，显式 `.balanced` 策略下内容较少时余量仍会均分。
 
 容器中设置最小栏高，无需业务计算内容高度：
 
 ```swift
 pager.tabBar.contentDelegate = provider
 pager.tabBar.contentStyle = .custom
-pager.layout.tabBarHeight = 32 // 内容较小时栏高为 32，需要更多空间时自动增高
-pager.tabBar.minimumItemWidth = 24 // 按需选择紧凑项宽；默认仍为 44
-pager.tabBar.itemSpacing = 8 // 相邻 Item 间距；默认 0
-// pager.layout.tabBarHeight = 0 // 隐藏；恢复为 44 即恢复默认下限
+pager.layout.tabBarSizing = .content(minimum: 32) // 内容较小时栏高为 32，需要更多空间时自动增高
+pager.tabBar.layoutConfiguration.minimumItemWidth = 24 // 按需选择紧凑项宽；默认仍为 44
+pager.tabBar.layoutConfiguration.itemSpacing = 8 // 相邻 Item 间距；默认 0
+// pager.layout.tabBarSizing = .hidden // 恢复为 .content(minimum: 44) 即恢复默认下限
 ```
 
 独立标签栏应在布局中使用 `sizeThatFits(view.bounds.size)` 取得当前宽度对应的内容高度，并由宿主设置最终高度。独立使用不读取 `SPPageLayout`；需要最小 44 pt 时，宿主使用 `max(44, measuredHeight)`。
@@ -527,7 +593,7 @@ pager.tabBar.itemSpacing = 8 // 相邻 Item 间距；默认 0
 
 根视图为普通 `UIView` 且 `UILabel` 与 `UIScrollView` 同级时，Label 可约束到根视图的 `safeAreaLayoutGuide.topAnchor`，滚动视图可约束在 Label 下方；也支持滚动视图铺满根视图。框架不修改业务子视图约束，不需要业务重复添加 Header 高度或监听折叠进度来移动 Label。页面高度随 Header 折叠连续变化，内部布局应响应 bounds 变化；固定 frame 不随父视图变化的子视图仍由业务负责更新。
 
-展开时 Header 从容器 `y = 0` 开始，标签栏紧接 Header；折叠后标签栏位于 `S + minimumHeaderHeight`。旋转或安全区域变化会重新计算 `C`，保留已吸顶状态和页面内容滚动位置。嵌入其他控制器时，应把容器约束到父视图边界；若约束到父视图安全区域，Header 只能从该容器顶边开始。
+展开时 Header 从容器 `y = 0` 开始，标签栏紧接 Header；折叠后标签栏位于 `S + minimumHeaderHeight`。旋转、安全区域或 Header 高度配置变化会重新计算 `C`，保留已吸顶状态和页面内容滚动位置；展开状态不因增高而折叠，部分折叠仍保留原折叠距离并限制在新范围内。嵌入其他控制器时，应把容器约束到父视图边界；若约束到父视图安全区域，Header 只能从该容器顶边开始。
 
 Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset` 由共享折叠逻辑驱动，并通过 `setContentScrollView(_:for: .top)` 关联导航栏。iOS 26+ 使用 `topEdgeEffect.style = .soft`，在导航栏后方提供系统渐变模糊效果；Header 的 UIView / UIViewController 接入方式不变。
 
@@ -571,13 +637,21 @@ Header／标签栏开始纵向拖动或横向分页开始时，仅在业务列�
 
 - 页面首次绑定主要滚动视图且没有历史位置时，在叠加框架滚动 inset 前，以 `max(0, contentOffset.y + adjustedContentInset.top)` 作为业务正文位置基准，不再默认从正文顶部开始。负向回弹不存为历史正文位置；最终显示仍受共享 Header 对齐和合法滚动范围约束。Header 部分展开时暂时对齐共享折叠量，初始正文位置留待后续吸顶切回时恢复。已有历史记录（包括位置 0）时，继续按页面标识恢复，替换滚动视图、重新发现及缓存重建不以新列表的初始 offset 覆盖历史。
 - 切页保留共享 Header 折叠量。完全折叠时恢复目标页内容位置；部分展开时目标页对齐共享 Header，不显示与 Header 冲突的历史深层内容。
-- 开始切页时只交接旧页正在进行的原生减速，同一次分页不重复停止；旧页观察回调不能改变当前 Header。
+- 开始切页时只交接旧页正在进行的原生减速，同一次分页不重复停止；旧页观察回调不能改变当前 Header。原生 pan 的 `.cancelled` 始终恢复原页与正文位置，即便已越过半页也不发送 `didSelectPageAt`；正常松手仍由 UIKit 的位置与速度决定吸附，直到分页确定后才提交选择。
 - 重排保留选中标识。删除当前页时选择原索引的新页面，越界则选择最后一页；零页面清空选中状态。
 - 重复标识拒绝整次 reload，并打印调试诊断；旧快照保持不变。
 - 缓存淘汰解除观察并释放控制器，保留轻量内容位置。再次访问向数据源重新请求控制器。
 - 内容位置由当前页滚动记录；后台页因 Header 布局而临时对齐、重新绑定或被淘汰时，不以临时偏移覆盖该记录。父控制器出现或消失期间淘汰页面，先完成该页未结束的 appearance 回调，再解除父子关系。
 - 相同标识的 reload 不重新创建控制器；业务内容刷新由页面控制器负责。删除标识会清除对应状态。
-- Header 高度变化保留并钳制折叠距离；仍完全折叠时保留内容位移。尺寸变化取消未完成转场并对齐已选页面；有效范围内保留内容位置，视口放大导致可滚动范围缩短时，将当前位置和保存位置钳制到新的底部边界。
+- Header 高度变化保留并钳制折叠距离；仍完全折叠时保留内容位移。尺寸变化取消未完成转场并对齐已选页面；有效范围内保留内容位置，视口放大导致可滚动范围缩短时，将当前位置和保存位置钳制到新的底部边界。尺寸转场完成时，先恢复保存位置、完成页面布局，再按最终可滚动范围限制保存位置并再次对齐，最后恢复滚动记录，避免该收尾布局内的 offset 回写覆盖正文位置。若收尾阶段的延迟行高结算使底部边界缩短，后续窗口缩小或切页仍从结算后的正文位置恢复，不重新恢复已越界的旧位置。该收尾同时适用于当前页和已加载的缓存页，不改变业务行高估算配置；LTR／RTL 遵循相同正文位置契约。
+
+子页面布局重入容器时，内层退出恢复进入时的布局保护标记，避免中间 offset 回写改变外层正在维护的 Header 折叠量和保存位置。
+
+正文位置保护仅作用于框架拥有的尺寸布局事务：开始时保存位置，完成时同步完成页面布局、限制合法范围并对齐；完成回调收尾后立即交还原生滚动所有权，不保留空闲期可见行几何基准。新尺寸转场会使旧 completion 失效；重载、页面移除或绑定失效后也不保留可用于空闲期回滚的行几何基准。`UITableView` 同行数高度更新、`performBatchUpdates`、`scrollToRow` 和 `setContentOffset` 无需额外接入，按原生行为执行并记录新位置。即使行坐标、内容高度与 offset 同步变化，也不能据此判断来源并回滚业务定位；框架不关闭行高估算、不特判 10.5 pt。事务外的原生估算补偿仍可能改变绝对 offset，当前 iPad 原生分屏回归仍有 10.5 pt 偏移待定位；不能用事务内受控测试通过代表该问题已解决。原始失败与各类验证分别记录，见 [验证记录](Validation/README.md)。
+
+Demo 的 Header 进度由独立状态保存，不通过无障碍诊断 getter 反向读取；保留字号与系统容器变化时的原有测量刷新。UI 回归通过标识与短状态 label 的条件查询等待页面／方向，保持原 5／6 秒预算，不在 `XCTWaiter` 谓词内同步拉取完整快照。手势诊断仍可单独读取，包含纵向原生松手速度与目标位置；50 pt 短拖动分别验证正常输入和主线程停顿下的 LTR／RTL 行为。分屏额外覆盖历史 582 pt 位置，以及途中读取／不读取列表的两条路径，避免把观测影响误判成修复。偶发偏移和吸顶是否收敛，以各条真实用例和失败调用链分别判定，不能仅凭本轮通过注销历史失败。
+
+横向分页在方向仲裁通过后保留已接受的物理位移：即使主线程短暂停顿使移动事件合并，也不会在 UIKit 开始拖动、重置 translation 时丢失这段位移。LTR／RTL 使用同一物理坐标规则；嵌套横向列表的边界优先级、原生速度与吸附、取消和选中提交回调保持不变。
 
 框架内部的横向分页容器、Header 宿主和标签栏列表均设置 `scrollsToTop = false`，退出点状态栏回顶部。业务列表的 `scrollsToTop` 和 `UIScrollViewDelegate` 保持由业务管理，绑定、切页、布局及解绑不改写该配置；回顶部的触发、代理决定和动画由 UIKit 与业务处理，框架只按实际滚动位置协调 Header。业务页面包含多个列表时，回顶部对象仍由业务配置，不由框架统一开启或关闭。
 
@@ -627,7 +701,26 @@ UIKit 库测试需要真实 `UIApplication` 生命周期。直接在 Xcode 中�
 
 `SP_SCOPE=library Scripts/validate.sh build-for-testing` 也会准备宿主和测试包，保存 `Build.xcresult`、`Hosted.xctestrun` 及独立的 `host-build.log`；完整 `test` 另保存 `Result.xcresult`。冻结的宿主／测试包位于忽略的 `Validation/Products/LibraryHosted/<运行名>/`，运行名应唯一。`-only-testing:` 和 `-skip-testing:` 参数继续生效；Release 库测试仍需 `ENABLE_TESTABILITY=YES`。
 
-验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，以及不兼容 content configuration 引起的整个 Cell 内容视图替换提示，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
+验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，不兼容 content configuration 引起的整个 Cell 内容视图替换提示，以及 Auto Layout 的 `Unable to simultaneously satisfy constraints.` 冲突，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
+
+同次触摸折返的两项 `ReversingNativePaging` 回归需要连续 HID 路径。普通 XCTest 单段 `press/drag` 无法表达中途反向，因此这两项在没有桥接时明确 skip，不计为通过。使用开发工具 `serve-sim@0.1.48`（不进入库或 Demo 运行时依赖），固定目标 iPad，先完成当前源码的 Demo `build-for-testing`，再在另一终端保持桥接运行：
+
+```sh
+SP_SCOPE=demo Scripts/validate.sh build-for-testing
+# 保持此进程运行；不要省略目标 UUID。
+DEVELOPER_DIR="$SP_DEVELOPER_DIR" npx --yes serve-sim@0.1.48 --no-preview --quiet "$SP_SIMULATOR_ID"
+```
+
+```sh
+python3 Scripts/validate_native_gestures.py \
+  "<同次构建生成的 .xctestrun 绝对路径>" \
+  "Validation/Results/<新的运行名>"
+DEVELOPER_DIR="$SP_DEVELOPER_DIR" python3 Scripts/summarize_validation.py "Validation/Results/<新的运行名>"
+# 只关闭本次目标的桥接，不影响其他模拟器会话。
+npx --yes serve-sim@0.1.48 --kill "$SP_SIMULATOR_ID"
+```
+
+脚本向测试运行器注入本机桥接地址，触摸经过模拟器 HID 和 UIKit；不直接写分页 offset、translation 或选中索引。非零速度和真实 recognizer 取消由普通 UI 测试覆盖；取消夹具在真实拖动越过半页后禁用 pan，让 UIKit 发送 `.cancelled`，检查恢复原页且不提交选择回调。它与不足半页的正常回弹分开验证。
 
 系统 `UITabBar` 的角标截图和内部标签坐标只作为视觉参照，不对其私有视图副本数量建立测试契约。StickyPagerKit 自身的角标 RTL 方向、内容锚点、文字尺寸、点击和无障碍行为仍由库测试直接断言；图层快照不能替代真实 UI 视觉验收。
 

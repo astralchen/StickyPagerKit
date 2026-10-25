@@ -17,8 +17,6 @@ public struct SPTabBarItemStateAppearance {
 
 @MainActor
 public struct SPTabBarItemAppearance {
-    public enum Layout: Int, Sendable { case automatic, stacked, inline }
-    public var layout: Layout = .automatic
     public var normal = SPTabBarItemStateAppearance()
     public var selected = SPTabBarItemStateAppearance(titleColor: nil, iconColor: nil)
     public var disabled = SPTabBarItemStateAppearance(titleColor: .tertiaryLabel, iconColor: .tertiaryLabel)
@@ -110,8 +108,6 @@ public final class SPTabBarAppearance: UIBarAppearance {
             )
             indicatorLayout = try? decoder.decode(SPTabBarIndicatorLayout.self, from: data)
         }
-        itemAppearance.layout = SPTabBarItemAppearance
-            .Layout(rawValue: coder.decodeInteger(forKey: "SP.layout")) ?? .automatic
         itemAppearance.normal = Self.decodeState(coder, key: "normal", fallback: itemAppearance.normal)
         itemAppearance.selected = Self.decodeState(coder, key: "selected", fallback: itemAppearance.selected)
         itemAppearance.disabled = Self.decodeState(coder, key: "disabled", fallback: itemAppearance.disabled)
@@ -129,7 +125,6 @@ public final class SPTabBarAppearance: UIBarAppearance {
         if let indicatorLayout, let data = try? encoder.encode(indicatorLayout) {
             coder.encode(data as NSData, forKey: "SP.indicatorLayout")
         }
-        coder.encode(itemAppearance.layout.rawValue, forKey: "SP.layout")
         Self.encodeState(itemAppearance.normal, coder: coder, key: "normal")
         Self.encodeState(itemAppearance.selected, coder: coder, key: "selected")
         Self.encodeState(itemAppearance.disabled, coder: coder, key: "disabled")

@@ -19,11 +19,11 @@ final class SPTabBarAccessoryTests: XCTestCase {
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: 400, height: 60))
         // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
-        bar.itemPositioning = .automatic
+        bar.layoutConfiguration.itemSizing = .balanced
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         window.rootViewController!.view.addSubview(bar)
         bar.items = (0 ..< count).map { SPTabBarItem(title: "频道 \($0)") }
-        bar.minimumItemWidth = 100
+        bar.layoutConfiguration.minimumItemWidth = 100
         bar.setSelectedIndex(count > 0 ? 0 : nil, animated: false)
         bar.layoutIfNeeded()
         return (bar, bar.subviews.compactMap { $0 as? UICollectionView }.first!)
@@ -49,8 +49,19 @@ final class SPTabBarAccessoryTests: XCTestCase {
             let (bar, list) = mount(rtl: rtl)
             window.rootViewController!.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 30)
             window.rootViewController!.view.layoutIfNeeded()
-            for mode: SPTabBar.ItemPositioning in [.automatic, .fill, .centered, .leading] {
-                bar.itemPositioning = mode
+            for (sizing, alignment): (
+                SPTabBarLayoutConfiguration.ItemSizing,
+                SPTabBarLayoutConfiguration.Alignment
+            ) in [
+                (.balanced, .leading),
+                (.equal, .leading),
+                (.content, .center),
+                (.content, .leading)
+            ] {
+                var layout = bar.layoutConfiguration
+                layout.itemSizing = sizing
+                layout.alignment = alignment
+                bar.layoutConfiguration = layout
                 bar.layoutIfNeeded()
                 XCTAssertEqual(list.frame.minX, 20, accuracy: 0.01)
                 XCTAssertEqual(list.frame.maxX, 370, accuracy: 0.01)
@@ -70,7 +81,7 @@ final class SPTabBarAccessoryTests: XCTestCase {
                 XCTAssertEqual(list.frame.maxX - list.convert(right, to: bar).maxX, 16, accuracy: 0.01)
                 XCTAssertEqual(bar.selectedIndex, 0)
             }
-            bar.contentInsets = .zero
+            bar.layoutConfiguration.contentInsets = .zero
             bar.layoutIfNeeded()
             XCTAssertEqual(frame(rtl ? 7 : 0, list).minX, 0, accuracy: 0.01)
             XCTAssertEqual(list.contentSize.width, 800, accuracy: 0.01)
@@ -106,7 +117,7 @@ final class SPTabBarAccessoryTests: XCTestCase {
         window.rootViewController!.view.addSubview(bar)
         bar.leadingAccessoryView = fixed()
         bar.trailingAccessoryView = fixed()
-        bar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
         bar.frame = CGRect(x: 0, y: 200, width: 400, height: 70)
         bar.layoutIfNeeded()
         let list = bar.subviews.compactMap { $0 as? UICollectionView }.first!
@@ -117,8 +128,13 @@ final class SPTabBarAccessoryTests: XCTestCase {
     func testInsetsScrollWithContentAndDoNotShrinkViewport() {
         for rtl in [false, true] {
             let (bar, list) = mount(rtl: rtl)
-            bar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 8, trailing: 32)
-            bar.itemSpacing = 10
+            bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(
+                top: 6,
+                leading: 16,
+                bottom: 8,
+                trailing: 32
+            )
+            bar.layoutConfiguration.itemSpacing = 10
             bar.layoutIfNeeded()
             XCTAssertEqual(list.frame, bar.bounds)
             XCTAssertEqual(list.contentSize.width, 918, accuracy: 0.01)
@@ -136,16 +152,26 @@ final class SPTabBarAccessoryTests: XCTestCase {
 
     func testBalancedSingleEmptyAndNormalization() {
         let (bar, list) = mount(count: 1)
-        bar.contentInsets = NSDirectionalEdgeInsets(top: -1, leading: 16, bottom: .nan, trailing: 24)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(
+            top: -1,
+            leading: 16,
+            bottom: .nan,
+            trailing: 24
+        )
         bar.layoutIfNeeded()
-        XCTAssertEqual(bar.contentInsets.top, 0)
-        XCTAssertEqual(bar.contentInsets.bottom, 0)
+        XCTAssertEqual(bar.layoutConfiguration.contentInsets.top, 0)
+        XCTAssertEqual(bar.layoutConfiguration.contentInsets.bottom, 0)
         XCTAssertEqual(frame(0, list).width, 360, accuracy: 0.01)
         XCTAssertEqual(list.contentSize.width, 400)
         bar.items = []
-        bar.contentInsets = NSDirectionalEdgeInsets(top: .infinity, leading: 2_000_000, bottom: 0, trailing: 24)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(
+            top: .infinity,
+            leading: 2_000_000,
+            bottom: 0,
+            trailing: 24
+        )
         bar.layoutIfNeeded()
-        XCTAssertEqual(bar.contentInsets.leading, 1_000_000)
+        XCTAssertEqual(bar.layoutConfiguration.contentInsets.leading, 1_000_000)
         XCTAssertEqual(list.contentSize.width, list.bounds.width)
         XCTAssertNil(list.layer.mask)
     }
@@ -295,7 +321,7 @@ final class SPTabBarAccessoryTests: XCTestCase {
         bar.layoutIfNeeded()
         XCTAssertEqual(list.contentOffset.x, 140, accuracy: 0.01)
         bar.setTransitionProgress(from: 2, to: 3, progress: 0.4)
-        bar.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 30, bottom: 8, trailing: 10)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 30, bottom: 8, trailing: 10)
         bar.layoutIfNeeded()
         let a = frame(2, list), b = frame(3, list)
         let indicator = list.subviews.first { $0.accessibilityIdentifier == "sp.tabBar.indicator" }!
@@ -320,7 +346,7 @@ final class SPTabBarAccessoryTests: XCTestCase {
         XCTAssertEqual(list.contentOffset, midway)
         bar.advanceSelectionAnimation(to: 0.8)
         XCTAssertGreaterThan(list.contentOffset.x, midway.x)
-        bar.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
         bar.layoutIfNeeded()
         let settled = list.contentOffset
         bar.advanceSelectionAnimation(to: 1)
@@ -394,13 +420,13 @@ final class SPTabBarAccessoryTests: XCTestCase {
         let (bar, list) = mount(count: 2)
         let source = AutomaticTabSource()
         source.text = String(repeating: "自动换行内容", count: 12)
-        bar.minimumItemWidth = 0
+        bar.layoutConfiguration.minimumItemWidth = 0
         bar.contentDelegate = source
         bar.contentStyle = .custom
         let originalHeight = bar.sizeThatFits(bar.bounds.size).height
         bar.leadingAccessoryView = fixed(70)
         bar.trailingAccessoryView = fixed(70)
-        bar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 10, trailing: 24)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 10, trailing: 24)
         let measured = bar.sizeThatFits(bar.bounds.size)
         XCTAssertGreaterThan(measured.height, originalHeight + 16)
         bar.frame.size.height = measured.height
@@ -425,11 +451,11 @@ final class SPTabBarAccessoryTests: XCTestCase {
     func testFadeEndpointsAndInsetRedistributionWithSameTotal() {
         let (bar, list) = mount()
         bar.trailingAccessoryView = fixed()
-        bar.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 30)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 30)
         bar.layoutIfNeeded()
         let old = frame(0, list)
         list.contentOffset.x = 80
-        bar.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 10)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 10)
         bar.layoutIfNeeded()
         XCTAssertEqual(frame(0, list).minX - old.minX, 20)
         XCTAssertEqual(list.contentOffset.x, 80)

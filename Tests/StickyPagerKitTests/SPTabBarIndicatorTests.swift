@@ -20,7 +20,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: 320, height: 60))
         // 此夹具保留胶囊作为几何基线，频道型默认线条由专门用例覆盖。
         bar.indicatorStyle = .capsule
-        bar.itemPositioning = .automatic
+        bar.layoutConfiguration.itemSizing = .balanced
         window.rootViewController!.view.addSubview(bar)
         bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         bar.items = ["短", "较长的第二个标题", "第三项", "第四个标签", "第五项"].map { SPTabBarItem(title: $0) }
@@ -47,11 +47,16 @@ final class SPTabBarIndicatorTests: XCTestCase {
             bar.standardAppearance.indicatorLayout = layout
             bar.setSelectedIndex(2, animated: false)
             let changes: [(SPTabBar) -> Void] = [
-                { $0.itemSpacing = 24 },
-                { $0.minimumItemWidth = 140 },
-                { $0.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 19, bottom: 11, trailing: 31) },
+                { $0.layoutConfiguration.itemSpacing = 24 },
+                { $0.layoutConfiguration.minimumItemWidth = 140 },
+                { $0.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(
+                    top: 7,
+                    leading: 19,
+                    bottom: 11,
+                    trailing: 31
+                ) },
                 { $0.frame.size = CGSize(width: 500, height: 90) },
-                { $0.itemSpacing = 0 }
+                { $0.layoutConfiguration.itemSpacing = 0 }
             ]
             for change in changes {
                 change(bar)
@@ -71,7 +76,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
             let renderer = RecordingIndicator()
             bar.indicatorStyle = .custom
             bar.indicatorView = renderer
-            bar.minimumItemWidth = 100
+            bar.layoutConfiguration.minimumItemWidth = 100
             bar.layoutIfNeeded()
             bar.setTransitionProgress(from: 1, to: 2, progress: 0.35)
             let changes: [(SPTabBar) -> Void] = [
@@ -80,7 +85,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
                 { $0.items[2].badgeValue = "新内容" },
                 { $0.items[1].setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 32)], for: .normal) },
                 { $0.standardAppearance = SPTabBarAppearance(barAppearance: $0.standardAppearance) },
-                { $0.standardAppearance.itemAppearance.layout = .inline }
+                { $0.defaultContentLayout.imagePlacement = .inline }
             ]
             for change in changes {
                 change(bar)
@@ -99,7 +104,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
 
     func testAppearanceOnlyRefreshPreservesSelectionAnimationAndManualOffset() {
         let (bar, collection, indicator) = mount()
-        bar.minimumItemWidth = 150
+        bar.layoutConfiguration.minimumItemWidth = 150
         bar.layoutIfNeeded()
         collection.contentOffset.x = 90
         bar.items[0].accessibilityHint = "查看频道"
@@ -152,8 +157,8 @@ final class SPTabBarIndicatorTests: XCTestCase {
             bar.standardAppearance.indicatorLayout = layout
             bar.setSelectedIndex(2, animated: false)
             let changes: [(SPTabBar) -> Void] = [
-                { $0.itemSpacing = 24 },
-                { $0.minimumItemWidth = 160 },
+                { $0.layoutConfiguration.itemSpacing = 24 },
+                { $0.layoutConfiguration.minimumItemWidth = 160 },
                 { $0.items[2].title = "动态更新标题" },
                 { $0.items[2].setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 28)], for: .selected) },
                 { $0.frame.size.height = 90 }
@@ -183,7 +188,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
             for changedIndex in [0, 2] {
                 let (bar, collection, indicator) = mount(rtl: rtl)
                 bar.items.forEach { $0.title = "短" }
-                bar.minimumItemWidth = 200
+                bar.layoutConfiguration.minimumItemWidth = 200
                 var layout = SPTabBarIndicatorLayout()
                 layout.reference = .content
                 bar.standardAppearance.indicatorLayout = layout
@@ -211,7 +216,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
 
     func testReplacingAppearanceRecalculatesAnimationIndicatorWithUnchangedItemFrames() {
         let (bar, collection, indicator) = mount()
-        bar.minimumItemWidth = 200
+        bar.layoutConfiguration.minimumItemWidth = 200
         bar.setSelectedIndex(2, animated: true)
         bar.advanceSelectionAnimation(to: 0.5)
         let item = frame(2, collection)

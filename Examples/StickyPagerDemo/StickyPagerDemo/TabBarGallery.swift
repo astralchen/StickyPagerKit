@@ -35,11 +35,17 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         bar.selectedItem = tabs[0]
         bar.delegate = self
         bar.contentDelegate = contentProvider
+        indicatorProvider.contentProvider = contentProvider
         view.addSubview(bar)
         if ProcessInfo.processInfo.arguments.contains("--accessories") {
             bar.items += (1 ... 8).map { SPTabBarItem(title: "专题频道 \($0)") }
             DemoTabBarAccessories.install(on: bar, owner: self, leading: true, trailing: true)
-            bar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+            bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(
+                top: 6,
+                leading: 16,
+                bottom: 6,
+                trailing: 16
+            )
         }
         status.numberOfLines = 0
         status.accessibilityIdentifier = "demo.gallery.status"
@@ -49,11 +55,12 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         view.addSubview(status)
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "配置", menu: UIMenu(children: [
             DemoTabBarPositioning.menu(for: bar),
+            DemoTabBarPositioning.contentMenu(for: bar),
             DemoTabBarAccessories.menu(for: bar, owner: self),
             indicatorProvider.menu(for: bar),
             UIMenu(title: "标签间距", children: [0, 8, 16, 24].map { spacing in
                 UIAction(title: "项间距 \(spacing)") { [weak self] _ in
-                    self?.bar.itemSpacing = CGFloat(spacing)
+                    self?.bar.layoutConfiguration.itemSpacing = CGFloat(spacing)
                 }
             }),
             UIAction(title: "默认内容") { [weak self] _ in self?.bar.contentStyle = .default },
@@ -73,21 +80,28 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
                 self.contentProvider.showCustomContent(on: self.bar)
             },
             UIAction(title: "自动图文排列") { [weak self] _ in
-                self?.bar.standardAppearance.itemAppearance.layout = .automatic
+                self?.bar.defaultContentLayout.imagePlacement = .automatic
             },
-            UIAction(title: "上下图文") { [weak self] _ in self?.bar.standardAppearance.itemAppearance.layout = .stacked },
-            UIAction(title: "横向图文") { [weak self] _ in self?.bar.standardAppearance.itemAppearance.layout = .inline },
+            UIAction(title: "上下图文") { [weak self] _ in self?.bar.defaultContentLayout.imagePlacement = .stacked },
+            UIAction(title: "横向图文") { [weak self] _ in self?.bar.defaultContentLayout.imagePlacement = .inline },
             UIAction(title: "胶囊") { [weak self] _ in
-                self?.bar.indicatorStyle = .capsule
-                self?.bar.standardAppearance.indicatorLayout = nil
-                self?.bar.standardAppearance.indicatorColor = nil
+                guard let self else {
+                    return
+                }
+                self.indicatorProvider.selectStyle(.capsule, on: self.bar)
             },
             UIAction(title: "下划线") { [weak self] _ in
-                self?.bar.indicatorStyle = .underline
-                self?.bar.standardAppearance.indicatorLayout = nil
-                self?.bar.standardAppearance.indicatorColor = nil
+                guard let self else {
+                    return
+                }
+                self.indicatorProvider.selectStyle(.underline, on: self.bar)
             },
-            UIAction(title: "隐藏指示器") { [weak self] _ in self?.bar.indicatorStyle = .none },
+            UIAction(title: "隐藏指示器") { [weak self] _ in
+                guard let self else {
+                    return
+                }
+                self.indicatorProvider.selectStyle(.none, on: self.bar)
+            },
             UIAction(title: "更新内容") { [weak self] _ in
                 guard let self else {
                     return
@@ -101,6 +115,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        indicatorProvider.updateContentStyle(on: bar)
         let safe = view.safeAreaInsets
         let barWidth = ProcessInfo.processInfo.arguments.contains("--narrow-tabs") ? min(240, view.bounds.width) : view
             .bounds.width

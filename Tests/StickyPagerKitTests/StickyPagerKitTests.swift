@@ -585,6 +585,55 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(spy.selected.count, 2, "旧标签栏恢复独立选择")
     }
 
+    func testTabClickPresentsSelectionBeforePageAnimationCompletes() throws {
+        for rtl in [false, true] {
+            let pager = mount(ids: [0, 1])
+            let provider = CustomContentSource()
+            pager.tabBar.contentDelegate = provider
+            pager.tabBar.contentStyle = .custom
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+            window?.layoutIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            pager.view.layoutIfNeeded()
+            let tabs = pager.tabBar
+            let spy = SelectionSpy()
+            tabs.delegate = spy
+            let list = try XCTUnwrap(tabs.subviews.compactMap { $0 as? UICollectionView }.first)
+            func visuallySelected(_ index: Int) throws -> Bool {
+                list.layoutIfNeeded()
+                let cell = try XCTUnwrap(list.cellForItem(at: IndexPath(item: index, section: 0)))
+                guard case let .custom(value) = cell.contentConfiguration as? SPTabContentConfiguration else {
+                    XCTFail("需要自定义内容配置")
+                    return false
+                }
+                return value.state.isSelected
+            }
+            tabs.requestSelection(of: tabs.items[1])
+            XCTAssertTrue(try visuallySelected(1), "点击接受后立即呈现目标卡片选中态")
+            XCTAssertFalse(try visuallySelected(0))
+            XCTAssertEqual(pager.selectedIndex, 0)
+            XCTAssertEqual(tabs.selectedIndex, 0)
+            XCTAssertTrue(spy.selected.isEmpty)
+            // 让真实点击动画完成；强设 offset 会先触发 UIKit 的动画取消回调并废弃点击请求。
+            let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                MainActor.assumeIsolated { pager.selectedIndex == 1 }
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 3), .completed)
+            XCTAssertTrue(try visuallySelected(1))
+            XCTAssertEqual(pager.selectedIndex, 1)
+            XCTAssertEqual(spy.selected.count, 1)
+            pager.setSelectedIndex(0, animated: false)
+            tabs.requestSelection(of: tabs.items[1])
+            XCTAssertTrue(try visuallySelected(1))
+            pager.reloadData()
+            XCTAssertTrue(try visuallySelected(0), "重载取消未提交预览")
+            XCTAssertFalse(try visuallySelected(1))
+            XCTAssertEqual(spy.selected.count, 1)
+            withExtendedLifetime(provider) {}
+        }
+    }
+
     func testDisabledTabAllowsProgrammaticAndGesturePaging() {
         let pager = mount()
         let spy = SelectionSpy()
@@ -653,6 +702,37 @@ final class StickyPagerKitTests: XCTestCase {
         }
     }
 
+    func testExplicitTabBarSizingPreservesScrollSafeAreaAndRestoresContentHeight() {
+        for custom in [false, true] {
+            let pager = mount()
+            let provider = CustomContentSource()
+            provider.size = CGSize(width: 150, height: 96)
+            pager.tabBar.contentDelegate = provider
+            pager.tabBar.contentStyle = custom ? .custom : .default
+            let scroll = pager.currentScrollView!
+            scroll.contentOffset.y = 310 - scroll.adjustedContentInset.top
+            let position = pager.records[0]!.binding!.position
+            pager.tabBar.defaultContentLayout.minimumHeight = 96
+            for (sizing, expected): (SPTabBarSizing, CGFloat) in [
+                (.content(minimum: 44), 96),
+                (.fixed(32), 32),
+                (.hidden, 0),
+                (.content(minimum: 0), 96),
+                (.fixed(120), 120),
+                (.content(minimum: 44), 96)
+            ] {
+                pager.layout.tabBarSizing = sizing
+                pager.view.layoutIfNeeded()
+                XCTAssertEqual(pager.tabBar.bounds.height, expected, accuracy: 0.01)
+                XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
+                XCTAssertEqual(pager.records[0]!.controller.additionalSafeAreaInsets.top, expected, accuracy: 0.01)
+                let root = pager.records[0]!.controller.view!
+                XCTAssertEqual(root.convert(root.bounds, to: pager.view).minY, pager.tabBar.frame.minY, accuracy: 0.01)
+            }
+            withExtendedLifetime(provider) {}
+        }
+    }
+
     func testAccessoryHeightInsetsPreserveContainerScrollAndHiddenBar() {
         for short in [false, true] {
             let pager = mount(height: short ? 40 : 1800)
@@ -664,7 +744,12 @@ final class StickyPagerKitTests: XCTestCase {
             let height = accessory.heightAnchor.constraint(equalToConstant: 100)
             NSLayoutConstraint.activate([accessory.widthAnchor.constraint(equalToConstant: 60), height])
             pager.tabBar.trailingAccessoryView = accessory
-            pager.tabBar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 10, trailing: 16)
+            pager.tabBar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(
+                top: 6,
+                leading: 16,
+                bottom: 10,
+                trailing: 16
+            )
             for expected: CGFloat in [100, 130, 0, 130] {
                 pager.layout.tabBarHeight = expected == 0 ? 0 : 44
                 if expected > 0 {
@@ -685,7 +770,7 @@ final class StickyPagerKitTests: XCTestCase {
                 }
             }
             pager.tabBar.trailingAccessoryView = nil
-            pager.tabBar.contentInsets = .zero
+            pager.tabBar.layoutConfiguration.contentInsets = .zero
             pager.view.layoutIfNeeded()
             XCTAssertEqual(pager.tabBar.bounds.height, 44, accuracy: 0.01)
             XCTAssertEqual(pager.records[0]!.binding!.position, position, accuracy: 0.01)
@@ -695,7 +780,7 @@ final class StickyPagerKitTests: XCTestCase {
     func testAutomaticTabHeightUpdatesContainerAndCachedPages() {
         let pager = mount()
         // 本用例验证视口约束下的换行增高；leading 使用自然宽度并允许横向滚动。
-        pager.tabBar.itemPositioning = .automatic
+        pager.tabBar.layoutConfiguration.itemSizing = .balanced
         let provider = AutomaticTabSource()
         pager.tabBar.contentDelegate = provider
         pager.tabBar.contentStyle = .custom
@@ -765,7 +850,7 @@ final class StickyPagerKitTests: XCTestCase {
         scroll.contentOffset.y = 310 - scroll.adjustedContentInset.top
         let position = pager.records[0]!.binding!.position
         let oldHeight = pager.tabBar.bounds.height
-        pager.tabBar.standardAppearance.itemAppearance.layout = .stacked
+        pager.tabBar.defaultContentLayout.imagePlacement = .stacked
         pager.tabBar.items[0].image = UIImage(systemName: "star")
         pager.view.layoutIfNeeded()
         XCTAssertGreaterThan(pager.tabBar.bounds.height, oldHeight)
@@ -2018,6 +2103,34 @@ final class StickyPagerKitTests: XCTestCase {
         }
     }
 
+    func testHeaderHeightGrowthPreservesPinnedStateAndCachedContent() throws {
+        let pager = mount()
+        let originalHeight = pager.layout.headerHeight
+        let first = try XCTUnwrap(pager.currentScrollView)
+        first.contentOffset.y = 500 - first.adjustedContentInset.top
+        pager.setSelectedIndex(1, animated: false)
+        let second = try XCTUnwrap(pager.currentScrollView)
+        second.contentOffset.y = 350 - second.adjustedContentInset.top
+        pager.setSelectedIndex(0, animated: false)
+        for extra: CGFloat in [80, 0, 120] {
+            pager.layout.headerHeight = originalHeight + extra
+            pager.view.layoutIfNeeded()
+            let range = 200 + extra
+            XCTAssertEqual(pager.collapseOffset, range, accuracy: 0.01)
+            XCTAssertEqual(pager.tabBar.frame.minY, pager.view.safeAreaInsets.top + 40, accuracy: 0.01)
+            XCTAssertEqual(pager.records[0]!.binding!.position, range + 300, accuracy: 0.01)
+            pager.setSelectedIndex(1, animated: false)
+            XCTAssertEqual(pager.records[1]!.binding!.position, range + 150, accuracy: 0.01)
+            pager.setSelectedIndex(0, animated: false)
+        }
+        first.contentOffset.y = -first.adjustedContentInset.top
+        pager.layout.headerHeight += 40
+        XCTAssertEqual(pager.collapseOffset, 0, accuracy: 0.01)
+        first.contentOffset.y = 80 - first.adjustedContentInset.top
+        pager.layout.headerHeight += 40
+        XCTAssertEqual(pager.collapseOffset, 80, accuracy: 0.01)
+    }
+
     func testTopSafeAreaChangesPreservePinnedContentAndExpandedOrigin() throws {
         let pager = mount(inNavigation: true)
         pager.layout = SPPageLayout(headerHeight: 300)
@@ -3201,7 +3314,7 @@ private final class SelfSizingTableSource: NSObject, UITableViewDataSource {
 }
 
 @MainActor
-private final class SizeTransitionCoordinator: NSObject, UIViewControllerTransitionCoordinator {
+final class SizeTransitionCoordinator: NSObject, UIViewControllerTransitionCoordinator {
     let isAnimated = true
     let presentationStyle: UIModalPresentationStyle = .none
     let initiallyInteractive = false

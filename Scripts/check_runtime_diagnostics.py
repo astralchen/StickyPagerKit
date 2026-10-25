@@ -8,16 +8,19 @@ from pathlib import Path
 MARKER = 'Observation tracking feedback loop detected!'
 CONTENT_MARKER = 'existing content view does not support the new configuration'
 APPEARANCE_MARKER = 'Unbalanced calls to begin/end appearance transitions'
+CONSTRAINT_MARKER = 'Unable to simultaneously satisfy constraints.'
 
 
 def diagnostics(log):
     lines = [number for number, line in enumerate(log.splitlines(), 1) if MARKER in line]
     appearance = [number for number, line in enumerate(log.splitlines(), 1) if APPEARANCE_MARKER in line]
     replacements = [number for number, line in enumerate(log.splitlines(), 1) if CONTENT_MARKER in line]
+    constraints = [number for number, line in enumerate(log.splitlines(), 1) if CONSTRAINT_MARKER in line]
     return {'observationFeedbackLoopCount': len(lines), 'lineNumbers': lines,
             'unbalancedAppearanceCount': len(appearance), 'appearanceLineNumbers': appearance,
             'contentViewReplacementCount': len(replacements), 'contentViewReplacementLineNumbers': replacements,
-            'status': 'failed' if lines or appearance or replacements else 'passed'}
+            'unsatisfiableConstraintsCount': len(constraints), 'constraintLineNumbers': constraints,
+            'status': 'failed' if lines or appearance or replacements or constraints else 'passed'}
 
 
 if __name__ == '__main__':

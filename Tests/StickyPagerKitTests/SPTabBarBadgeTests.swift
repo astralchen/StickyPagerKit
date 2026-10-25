@@ -61,7 +61,7 @@ final class SPTabBarBadgeTests: XCTestCase {
                 for image in [nil, UIImage(systemName: "star")] {
                     let item = SPTabBarItem(title: "中文标题", image: image)
                     let bar = mount(item, rtl: rtl)
-                    bar.standardAppearance.itemAppearance.layout = stacked ? .stacked : .inline
+                    bar.defaultContentLayout.imagePlacement = stacked ? .stacked : .inline
                     layout(bar)
                     let (_, initialButton, _) = try views(bar)
                     let initialTitleOffset = try XCTUnwrap(initialButton.titleLabel).frame.midX - initialButton.bounds

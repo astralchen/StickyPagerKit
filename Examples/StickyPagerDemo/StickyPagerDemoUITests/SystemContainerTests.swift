@@ -39,9 +39,12 @@ final class SystemContainerTests: XCTestCase {
         continueAfterFailure = false
         UITestOrientation.set(.portrait)
         app = XCUIApplication()
-        app.launchArguments = ["--window-regression"]
+        app.launchArguments = ["--window-regression", "--paging-trace"]
         if name.contains("RTL") {
             app.launchArguments.append("--rtl")
+        }
+        if name.contains("CoalescedPartial") {
+            app.launchArguments.append("--coalesced-vertical-pan-regression")
         }
         app.launch()
         XCTAssertTrue(app.buttons["demo.openSystemContainer"].waitForExistence(timeout: 5))
@@ -65,12 +68,12 @@ final class SystemContainerTests: XCTestCase {
     }
 
     private func expect(_ fragment: String) {
-        let predicate = NSPredicate { [self] _, _ in (status.value as? String)?.contains(fragment) == true }
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 5),
-            .completed,
-            "未达到 \(fragment)，实际 \(status.value ?? "")"
-        )
+        let matchingState = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ AND label CONTAINS %@",
+            "demo.status",
+            fragment
+        )).firstMatch
+        XCTAssertTrue(matchingState.waitForExistence(timeout: 5), "未达到 \(fragment)")
     }
 
     private func geometry() throws -> [String: Double] {
@@ -80,7 +83,10 @@ final class SystemContainerTests: XCTestCase {
 
     private func contentPosition() throws -> Double {
         let safeTop = app.navigationBars.firstMatch.frame.maxY - app.windows.firstMatch.frame.minY
-        return max(0, try XCTUnwrap(geometry()["position"]) - max(0, 220 - safeTop))
+        let fields = (status.value as? String ?? "").split(separator: ";")
+        let heightField = try XCTUnwrap(fields.first { $0.hasPrefix("height=") })
+        let height = try XCTUnwrap(Double(heightField.dropFirst("height=".count)))
+        return max(0, try XCTUnwrap(geometry()["position"]) - max(0, height - safeTop))
     }
 
     private func record(_ phase: String) {
@@ -163,6 +169,7 @@ final class SystemContainerTests: XCTestCase {
             "SYSTEM CONTAINER DRAG: visibleHeight=\(visibleHeight), distance=\(distance ?? visibleHeight * 0.6), table=\(table.frame)"
         )
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+        print("SYSTEM VERTICAL TRACE \(status.value ?? "")")
     }
 
     func testExpandedPartialPinnedAndLastRow() throws {
@@ -200,6 +207,33 @@ final class SystemContainerTests: XCTestCase {
         XCTAssertLessThanOrEqual(last.frame.maxY, table.frame.maxY - (try XCTUnwrap(geometry()["safeBottom"])) + 1)
         try assertGeometry(pinned: true)
         record("系统容器-列表末项")
+    }
+
+    func testCoalescedPartialHeaderDrag() throws {
+        try verifyCoalescedPartialHeaderDrag()
+    }
+
+    func testRTLCoalescedPartialHeaderDrag() throws {
+        try verifyCoalescedPartialHeaderDrag()
+    }
+
+    private func verifyCoalescedPartialHeaderDrag() throws {
+        select(2, page: "short")
+        expect("progress=0.00")
+        let expandedTop = tabs.frame.minY
+        verticalDrag(up: true, distance: 50)
+        let encoded = (status.value as? String ?? "").components(separatedBy: ";").first?
+            .replacingOccurrences(of: "gesture=", with: "") ?? ""
+        let data = try XCTUnwrap(Data(base64Encoded: encoded))
+        let trace = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let samples = try XCTUnwrap(trace["samples"] as? [[String: Double]])
+        XCTAssertEqual(samples.last?["phase"], 3)
+        XCTAssertEqual(try XCTUnwrap(samples.first?["y"]) - XCTUnwrap(samples.last?["y"]), 50, accuracy: 1)
+        let release = try XCTUnwrap(trace["verticalRelease"] as? [String: Double])
+        XCTAssertEqual(try XCTUnwrap(release["velocity"]), 0, accuracy: 0.01)
+        XCTAssertLessThan(tabs.frame.minY, expandedTop - 10)
+        XCTAssertGreaterThan(tabs.frame.minY, app.navigationBars.firstMatch.frame.maxY + 1)
+        try assertGeometry(pinned: false)
     }
 
     func testPagingRotationAndSystemTabRestore() throws {

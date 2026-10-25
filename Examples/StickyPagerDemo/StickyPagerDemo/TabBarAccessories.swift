@@ -103,7 +103,7 @@ enum DemoTabBarAccessories {
     }
 
     private static func insetAction(_ title: String, _ insets: NSDirectionalEdgeInsets, _ bar: SPTabBar) -> UIAction {
-        UIAction(title: title) { [weak bar] _ in bar?.contentInsets = insets }
+        UIAction(title: title) { [weak bar] _ in bar?.layoutConfiguration.contentInsets = insets }
     }
 
     private static func accessoryAction(

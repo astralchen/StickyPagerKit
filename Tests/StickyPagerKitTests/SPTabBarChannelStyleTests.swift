@@ -55,10 +55,10 @@ final class SPTabBarChannelStyleTests: XCTestCase {
     func testDefaultsKeepNaturalWidthsAndLeadingPaddingInBothDirections() {
         for rtl in [false, true] {
             let (bar, collection, _) = mount(rtl: rtl)
-            XCTAssertEqual(bar.itemPositioning, .leading)
+            XCTAssertEqual(bar.layoutConfiguration.itemSizing, .content)
             XCTAssertEqual(bar.indicatorStyle, .underline)
-            XCTAssertEqual(bar.contentInsets.leading, 16)
-            XCTAssertEqual(bar.contentInsets.trailing, 16)
+            XCTAssertEqual(bar.layoutConfiguration.contentInsets.leading, 16)
+            XCTAssertEqual(bar.layoutConfiguration.contentInsets.trailing, 16)
             let before = bar.items.indices.map { frame($0, collection) }
             let first = before[0]
             XCTAssertEqual(
@@ -88,13 +88,85 @@ final class SPTabBarChannelStyleTests: XCTestCase {
         XCTAssertEqual(indicator.frame.width, try titleFrame(1, collection).width, accuracy: 0.01)
     }
 
+    func testPlainTextUnderlineUsesSelectedTextWidthWithoutItemPadding() throws {
+        for rtl in [false, true] {
+            let (bar, collection, indicator) = mount(rtl: rtl, width: 600)
+            bar.items = ["推荐", "Explore"].map { SPTabBarItem(title: $0) }
+            bar.layoutConfiguration.minimumItemWidth = 180
+            bar.defaultContentLayout.contentInsets.leading = 32
+            bar.defaultContentLayout.contentInsets.trailing = 32
+            for size: CGFloat in [14, 28] {
+                bar.standardAppearance.itemAppearance.normal.font = .systemFont(ofSize: size)
+                bar.standardAppearance.itemAppearance.selected.font = .systemFont(ofSize: size, weight: .semibold)
+                for index in [0, 1] {
+                    bar.setSelectedIndex(index, animated: false)
+                    bar.layoutIfNeeded()
+                    let label = try XCTUnwrap(try button(index, collection).titleLabel)
+                    let textWidth = label.sizeThatFits(CGSize(width: 10000, height: 10000)).width
+                    XCTAssertEqual(indicator.frame.width, textWidth, accuracy: 1)
+                    XCTAssertEqual(indicator.frame.midX, label.convert(label.bounds, to: collection).midX, accuracy: 1)
+                    XCTAssertLessThan(indicator.frame.width, frame(index, collection).width - 32)
+                }
+            }
+        }
+    }
+
+    func testPagingPresentationTracksProgressBeforeSelectionCommit() throws {
+        for rtl in [false, true] {
+            let (bar, collection, indicator) = mount(rtl: rtl)
+            let spy = SelectionSpy()
+            bar.delegate = spy
+            let origin = indicator.frame
+            for progress: CGFloat in [0.2, 0.5, 1, 0.3, 0] {
+                bar.setTransitionProgress(from: 0, to: 1, progress: progress)
+                let visual = progress >= 0.5 ? 1 : 0
+                for index in [0, 1] {
+                    let control = try button(index, collection)
+                    let font = try XCTUnwrap(control.titleLabel?.font)
+                    if index == visual {
+                        XCTAssertEqual(weight(font), UIFont.Weight.semibold.rawValue, accuracy: 0.01)
+                    } else {
+                        XCTAssertLessThan(weight(font), UIFont.Weight.semibold.rawValue)
+                    }
+                    XCTAssertEqual(control.accessibilityTraits.contains(.selected), index == 0)
+                }
+                XCTAssertEqual(bar.selectedIndex, 0, "视觉预览不提交逻辑选择")
+                XCTAssertTrue(spy.selected.isEmpty)
+                if progress == 1 {
+                    XCTAssertEqual(indicator.frame.minX, try titleFrame(1, collection).minX, accuracy: 0.01)
+                    XCTAssertEqual(indicator.frame.width, try titleFrame(1, collection).width, accuracy: 0.01)
+                }
+            }
+            XCTAssertEqual(indicator.frame, origin)
+            bar.setSelectedIndex(0, animated: false)
+            bar.beginUserSelection(bar.items[1])
+            XCTAssertEqual(
+                weight(try XCTUnwrap(try button(1, collection).titleLabel?.font)),
+                UIFont.Weight.semibold.rawValue,
+                accuracy: 0.01
+            )
+            bar.setTransitionProgress(from: 0, to: 1, progress: 0.1)
+            XCTAssertEqual(
+                weight(try XCTUnwrap(try button(1, collection).titleLabel?.font)),
+                UIFont.Weight.semibold.rawValue,
+                accuracy: 0.01,
+                "点击反馈不等待进度过半"
+            )
+            bar.synchronizeSelection(bar.items[1], animated: false)
+            bar.completeUserSelection()
+            XCTAssertEqual(bar.selectedIndex, 1)
+            XCTAssertEqual(spy.selected.count, 1)
+            XCTAssertTrue(try button(1, collection).accessibilityTraits.contains(.selected))
+        }
+    }
+
     func testUnderlineTracksTitleExcludingImageBadgeAndItemPadding() throws {
         for rtl in [false, true] {
             let (bar, collection, indicator) = mount(rtl: rtl)
             bar.items[0].image = UIImage(systemName: "star.fill")
             bar.items[0].badgeValue = "99+"
-            for layout: SPTabBarItemAppearance.Layout in [.stacked, .inline] {
-                bar.standardAppearance.itemAppearance.layout = layout
+            for layout: SPTabBarDefaultContentLayout.ImagePlacement in [.stacked, .inline] {
+                bar.defaultContentLayout.imagePlacement = layout
                 bar.layoutIfNeeded()
                 let title = try titleFrame(0, collection)
                 XCTAssertEqual(indicator.frame.minX, title.minX, accuracy: 0.01)
@@ -227,12 +299,16 @@ final class SPTabBarChannelStyleTests: XCTestCase {
                 bar.items = ["Recommended Stories", "Technology and Development"].map { SPTabBarItem(title: $0) }
                 bar.setSelectedIndex(0, animated: false)
                 let normalWidth = try titleFrame(1, collection).width
-                let normalWeight = weight(try XCTUnwrap(try button(1, collection).titleLabel?.font))
                 let frames = bar.items.indices.map { frame($0, collection) }
                 bar.setTransitionProgress(from: 0, to: 1, progress: 1)
                 let endpoint = indicator.frame
                 XCTAssertEqual(bar.selectedIndex, 0, "测量目标选中态不能提前提交选择")
-                XCTAssertEqual(weight(try XCTUnwrap(try button(1, collection).titleLabel?.font)), normalWeight)
+                XCTAssertEqual(
+                    weight(try XCTUnwrap(try button(1, collection).titleLabel?.font)),
+                    UIFont.Weight.semibold.rawValue,
+                    accuracy: 0.01,
+                    "终点已呈现选中字体"
+                )
                 bar.setSelectedIndex(1, animated: true)
                 for progress: CGFloat in [0, 0.5, 1] {
                     bar.advanceSelectionAnimation(to: progress)
@@ -262,8 +338,13 @@ final class SPTabBarChannelStyleTests: XCTestCase {
                     bar.layoutIfNeeded()
                     XCTAssertNotEqual(indicator.frame, original)
                     XCTAssertEqual(bar.selectedIndex, source)
-                    XCTAssertEqual(try button(target, collection).titleLabel?.font, targetFont)
+                    XCTAssertEqual(
+                        weight(try XCTUnwrap(try button(target, collection).titleLabel?.font)),
+                        UIFont.Weight.semibold.rawValue,
+                        accuracy: 0.01
+                    )
                     bar.setTransitionProgress(from: source, to: target, progress: 0)
+                    XCTAssertEqual(try button(target, collection).titleLabel?.font, targetFont, "回退恢复普通字体")
                     XCTAssertEqual(indicator.frame, original)
                     // 容器取消分页时按非动画路径恢复原选择。
                     bar.setSelectedIndex(source, animated: false)
@@ -340,7 +421,7 @@ final class SPTabBarChannelStyleTests: XCTestCase {
         for rtl in [false, true] {
             let (bar, collection, indicator) = mount(rtl: rtl, width: 240)
             bar.items = (0 ..< 10).map { SPTabBarItem(title: "Channel \($0)", image: UIImage(systemName: "star")) }
-            bar.standardAppearance.itemAppearance.layout = .inline
+            bar.defaultContentLayout.imagePlacement = .inline
             bar.standardAppearance.indicatorLayout = .underline(width: .fixed(20))
             bar.items[9].badgeValue = "99+"
             bar.setSelectedIndex(9, animated: false)

@@ -20,9 +20,9 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 100, width: 320, height: 80))
         // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
-        bar.itemPositioning = .automatic
+        bar.layoutConfiguration.itemSizing = .balanced
         // 此夹具显式使用零留白，隔离 Item 宽度与间距算法；默认留白由附件布局测试覆盖。
-        bar.contentInsets = .zero
+        bar.layoutConfiguration.contentInsets = .zero
         window.rootViewController!.view.addSubview(bar)
         bar.items = (0 ..< count).map { SPTabBarItem(title: "标签 \($0)") }
         bar.contentDelegate = source
@@ -48,10 +48,25 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
     }
 
     func testBalancedWidthsStayContinuousAndMatchPhysicalFramesInRTL() {
-        XCTAssertEqual(SPTabBarLayout.resolvedWidths([160, 44], viewportWidth: 320), [160, 160])
-        XCTAssertEqual(SPTabBarLayout.resolvedWidths([161, 44], viewportWidth: 320), [161, 159])
-        XCTAssertEqual(SPTabBarLayout.resolvedWidths([200, 60, 40], viewportWidth: 320), [200, 60, 60])
-        XCTAssertEqual(SPTabBarLayout.resolvedWidths([200, 60, 40], viewportWidth: 280), [200, 60, 40])
+        var configuration = SPTabBarLayoutConfiguration()
+        configuration.itemSizing = .balanced
+        configuration.minimumItemWidth = 0 // 此处单独验证分配算法，不施加默认 44 pt 下限。
+        XCTAssertEqual(
+            SPTabBarLayout.resolvedWidths([160, 44], viewportWidth: 320, configuration: configuration),
+            [160, 160]
+        )
+        XCTAssertEqual(
+            SPTabBarLayout.resolvedWidths([161, 44], viewportWidth: 320, configuration: configuration),
+            [161, 159]
+        )
+        XCTAssertEqual(
+            SPTabBarLayout.resolvedWidths([200, 60, 40], viewportWidth: 320, configuration: configuration),
+            [200, 60, 60]
+        )
+        XCTAssertEqual(
+            SPTabBarLayout.resolvedWidths([200, 60, 40], viewportWidth: 280, configuration: configuration),
+            [200, 60, 40]
+        )
         let source = WidthPolicySource()
         for rtl in [false, true] {
             source.widths = [160, 44]
@@ -88,10 +103,10 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         )))
         let bar = mount(source, count: 8)
         let list = collection(bar)
-        XCTAssertEqual(bar.minimumItemWidth, 44)
+        XCTAssertEqual(bar.layoutConfiguration.minimumItemWidth, 44)
         XCTAssertEqual(list.contentSize.width, 352, accuracy: 0.01)
         list.contentOffset.x = 32
-        bar.minimumItemWidth = 24
+        bar.layoutConfiguration.minimumItemWidth = 24
         bar.layoutIfNeeded()
         XCTAssertEqual(list.contentSize.width, 320, accuracy: 0.01)
         XCTAssertEqual(list.contentOffset.x, 0, accuracy: 0.01)
@@ -103,7 +118,7 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         for style: SPTabBar.ContentStyle in [.default, .custom] {
             bar.contentStyle = style
             source.fallbackIndex = 0
-            bar.minimumItemWidth = 90
+            bar.layoutConfiguration.minimumItemWidth = 90
             bar.layoutIfNeeded()
             for index in 0 ..< 8 {
                 XCTAssertGreaterThanOrEqual(
@@ -120,8 +135,8 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
             (2_000_000, 1_000_000),
             (0, 0)
         ] {
-            bar.minimumItemWidth = input
-            XCTAssertEqual(bar.minimumItemWidth, expected)
+            bar.layoutConfiguration.minimumItemWidth = input
+            XCTAssertEqual(bar.layoutConfiguration.minimumItemWidth, expected)
         }
     }
 
@@ -136,14 +151,14 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         bar.setSelectedIndex(1, animated: true)
         bar.advanceSelectionAnimation(to: 0.5)
         let frame = indicator.frame
-        bar.minimumItemWidth = 24
+        bar.layoutConfiguration.minimumItemWidth = 24
         bar.layoutIfNeeded()
         XCTAssertEqual(indicator.frame, frame)
         bar.advanceSelectionAnimation(to: 1)
         XCTAssertNotEqual(indicator.frame, frame)
         bar.setTransitionProgress(from: 1, to: 0, progress: 0.4)
         let transition = indicator.frame
-        bar.minimumItemWidth = 44
+        bar.layoutConfiguration.minimumItemWidth = 44
         bar.layoutIfNeeded()
         XCTAssertEqual(indicator.frame, transition)
     }
@@ -172,7 +187,7 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
     func testVeryNarrowCustomCellsKeepIndicatorsWithinTheirFrames() {
         let source = StaticAutomaticSource(configuration: IntrinsicTabConfiguration(size: CGSize(width: 1, height: 28)))
         let bar = mount(source, count: 40)
-        bar.minimumItemWidth = 0
+        bar.layoutConfiguration.minimumItemWidth = 0
         resize(bar, width: 32)
         let list = collection(bar)
         for style: SPTabBarIndicatorLayout in [.capsule, .underline] {
@@ -260,7 +275,7 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
         let source = AutomaticTabSource()
         let bar = mount(source)
         source.samples.removeAll()
-        bar.itemSpacing = 40
+        bar.layoutConfiguration.itemSpacing = 40
         resize(bar, width: 320)
         let list = collection(bar)
         let first = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame

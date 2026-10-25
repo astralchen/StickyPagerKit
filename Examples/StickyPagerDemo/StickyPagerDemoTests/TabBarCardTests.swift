@@ -82,7 +82,7 @@ final class TabBarCardTests: XCTestCase {
             XCTAssertLessThanOrEqual(rect.maxY, cell.bounds.height + 0.5)
             XCTAssertFalse(
                 label.hasAmbiguousLayout,
-                "mode=\(bar.itemPositioning), width=\(frame.width), text=\(label.text ?? "")"
+                "mode=\(bar.layoutConfiguration.itemSizing), width=\(frame.width), text=\(label.text ?? "")"
             )
         }
         XCTAssertEqual(
@@ -97,10 +97,23 @@ final class TabBarCardTests: XCTestCase {
         for rtl in [false, true] {
             for largeText in [false, true] {
                 try withBar(count: 13, rtl: rtl, largeText: largeText) { bar, list in
-                    for mode: SPTabBar.ItemPositioning in [.automatic, .fill, .centered, .leading, .fill, .automatic] {
-                        bar.itemPositioning = mode
-                        try checkCard(bar, list: list, compact: mode == .fill)
-                        if mode == .fill {
+                    for (sizing, alignment): (
+                        SPTabBarLayoutConfiguration.ItemSizing,
+                        SPTabBarLayoutConfiguration.Alignment
+                    ) in [
+                        (.balanced, .leading),
+                        (.equal, .leading),
+                        (.content, .center),
+                        (.content, .leading),
+                        (.equal, .leading),
+                        (.balanced, .leading)
+                    ] {
+                        var layout = bar.layoutConfiguration
+                        layout.itemSizing = sizing
+                        layout.alignment = alignment
+                        bar.layoutConfiguration = layout
+                        try checkCard(bar, list: list, compact: sizing == .equal)
+                        if sizing == .equal {
                             XCTAssertEqual(
                                 list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.size.width,
                                 44,
@@ -108,11 +121,11 @@ final class TabBarCardTests: XCTestCase {
                             )
                         }
                     }
-                    bar.itemPositioning = .fill
+                    bar.layoutConfiguration.itemSizing = .equal
                     for minimum: CGFloat in [24, 600, 44] {
-                        bar.minimumItemWidth = minimum
+                        bar.layoutConfiguration.minimumItemWidth = minimum
                         // 扣除间距后均分宽度小于 24，确保覆盖 Demo 最小宽度选项。
-                        bar.itemSpacing = 16
+                        bar.layoutConfiguration.itemSpacing = 16
                         try checkCard(bar, list: list, compact: minimum < 600)
                     }
                 }
@@ -122,10 +135,139 @@ final class TabBarCardTests: XCTestCase {
 
     func testFillCardRestoresNumberWhenViewportExpands() throws {
         try withBar(count: 1, rtl: false, largeText: false) { bar, list in
-            bar.itemPositioning = .fill
+            bar.layoutConfiguration.itemSizing = .equal
             for width: CGFloat in [80, 320, 80] {
                 bar.frame.size.width = width
                 try checkCard(bar, list: list, compact: width == 80)
+            }
+        }
+    }
+
+    func testCardsKeepMeasuredHeightWhenBarIsClippedAndRestore() throws {
+        for rtl in [false, true] {
+            for largeText in [false, true] {
+                try withBar(count: 3, rtl: rtl, largeText: largeText) { bar, list in
+                    try checkCard(bar, list: list, compact: false)
+                    let idealHeight = bar.sizeThatFits(bar.bounds.size).height
+                    let cell = try XCTUnwrap(list.cellForItem(at: IndexPath(item: 0, section: 0)))
+                    let content = try XCTUnwrap(cell.contentView.subviews.first { $0 is any UIContentView })
+                    let control = try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? UIButton }.first)
+                    for height in [32, 60, idealHeight + 20, 32, idealHeight] {
+                        bar.frame.size.height = height
+                        bar.layoutIfNeeded()
+                        cell.layoutIfNeeded()
+                        content.layoutIfNeeded()
+                        XCTAssertEqual(content.bounds.height, max(height, idealHeight), accuracy: 1)
+                        XCTAssertEqual(control.bounds.height, height, accuracy: 1)
+                        XCTAssertTrue(cell.contentView.clipsToBounds)
+                        XCTAssertFalse(bar.point(inside: CGPoint(x: 20, y: height + 1), with: nil))
+                        XCTAssertEqual(bar.selectedIndex, 0)
+                        XCTAssertEqual(bar.sizeThatFits(bar.bounds.size).height, idealHeight, accuracy: 1)
+                    }
+                    try checkCard(bar, list: list, compact: false)
+                }
+            }
+        }
+    }
+
+    func testPagerAdaptsCardsToFixedHeightAndRestoresFullContent() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let pager = DemoPager()
+        let navigation = UINavigationController(rootViewController: pager)
+        window.rootViewController = navigation
+        window.makeKeyAndVisible()
+        settle(window)
+        pager.tabBar.contentStyle = .custom
+        defer {
+            window.rootViewController = nil
+            settle(window)
+            window.isHidden = true
+            previous?.makeKey()
+        }
+        func labels(in view: UIView) -> [UILabel] {
+            (view as? UILabel).map { [$0] } ?? view.subviews.flatMap { labels(in: $0) }
+        }
+        let list = try XCTUnwrap(pager.tabBar.subviews.compactMap { $0 as? UICollectionView }.first)
+        for rtl in [false, true] {
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
+                navigation.setOverrideTraitCollection(
+                    UITraitCollection(preferredContentSizeCategory: category),
+                    forChild: pager
+                )
+                pager.tabBar.layoutConfiguration.contentInsets = .zero
+                pager.layout.tabBarSizing = .content(minimum: 44)
+                settle(window)
+                let originalHeight = pager.tabBar.bounds.height
+                for sizing: SPTabBarSizing in [
+                    .fixed(32),
+                    .fixed(60),
+                    .hidden,
+                    .fixed(32),
+                    .content(minimum: 44)
+                ] {
+                    // 同一固定高度下直接切换留白，检查配置刷新；最后清除留白验证可逆性。
+                    for insets in [
+                        NSDirectionalEdgeInsets.zero,
+                        NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16),
+                        NSDirectionalEdgeInsets(top: 4, leading: 12, bottom: 10, trailing: 32),
+                        .zero
+                    ] {
+                        pager.layout.tabBarSizing = sizing
+                        pager.tabBar.layoutConfiguration.contentInsets = insets
+                        settle(window)
+                        XCTAssertEqual(pager.selectedIndex, 0)
+                        if sizing == .hidden {
+                            XCTAssertEqual(pager.tabBar.bounds.height, 0)
+                            continue
+                        }
+                        // 内容切换保留物理偏移；RTL／大字号下先将待检查的逻辑首项带回视口。
+                        list.layoutIfNeeded()
+                        let path = IndexPath(item: 0, section: 0)
+                        let frame = try XCTUnwrap(list.layoutAttributesForItem(at: path)).frame
+                        list.contentOffset.x = min(
+                            max(0, frame.minX),
+                            max(0, list.contentSize.width - list.bounds.width)
+                        )
+                        list.layoutIfNeeded()
+                        let cell = try XCTUnwrap(
+                            list.cellForItem(at: path),
+                            "rtl=\(rtl), category=\(category), sizing=\(sizing), insets=\(insets)"
+                        )
+                        cell.layoutIfNeeded()
+                        let content = try XCTUnwrap(cell.contentView.subviews.first { $0 is any UIContentView })
+                        let text = labels(in: content)
+                        if case let .fixed(height) = sizing {
+                            XCTAssertEqual(pager.tabBar.bounds.height, height, accuracy: 1)
+                            XCTAssertEqual(cell.bounds.height, height - insets.top - insets.bottom, accuracy: 1)
+                            XCTAssertEqual(content.bounds.height, cell.bounds.height, accuracy: 1, "紧凑内容不应依赖裁切")
+                            let title = try XCTUnwrap(text
+                                .first { $0.accessibilityIdentifier == "demo.compactTabTitle" })
+                            XCTAssertEqual(text.count, 1, "紧凑卡片收起编号和副标题")
+                            let rect = title.convert(title.bounds, to: cell)
+                            XCTAssertGreaterThanOrEqual(rect.minY, 0)
+                            XCTAssertLessThanOrEqual(rect.maxY, cell.bounds.height)
+                            XCTAssertGreaterThanOrEqual(title.bounds.height, ceil(title.font.lineHeight))
+                            XCTAssertFalse(title.hasAmbiguousLayout)
+                        } else {
+                            XCTAssertEqual(
+                                pager.tabBar.bounds.height,
+                                originalHeight + insets.top + insets.bottom,
+                                accuracy: 1
+                            )
+                            XCTAssertTrue(text.contains { $0.text == "1" })
+                            XCTAssertTrue(text.contains { $0.text == "浏览专题" })
+                            XCTAssertFalse(text.contains { $0.accessibilityIdentifier == "demo.compactTabTitle" })
+                        }
+                        for label in text {
+                            let rect = label.convert(label.bounds, to: cell)
+                            XCTAssertGreaterThanOrEqual(rect.minY, -0.5)
+                            XCTAssertLessThanOrEqual(rect.maxY, cell.bounds.height + 0.5)
+                        }
+                    }
+                }
             }
         }
     }

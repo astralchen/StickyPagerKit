@@ -1,6 +1,379 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-24。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+## 2026-10-25：三类问题分开定位与状态查询修正
+
+本轮以 `Results/20261025-three-paths-baseline` 保存的入口源码为基准，保留之前的用户修改和所有历史失败。没有恢复空闲期行几何拦截，没有关闭行高估算，没有放宽 0.5／1 pt 位置容差或 5／6 秒状态等待。
+
+已确定的设计问题：Demo 每次 Header 进度更新都读取 `accessibilityValue`，回归模式因此遍历视图并序列化手势；现改为独立保存进度。初步版本尝试仅在文字变化时测量，复查后撤回该优化，保留字号与系统容器变化时的原有测量刷新，避免把本轮扩展成未经覆盖的标签测量变更。等待改用标识与短 label 的元素条件查询，避免 `XCTWaiter` 谓词回调中同步跨进程快照；没有增加预算或事后按“实际已正确”改判超时。探针测到旧查询单次约 0.1～1.4 秒，本轮未再次捕获旧 5 秒超时，因此这些修改消除了已知的冗余读取与等待嵌套，不等于已证明所有环境下都不会超时。
+
+此前未收敛的原因与证据边界：
+
+- 几何相关性不能区分 UIKit 估算补偿与业务定位。延长空闲期保护曾误伤原生定位，已按用户选择撤除；本轮不恢复该做法。
+- 受控故障注入只证明预设收尾时序，不能替代真实分屏。全量调用栈探针抓到 `_updateVisibleCellsNow:` 内的 −10.5 pt 回写，但该次发生在受保护的布局内并恢复成功，尚不是历史终态失败的完整因果链。
+- 全量堆栈采集会扰动主线程，后续缩小为实际空闲位置变化；中途读取完整列表后，估算 contentSize 会结算，故新增途中不读列表的路径，不能把有额外查询的用例通过当成原流程修复。
+- Header 短拖动原先缺少原生释放速度。新增观测明确区分真实触摸、速度、惯性和几何变化，不从“拖动结束”推定速度必为零。
+
+诊断轮次（均为独立记录，不是重跑取绿）：
+
+- `20261025-three-paths-trace-build`：诊断代码使用不可用的 CGRect 字符串函数，编译失败，未执行测试；改为 `String(describing:)`。
+- [减速后分屏探针](Results/20261025-three-paths-ipad-trace/summary.json)：1/1，通过用例内预设三轮浮动、并排与全屏恢复；未重现终态偏移。
+- [原始长流程探针](Results/20261025-three-paths-original-trace/summary.json)：1/1，包含真实分页与旋转；正文初值 507 pt，不据此注销历史 582→571.5 pt 失败。
+- [固定历史位置探针](Results/20261025-three-paths-exact-trace/summary.json)：LTR／RTL 2/2，包含浮动阶段的中间位置查询；尚不能覆盖没有中间查询的路径。
+- `20261025-three-paths-light-ready`：新增可选代理观测缺少 `override`，编译失败；随后编译成功。
+- [Header 探针错误](Results/20261025-three-paths-header-trace/summary.json)：三个用例均因新观测调用了无实现的父类可选代理方法而退出，另有一条 runner 错误，共 4 条失败。崩溃栈见 `probe-crash.ips`；已移除该 `super` 调用。这是本轮引入并修正的探针错误，不是原 Header 问题的复现。
+- `20261025-three-paths-header-observed`：修正后 3/3，原系统容器用例及 LTR／RTL 合并触摸短拖动通过；[原生松手证据](Results/20261025-three-paths-header-observed/vertical-release-evidence.json) 显示三次 50 pt 输入均消耗约 40 pt、释放速度为 0。较长拖动即便有终点停留也记录到非零速度，不能只用触摸 API 参数推定惯性。旧偶发完全吸顶尚未捕获失败调用链，不标记已修复。
+
+- `20261025-three-paths-unobserved-trace`：不中途查询列表的 582 pt LTR／RTL 分屏 2/2，包含切页与全屏恢复，四类诊断为 0；保留独立结果，不用通过覆盖旧的偶发失败。
+
+撤除逐次日志／调用栈探针后的 `20261025-three-paths-terminal-ipad-ui` 再次在原生分屏捕获 **582 → 571.5 pt**，`testSystemSplitUnobservedExactRegressionPosition` 的 1 pt 断言失败。该失败优先于之前带探针通过的结果，说明目前不能将问题标为已修复；随后改用内存事件记录继续定位，不重跑旧用例取绿。
+
+`20261025-three-paths-final-viewport` 的 12 项窗口专项通过，包含新加入的 582／513.5 pt 位置矩阵。`20261025-three-paths-terminal-library` 的完整 320 项 XCTest 断言通过，但运行时门禁捕获 4 条 appearance 不平衡，**整体失败**。告警发生于独立标签栏窗口夹具，原始行号 199、210、250、366 保留；本轮不将断言通过写成全量通过。
+
+`20261025-three-paths-final-demo-cli` 与 `20261025-three-paths-terminal-demo-unit` 各 12 项 XCTest 断言通过，但分别有 2 条 appearance 不平衡，均按失败记录。发现 `DemoIndicatorContentTests` 在窗口显示期间挂载两个普通控制器，未等待真实 appearance 收尾便拆除窗口；改为先完成 containment，再通过实际 `viewDidAppear`／`viewDidDisappear` 回调等待，并新增父子控制器完整且成对的生命周期序列断言。没有手工补 begin/end 或放宽几何断言，修正后结果另记。
+
+`20261025-three-paths-fixture-unit` 修正后 Demo 宿主 12/12，通过新增生命周期配对断言，四类运行时诊断为 0。该结果不覆盖完整库中的另外 4 条告警。原始分屏查询期间采样 `app-busy-sample.txt`：主线程 315 个样本中 313 个处于 RunLoop 事件等待，未观察到持续布局死循环；该采样不能排除未覆盖时段的短时重入。
+
+官方 Xcode MCP 执行 Demo 测试超时 300 秒，后续日志查询未返回；CUA 获取 Xcode 状态也超时 51.4 秒。保留工具错误并改走明确设备与 scheme 的 CLI，未把工具超时算成 XCTest 通过。
+
+终态结果（无临时框架探针）：
+
+| 范围 | 结果与限制 | 证据 |
+| --- | --- | --- |
+| 窗口几何专项 | 12/12，诊断为 0；实际编译的框架／库测试与当前一致 | [窗口专项](Results/20261025-three-paths-final-viewport/summary.json) |
+| 完整库 | 320/320 断言通过，但 4 条 appearance 不平衡，整体失败 | [完整库](Results/20261025-three-paths-terminal-library/summary.json) |
+| Demo 宿主 | 12/12，新增生命周期配对断言通过，诊断为 0，全部源码哈希一致 | [Demo 宿主](Results/20261025-three-paths-fixture-unit/summary.json) |
+| 系统容器 UI | 5/5，诊断为 0，全部源码哈希一致；包含 50 pt 短拖动、合并事件、旋转和 RTL | [系统容器](Results/20261025-three-paths-system-ui/summary.json) |
+| iPad 原生分屏 | 2 通过、1 失败。原始 LTR 长流程及 RTL 固定 582 pt 通过；LTR 固定 582 pt 在分屏后变为 571.5 pt | [分屏失败](Results/20261025-three-paths-terminal-ipad-ui/summary.json) |
+
+分屏与完整库的 `sourceChangedSinceRun` 仅列后续修正的独立 Demo 单元测试夹具，不在这两个运行的编译目标内；窗口专项还列出后续撤回文字测量优化的 Demo `AppDelegate.swift`，同样不在库目标内。各轮原始清单未重写。上述运行没有放宽位置或超时断言。六个相关 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过；[源码审计](Results/20261025-three-paths-system-ui/final-source-audit.json)确认框架 Sources 与本轮入口逐字一致，状态等待的断言形式由 `XCTWaiter` 结果改为条件元素存在，原有几何断言保留。
+
+进一步诊断另列，不纳入“修复后通过”：
+
+- `20261025-three-paths-ring-build` 编译内存数组探针，未运行该版本；改为固定内存映射后在 `20261025-three-paths-ring-mmap-build` 编译成功。
+- [单次内存取证](Results/20261025-three-paths-ring-position/summary.json) 1/1。不在滚动回调或无障碍 getter 中执行文件写入／堆栈采集；映射记录显示转场结束约 0.9 秒后仍有 −10.5 pt 原生 offset 回写，该次随后被现有交互缩放保护恢复。它没有产生终态失败，不能认定已捕获失败原因。
+- [预定四轮采样](Results/20261025-three-paths-ring-four-samples/summary.json) 四次均通过，保留全部结果，不用于覆盖无探针失败。测试重装更换 data container，首轮映射文件未被固定旧路径监控取得；之后只读匹配诊断文件取得第 2–4 轮。前一批次日志单独标记为 `prior-single-sample`，不冒充首轮事件记录；详见同目录 `trace-capture-note.txt`。
+
+交付源码已撤除全部临时框架探针，无额外业务接入或公开 API。状态查询的冗余读取及等待嵌套已修改，Demo 生命周期夹具问题已验证修复；**10.5 pt 原生终态偏移仍未修复，Header 偶发完全吸顶仍未定因，完整库 appearance 告警仍未解决**。这轮没有完成全部问题闭环，也不能声明完整回归通过。下一步缺的是失败当次从 UIKit 延迟结算、容器保护状态到保存位置提交的完整链路，不是继续增加一个空闲期回滚条件。
+
+环境为 Xcode 26.5 / Swift 6.3.2 / Debug / iOS 26.5 Simulator；仅本轮相关库、Demo 宿主和列出的 UI 路径得到执行。未执行全部 Demo UI、Release、iOS 15、真机或性能基准。没有提交或推送。
+
+
+
+验证日期：2026-10-15 至 2026-10-25。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+
+## 2026-10-25：原生定位优先、限定尺寸事务保护
+
+按用户确认的行为边界，业务不增加任何更新／定位接入。移除 `SPScrollBinding.TableSettlement` 及空闲期行几何匹配回滚；只保留容器尺寸布局和 completion 同步收尾内的保护、范围钳制、布局重入标记及旧 completion 代际检查。转场收尾后原生 `performBatchUpdates`、`scrollToRow`、`setContentOffset` 继续记录新位置。
+
+- [误拦截红灯](Results/20261025-native-position-red/summary.json)：旧实现对 −10.5／+17 pt 同步几何与业务定位回滚到 546，LTR／RTL 及切页恢复共 8 个断言失败。它是不可区分输入的受控回归，明确证明几何相关性不足以认定 UIKit 补偿。
+- 原 `testLateEstimatedRowCompensationDoesNotBecomeSavedBodyPosition` 的“转场完成后未知来源位移应回滚”与新契约冲突。本轮将它改为 `testEstimatedRowCompensationInsideViewportTransactionDoesNotBecomeSavedPosition`，将故障注入放入 completion 触发的真实列表布局中，仍精确检查 546 pt 与切页恢复；另增事务结束后相同几何输入必须保留业务位置的回归。这是按用户授权调整保护范围，不宣称原测试逐字未改，也未放宽 0.5 pt 精度。入口源码保存在 `Results/20261025-native-position-baseline`，旧失败证据全部保留。
+- [首轮专项](Results/20261025-native-position-focused/summary.json)：11 通过、1 失败。新增等行数更新夹具修改了不可见第 0 行，UITableView 继续使用旧估算高度，未产生预期 17 pt 重排。改为更新可见第 12 行，检查第 14 行精确增加 17 pt，保留全部容差；真实批量更新完成后再测试定位。没有靠重复运行取通过。
+- [修正后专项](Results/20261025-native-position-green/summary.json)：12/12 通过，四类诊断为 0。包括立即／空闲后等行数更新、LTR／RTL、原生行定位、正负 offset 定位、切页恢复、事务内延迟结算、底部钳制和布局重入。后续新增 UI 测试文件，因此此轮摘要的源码差异会列出 UI 测试／辅助脚本。
+- `20261025-native-gesture-probe` 未执行 XCTest：在构建已枚举文件后新增了 `NativeTouchPath.swift`，首轮编译找不到类型。保留日志，后续重新生成构建输入。
+
+- [真实手势红灯](Results/20261025-native-gesture-ready/summary.json)：LTR／RTL 拖过半页后禁用实际 pan，收到 `.cancelled`，旧容器仍提交目标页及 `didSelectPageAt`。新增取消分支恢复原页，不改变普通松手的吸附与提交语义。
+- 同轮甩动夹具失败：0.65 秒停顿覆盖整段 0.35 页快速输入，记录的 release velocity 为 0、吸附回原页，不能算非零速度验证。仅该新增夹具改为 0.06 秒停顿，使后续触摸自然形成速度；继续要求 release 非零且方向正确、半页以内借速度翻页、每次只提交一次及 1 pt 位移精度。原合并事件回归参数未改。
+- 首次启动的预览桥接期间模拟器查询与构建严重停顿，机器 load average 达 451；停止该辅助进程后恢复。保留构建采样，未修改系统设置或重启已有 iPhone。连续折返使用固定设备的无预览桥接，避免额外预览轮询。
+
+- `20261025-native-gesture-green` 与 `20261025-native-gesture-executed` 均为 **0 项执行**，不算通过。编译产物包含新方法，运行时平铺枚举也能找到完整标识；CLI 方法级 `-only-testing`（含／不含括号）未命中，改用 `.xctestrun` 副本的 `OnlyTestIdentifiers` 与 target 级筛选后实际执行。没有删除筛选、跳过失败测试或把工具成功码当成验证结果。
+
+- `20261025-native-gesture-configured` 实际执行 4 项：LTR／RTL 真实取消和 RTL 甩动通过；LTR 甩动的速度、方向、位移、选择回调都通过，最终正文 546 对先前采集的 524 pt 失败。该用例此前在窗口缩放后分别远程读取列表 value、导航栏 frame 和 window frame；触摸开始时原始 position 已为 702（正文 546）。为排除跨帧组合，`contentPosition()` 改为一次应用快照取得这三项，仍用实际导航栏底边和原公式计算，不改容差、不把期望重设为当前值；新增原始坐标日志。首次差值记录保留，不仅凭后来通过宣称已捕获旧次偏移的全部时序。
+- `20261025-native-reversal` 为 1 通过、1 失败：RTL 同一手势折返的两个物理方向通过；LTR 桥接冷启动时首个移动延迟约 1.2 秒，后续移动时间戳间隔约 0.00025 秒，pan 为 `.failed`、实际分页为 0，未满足越过半页断言。新增静止触摸的送达检查，确认完整 began→ended 且未选页／改正文后，再开始一次触摸的折返；不删除半页门槛、净位移或同次手势断言。每次折返仍核对 sequence 恰好增加 1。
+
+完整库 320/320、LTR／RTL 甩动与真实取消 4/4，四类运行时诊断均为 0。首次 Demo 宿主 12/12 后仍调整了回归状态读取；最终通过官方 Xcode MCP 对这些 Demo 变更再次执行 12/12。库测试完成后未改动库生产代码或库测试源码；最终审计按各结果的实际编译范围核对，不将全仓哈希变化隐藏。
+
+`20261025-native-reversal-ready` 中 LTR 通过，RTL 第二次折返的长状态 value 查询耗尽 5 秒；结果包另记录 runner 以 code 75 提前退出，因此摘要为 3 条结果（1 通过、2 失败），并非只有一条失败。该次后续诊断仍显示原页、正确净位移及正文 546，不能据此抹掉等待失败。Demo 回归模式增加精简 `accessibilityLabel`（同源状态，完整触摸仍保留在 value），等待改读新快照 label，保留原 5／6 秒预算。`20261025-native-reversal-observed` 两项均实际通过，四类诊断为 0；随后仅把其他旋转与系统容器等待也切换到同样短状态读取。
+
+`20261025-native-final-nested-ui` 为 6 通过、2 失败：五项嵌套横向滚动及 LTR 系统旋转通过；Header 50 pt 短拖动完全吸顶，违反原有部分折叠断言；RTL 方向等待超时，但失败信息中的当前方向已为期望值。失败未删除，后续增加纵向 pan 状态／速度输入观测，并用同样短状态快照核对方向；不改拖动距离、保持时间或位置断言。
+
+[带纵向观测的定向诊断](Results/20261025-native-system-input-trace/summary.json) 两项通过，原始 50 pt 短拖动的 [输入记录](Results/20261025-native-system-input-trace/vertical-input-traces.json) 显示内容位置由 0 到约 40 pt，保持部分展开。它没有重现上一轮完全吸顶，**该偶发失败仍未定因，不算已修复**；方向检查的 5 秒预算也未改变。
+
+`20261025-native-final-ipad` 被沙箱拒绝连接 CoreSimulator，未执行用例；随后通过已授权的本机访问启动完整八项 iPad 回归，环境失败单独保留。
+
+| 本轮验证 | 结果 | 证据 |
+| --- | --- | --- |
+| 完整 UIKit 库 | 320/320，四类诊断为 0 | [库结果](Results/20261025-native-final-library/summary.json) |
+| 最终 Demo 宿主 | 12/12，四类诊断为 0 | [官方 MCP](Results/20261025-native-demo-terminal-unit/mcp-result.json) |
+| LTR／RTL 非零速度与真实取消 | 最终 4/4，四类诊断为 0，源码一致 | [松手同刻测量](Results/20261025-native-release-measured/summary.json) |
+| LTR／RTL 同次触摸反向 | 2/2，四类诊断为 0 | [HID 折返](Results/20261025-native-reversal-observed/summary.json) |
+| 嵌套滚动与系统容器 | 首轮 6/8；定向诊断 2/2，Header 偶发失败未定因 | [首轮失败](Results/20261025-native-final-nested-ui/summary.json)、[定向诊断](Results/20261025-native-system-input-trace/summary.json) |
+| 原始 iPad 分屏 | **7/8，通过 7、失败 1**，四类诊断为 0；之后仅修改独立甩动用例 | [原生结果](Results/20261025-native-ipad-executed/summary.json) |
+
+iPad 八项终态 UI 已结束，LTR／RTL 合并触摸、Header 往返、513.5 pt 行边界恢复以及 RTL 完整分屏均通过；LTR 完整分屏失败（[坐标摘录](Results/20261025-native-ipad-executed/ltr-failure-excerpt.txt)、[失败截图](Results/20261025-native-ipad-executed/ltr-attachments/CDC2C4A8-0BA4-4EC8-8FC8-4ABFD7380A31.png)）：同一快照公式下，进入窗口操作前正文为 582 pt（raw 716、safeTop 86），并排窗口后为 571.5 pt（raw 705.5、safeTop 86），真实减少 10.5 pt，原 1 pt 断言保留并报错。可见第 7 行高度仍为 73.5 pt，contentSize 从 5880 到 6384；这些几何变化不足以判定 offset 回写的完整调用链。当前事务保护尚未覆盖这条路径；不恢复会误伤业务定位的空闲期启发式，不重置预期位置，也不以其他窗口用例通过抵消该失败。
+
+最终观测代码上的四项手势复核 `20261025-native-gesture-terminal` 为 2 通过、2 失败（[结果](Results/20261025-native-gesture-terminal/summary.json)）。LTR 取消在手势前的 5 秒状态等待超时，失败信息已是期望的 `page=list`；说明精简 label 尚未根除查询超时，不能将后续通过说成该问题已修复。RTL 取消和甩动均通过。
+
+同轮 LTR 甩动的新增测试误把松手后的减速也算入手指行程：[完整取样](Results/20261025-native-gesture-terminal/paging-traces.json)记录起点 750、获准触点 197.5、末端触点 319，松手回调 offset 628.5，精确满足 `750 - (319 - 197.5)`；`super.sendEvent(.ended)` 返回后的 offset 已是 612.5。原测试取整个事件样本的 min/max，因包含后续 16 pt 减速而得到 137.5 对 121.5 的失败。仅新增甩动测试改为松手回调的 offset 检查同一物理等式，仍保留 1 pt、非零速度及方向、半页以内、最终一页和一次选择回调，另要求触摸正常 ended；既有零速度位移测试及生产补偿算法未改。修改前测试源码与失败结果保留，不将此取样修正混同于解决原生分屏 10.5 pt 偏移。
+
+[源码审计](Results/20261025-native-final-library/final-source-audit.json)确认本轮未改分页补偿算法、标签栏或 Header 布局；完整库及最终 Demo 宿主的实际编译范围与当前一致。旧 UI 断言未删除；库几何精度 0.5 pt、UI 精度 1 pt，等待预算 5／6 秒均保留。8 个相关 Swift 文件通过 SwiftFormat 0.64.0 lint，脚本回归 8/8，`git diff --check` 通过。
+
+环境为 Xcode 26.5 / Swift 6.3.2 / Debug / iOS 26.5 Simulator。使用 iPhone 17 Pro 与 iPad Pro 13-inch (M5)；Demo 宿主优先走官方 Xcode MCP，库 scheme 未暴露及指定 iPad／HID 输入的 UI 回归使用命令行产物。未执行全部 Demo UI、Release、iOS 15、真机、VoiceOver 或性能验证。没有提交或推送。
+
+[修正取样后的四项验证](Results/20261025-native-release-measured/summary.json) 实际 4/4 通过、无 skip、四类诊断为 0，全部源码哈希一致；这不代表之前的状态查询超时已根治。原生八项 UI 运行结束后仅修改 `verifyMomentumPaging`，审计确认该函数之外的测试全文相同。HID 折返通过后仅调整了它不调用的旋转与甩动辅助方法，以及独立系统容器测试，未重跑折返。已关闭本次 iPad 和目标桥接，保留原有 iPhone 会话。
+
+## 2026-10-25：空闲期行高结算、布局重入与合并分页事件修复
+
+本轮保留历史 10.5 pt 正文偏移与 RTL 分页位移失败，未放宽原有 0.5 pt 库测试／1 pt UI 位置精度，也未把重复运行偶然通过当成修复依据。
+
+- `20261025-idle-offset-trace` 原始 LTR 分屏同样失败：分页只移动 229.5 pt，未达到 511 pt 视口的一半；该批次剩余 RTL 用例主动取消。这说明失败不限于 RTL。
+- `20261025-row-boundary-pan-trace` 的固定 513.5 pt 原生窗口往返通过，但原始 RTL 分页仍失败（239 < 255.5 pt）。完整触摸记录 `sp-pan-45279-5.json` 显示：方向判定通过后，一次含 24 个合并触点的移动使 translation 清零，丢失约 109 pt。相同 frame／contentSize 回写发生于前一次手势，距失败手势约 56 秒，不能据此归因于重复赋值。
+- `20261025-native-idle-viewport-red` 的真实 UITableView 空闲期窗口测试通过，覆盖 LTR／RTL 与正文 503、513.5、524、535.5 pt；目录名中的 red 不代表该测试失败。它说明单纯等待估算结算不足以稳定复现历史偏移。
+- `20261025-late-compensation-red` 受控模拟转场结束之后，同一可见行坐标、总高度和 offset 同步修正，LTR／RTL 均失败：期望正文 546 pt，实际为约 535.67 或 563 pt，切页恢复也错误。该测试明确是几何故障注入，不冒充捕获了历史 UIKit 主动页回写的完整链路；普通程序化 ±10.5／37 pt 定位另行保留断言。
+- `20261025-coalesced-pan-red` 两项新夹具在窗口宽度前置条件失败，尚未进入分页检查。只调整了该新增用例的系统窗口缩放输入（-250/-350 → -500/-600），保留宽度 < 650 的断言。`20261025-coalesced-pan-ready` 达到半页并翻页成功，但诊断仍显示丢失位移，故新增识别后触摸与实际分页位移的 1 pt 等式断言；不是削弱原断言。
+- `20261025-coalesced-distance-red` 使用上述严格断言与一次 0.65 秒测试专用主线程停顿，旧分页实现 LTR 实际移动 208.5 pt，而方向获准后触摸移动 249 pt。诊断显示 `gestureRecognizerShouldBegin` 与 `scrollViewWillBeginDragging` 之间的移动在 translation 清零时丢失。
+- `20261025-late-compensation-green` 在重复 Package 解析期间主动中止，随后构建中断；未执行 XCTest，不能计为通过。接下来的运行使用新目录，保留全部原始日志。
+
+`20261025-settlement-focused` 的 11 项窗口／分页库测试通过。严格合并事件红灯为 LTR 208.5 vs 249 pt、RTL 209 vs 249.5 pt；`20261025-coalesced-distance-green` 两项通过，正向、反向和取消的实际移动均与识别后的移动一致。
+
+`20261025-settlement-library-final` 完整 317 项中 316 项通过，1 项新增测试失败：插行业务负例用插行前位置计算后续定位，但插行本身结算了先前注入的估算坐标。修正为完成插行布局后记录业务定位起点，仍断言后续精确增加 17 pt，保留 0.5 pt 精度；没有修改生产实现来迎合该负例。该首轮还在未修改的 `SPTabBarCustomContentTests.testStateHighlightActivationAndDisabledSelectionStayCoordinated` 出现 1 条 appearance 不平衡警告，原因尚未定位；不能用后续干净结果宣称警告已经修复。
+
+`20261025-settlement-library-verified` 未进入 XCTest，持续重复 Package 解析。采样见同目录 `package-resolution-sample.txt`，主线程等待 Package 加载并递归同步工作区文件。先发中断信号未退出，再终止本次构建进程，保留日志；随后库构建与 UI 验证改为顺序执行。此目录不能计为测试通过或测试失败。
+
+`20261025-settlement-ipad-final` 为 5 通过、1 失败。原始 RTL 完整分屏、LTR／RTL 合并事件和两方向 513.5 pt 行边界恢复通过；LTR 完整流程在最后一次 Header 35 pt 短拖动后得到 progress=1，违反原有部分折叠断言。截图确认实际完全折叠，不能把这一整轮记为成功。`20261025-header-partial-trace` 的两个最小原生流程通过，仅表明未稳定触发原始间歇问题，不作为修复证据。
+
+随后新增明确的布局重入回归：缓存页布局重入父容器，再产生当前页的中间 offset 回写，最后恢复实际位置。`20261025-layout-reentry-red` 在 LTR／RTL 均失败，实际位置已恢复 45 pt，但共享折叠量变成 158 pt，切页也恢复错误。根因是内层 `viewDidLayoutSubviews` 退出时直接清除外层保护标记。改为恢复进入时标记后，`20261025-layout-reentry-green` 10 项窗口回归通过。受控回归证明该重入缺陷，尚不能仅凭它断言捕获了原始 Header 失败的完整调用链；仍需执行原始用例。
+
+该绿灯阶段发现新增业务插行夹具在批量更新尚未完成时关闭窗口，出现 UITableView 离开层级后布局警告。夹具改为等待批量更新 completion，仍验证数据更新后的业务定位精确增加 17 pt；几何基准的采集与匹配也要求列表仍挂载到窗口。最终回归覆盖这些修改。
+
+`20261025-settlement-nested-ui` 的 8 项真实 UI 回归通过，包含 5 项嵌套横向列表交接与 3 项系统容器、旋转、RTL 检查；该批次在重入保护修复之前构建，作为分页位移修复的中间证据，不计入重入修复后的终态验证。
+
+Package 构建改用验证脚本的临时副本，仅固定仓库 cwd 并将本轮证据输出到 `/private/tmp/sp-validation/<运行名>`，所有源码、Package、目标、断言和编译参数不变，结束后完整归档回 `Validation/Results`。重入红灯在这一方式下完成，没有删除已有结果；脚本副本随结果保存。提取 iPad 结果时首次并行读取同一 xcresult 遇到 database.sqlite3 初始化冲突，错误摘要保留为 `summary-export-race.json`，附件导出结束后顺序提取成功；没有重跑测试。
+
+分页补偿的初版使用 `setTranslation`。[Apple 的该 API 契约](https://developer.apple.com/documentation/uikit/uipangesturerecognizer/settranslation(_:in:))明确说明它会重置速度，因此没有仅凭位移通过就保留该实现。新增起拖速度非零与物理方向断言后，`20261025-pan-velocity-red` 两项实际通过；目录名不代表失败，也没有观察到当前 iOS 26.5 上的速度重置。最终改为在分页接管之后调整一次滚动起点，不修改 pan translation／velocity。`20261025-pan-offset-green` 两项通过，覆盖 LTR／RTL 正反向分页、短拖动取消、精确位移与起拖速度，全部源码哈希一致。
+
+`20261025-settlement-library-terminal` 318/318 通过，但仍使用前述初版分页补偿，仅作中间证据。`20261025-settlement-ipad-terminal` 因清理临时 Header 探针时遗漏一处 Demo 调用而构建失败，未执行测试；随后移除遗漏调用，保留失败结果。终态回归使用已清理探针、采用滚动起点补偿的源码，单独记录，不覆盖这些结果。
+
+| 终态验证 | 结果 | 证据 |
+| --- | --- | --- |
+| 完整库 | 318/318 通过，四类运行时诊断为 0 | [完整库](Results/20261025-final-library/summary.json)，包括延迟行高、底部钳制、布局重入、缓存恢复及既有标签栏回归。 |
+| Demo 宿主 | 12/12 通过，四类运行时诊断为 0 | [官方 MCP](Results/20261025-final-demo-unit/mcp-result.json)，覆盖 Header、大字号、完整／紧凑卡片和指示器。 |
+| 嵌套滚动与系统容器 UI | 8/8 通过，四类运行时诊断为 0 | [真实手势](Results/20261025-final-nested-ui/summary.json)，包含 5 项 CompositionalGestureTests 和 3 项 SystemContainerTests，覆盖 LTR／RTL、边界交接、分页往返及旋转恢复。 |
+| iPad 分屏 UI | 8/8 通过，四类运行时诊断为 0 | [iPad 终态](Results/20261025-final-ipad/summary.json)，包含原始 LTR／RTL 完整分屏、合并触摸、Header 部分折叠和 513.5 pt 行边界往返各两项。 |
+
+四组均与当前 79 个源码／配置／脚本文件一致。[源码审计](Results/20261025-final-library/final-source-audit.json)确认：本轮既有窗口库测试和 UI 测试没有删除或替换原始行，新增回归保留 0.5 pt／1 pt 精度；标签栏、卡片和布局配置与本轮开始时一致。7 个相关 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。历史 appearance 警告仍按上文保留为未定因问题，不因本轮诊断为 0 而宣称修复。
+
+原始 LTR／RTL 完整分屏分别耗时 685.254／492.231 秒，均完成竖屏→横屏→竖屏、短页往返、正文恢复，以及 Header 展开／部分折叠／再次吸顶；没有重试失败手势或改变半页门槛。已导出并核对 [LTR 部分折叠](Results/20261025-final-ipad/ltr-attachments/B5FA208D-4B2C-45BE-8C56-AC35F14C3B26.png)和 [RTL 横屏正文](Results/20261025-final-ipad/rtl-attachments/4142B4E3-CB93-48AD-8D8D-7012E3F849A8.png)。本轮受控红绿回归证明延迟几何补偿、布局重入及起拖位移丢失缺陷已修复；历史 10.5 pt 原生失败的完整 UIKit 内部调用链仍未捕获，不能以本次原生通过替代这一证据限制。
+
+环境为 Xcode 26.5 / Swift 6.3.2 / Debug / iOS 26.5 Simulator，使用 iPhone 17 Pro 与 iPad Pro 13-inch (M5)。Demo 宿主通过官方 Xcode MCP 执行；库 scheme 未由 MCP 暴露，库使用独立 UIKit 宿主脚本；UI 复用已构建且源码哈希一致的最终产物。未执行全部 Demo UI、Release、iOS 15、真机、VoiceOver 或性能验证；未修改系统设置、擦除模拟器、提交或推送。已关闭本次启动的 iPad，保留原有 iPhone 会话。
+
+## 2026-10-25：转场收尾保存位置同步钳制
+
+复查发现，尺寸转场收尾的额外页面布局可能进一步缩短列表可滚动范围。原实现最后一次 `align` 只限制实际 offset，没有同步限制 `positions`；转场保护又会拦截这一阶段的滚动记录，因此窗口再次缩小、合法范围增大时会恢复过期的正文位置。本次只在收尾布局之后、最终对齐之前同步限制该页保存位置，当前页及已加载缓存页使用相同规则。Header 折叠量、选择提交、delegate 与 RTL 索引契约不变。
+
+新增两项真实 UIWindow／UITableView 回归，分别验证当前页和缓存页，每项均执行 LTR／RTL。从距离底部 12 pt 开始，在转场最后恢复 offset 后受控结算 24 行的行高（84 → 73.5 pt），通过真实 UITableView 重排确认 contentSize 缩短，再检查底部、切页、三轮窗口尺寸往返、Header 吸顶位置、横向分页位置和后续正常滚动。该夹具明确模拟延迟结算时序，不声称捕获了历史 UIKit 内部估算回写；既有 automaticDimension 回归仍保留。
+
+[旧实现红灯](Results/20261025-split-clamp-red/summary.json) 2/2 失败：再次缩小窗口后正文为 1222 pt，期望 970 pt，偏差 252 pt，当前页／缓存页与 LTR／RTL 均触发。保存了该轮生产与测试源码。[修复后专项](Results/20261025-split-clamp-green/summary.json) 11/11 通过，四类运行时诊断为 0；红绿两轮新增测试源码逐字一致，唯一源码差异为生产修复，没有扩大 0.5 pt 断言或重写恢复基准。
+
+[完整库首轮](Results/20261025-split-clamp-library/summary.json) 315 项断言通过，但出现 2 条 appearance 不平衡诊断，按验证规则整轮判为失败。警告分别出现在独立标签栏夹具 `testConfiguredButtonHonorsMinimumSizeAndDynamicConstraintChanges` 和 `testStateHighlightActivationAndDisabledSelectionStayCoordinated`，对应测试不包含分页容器；原始日志保留。保持所有源码与诊断规则不变，[两个测试类隔离复验](Results/20261025-split-clamp-appearance-isolated/summary.json) 36/36 通过、诊断为 0；随后[完整库复验](Results/20261025-split-clamp-library-verified/summary.json) 315/315 通过、诊断为 0。首次警告未重现，具体原因仍未确认，不将其描述为已修复。
+
+| 终态验证 | 结果 | 证据 |
+| --- | --- | --- |
+| iPhone 完整库 | 315/315 通过，四类诊断为 0 | [完整库复验](Results/20261025-split-clamp-library-verified/summary.json) |
+| Demo 宿主 | 12/12 通过，四类诊断为 0 | [官方 Xcode MCP 结果](Results/20261025-split-clamp-demo-unit/mcp-result.json)，覆盖 Header、大字号、完整／紧凑卡片与指示器。 |
+| iPad 窗口几何 | 7/7 通过，四类诊断为 0 | [iPad 专项](Results/20261025-split-clamp-ipad-geometry/summary.json)，包含两项新增延迟结算回归。 |
+| iPad 真实触摸首轮 | 1 通过、3 失败，四类诊断为 0 | [UI 批次](Results/20261025-split-clamp-ipad-ui/summary.json)：LTR 连续缩放通过；原始失败保留；后续复验单独记载。 |
+| iPad 真实触摸终轮 | 2 通过、1 失败，四类诊断为 0，源码一致 | [最终原生复验](Results/20261025-split-clamp-final-native/summary.json)：LTR 分屏、RTL 连续缩放通过；RTL 分屏手势失败。 |
+
+UI 首轮的 LTR 分屏在方向等待中读取到 `<无状态值>`，结束状态及截图均为目标竖屏，但尚未执行该阶段正文位置断言；RTL 分屏因系统 Settings 启动超时中止；RTL 连续缩放在第二次系统窗口拖动后宽度变化为 0 pt，未满足原有大于 40 pt 的输入生效断言。没有放宽任何断言，也没有把截图可见当作通过。LTR 连续缩放完整通过（526.051 秒），覆盖浮动窗口、多轮 Header 展开／部分折叠／吸顶、分页返回、恢复全屏及后续滚动保存。已导出截图、UI 层级及录屏到 `Results/20261025-split-clamp-ipad-ui/all-attachments/`。
+
+测试服务在首轮后已关闭 iPad；重新启动本次 iPad 并通过 bootstatus 确认启动完成，再正常启动同一 Settings 陪测应用，未修改系统设置或擦除设备。[UI 原样复验](Results/20261025-split-clamp-ipad-recheck/summary.json)复用首轮同一构建产物，LTR 捕获到真实正文偏移：503.0 / 513.5，仍相差 10.5 pt，容差保持 1 pt。随后主动取消 RTL 用例并进入针对性诊断；不把该次偏移归类为环境失败，也不再据此前通过记录声称完整 UI 回归通过。新底部钳制的红绿证据有效，但原生分屏仍有待定位的回写路径。临时诊断只用于定位，已全部移除，不纳入交付源码。
+
+[带调用栈诊断的原生分屏运行](Results/20261025-split-clamp-native-kvo-trace/summary.json) 1/1 通过，但含临时探针，不能充当最终源码验证。保留了当时三个探针源码及 `sp-size-trace-38672.log`：转场保护期间 `_updateVisibleCellsNow:` 回写 -10.5 pt，保存位置未覆盖且随后恢复；另有转场结束后 `_prefetchCellAtGlobalRow:aboveVisibleRange:` 的 -10.5 pt 回写，本轮随后也恢复，未造成断言失败。因此预取是后续排查线索，尚不能认定它就是此前 503.0 / 513.5 失败的原因。读取无障碍几何前后值一致，未证实查询本身造成偏移。诊断初轮、方向等待失败轮及日志均保留，没有以诊断通过覆盖原生失败。
+
+最终无探针复验中，LTR 原生分屏通过（360.987 秒）；RTL 分屏在横屏第三次正向分页的输入断言失败：683 pt 视口下实际分页位移 304 pt，未超过原有 341.5 pt 半页门槛。触摸记录起止坐标差 478 pt，但 pan translation 为 304 pt，UIKit 最终回到原页；之前的正文／Header 检查通过。未确认此次位移不足的具体原因，不将其直接归为环境失败，也未改动手势或断言。RTL 连续缩放随后完整通过（434.721 秒），覆盖多轮窗口变化、Header 状态、切页返回、恢复全屏和后续滚动保存。该终轮最终为 2 通过、1 失败，四类运行时诊断为 0，源码哈希一致。完整结果见 [最终原生复验](Results/20261025-split-clamp-final-native/summary.json)；已导出全部附件并核对 [RTL 失败截图](Results/20261025-split-clamp-final-native/attachments/67A4C78B-7339-4D85-B171-33F6A0914AAB.png)。本次不能宣称完整原生 UI 回归通过，也未证明之前的 10.5 pt 间歇偏移已消失。
+
+[最终源码审计](Results/20261025-split-clamp-final-native/final-source-audit.json)确认移除探针后的全部 79 个源码／配置／脚本文件与完整库、Demo 宿主和 iPad 几何通过时一致，红绿两轮新增测试源码也逐字一致。两个本轮修改的 Swift 文件通过 SwiftFormat 0.64.0 lint；`git diff --check` 通过。
+
+本轮没有修改 Demo、既有 UI 用例或诊断脚本，UI 位置断言保持 1 pt。库 scheme 未由官方 MCP 暴露，库与指定 iPad 目标的 UI 使用验证脚本，Demo 宿主使用官方 MCP。环境为 Xcode 26.5 / Swift 6.3.2 / Debug / iOS 26.5 Simulator；iPhone 17 Pro 与 iPad Pro 13-inch (M5)。未重跑全部 Demo UI、Release、iOS 15、真机、VoiceOver 或性能验证；历史失败不删除。已关闭本次启动的 iPad，保留原有 iPhone 会话；未提交或推送。
+
+## 2026-10-25：iPad 分屏正文位置回写保护
+
+针对上一轮 `535.5 / 546.0` 的 10.5 pt 偏移继续排查。原生 UITableView 现场的估算行高为 84 pt、实际行高为 73.5 pt；该差值提供排查线索，但没有捕获历史失败那次 UIKit 回写的调用栈，不能仅凭差值断言具体内部实现。排查确认一个可重复的保护缺口：尺寸转场 completion 最后恢复 offset 后可能再次安排列表布局，旧实现随即解除 `isTransitioningSize`，后续布局的 offset 回写会覆盖保存的正文位置。
+
+新增受控延迟布局回归（真实 UIWindow、UITableViewController、导航容器，LTR／RTL）：模拟恢复 offset 后下一次列表布局回写 -10.5 pt。旧实现的[红灯证据](Results/20261025-split-deferred-red/summary.json)为 1 项失败；在 3x iPhone 宿主上首次读到 535.6667 / 546，之后多次缩放继续累积。此用例明确属于故障注入，不冒充历史系统分屏失败的原生复现。修复只在尺寸转场 completion 中增加页面布局收尾并再次对齐，待回写消化后才解除保护；不修改估算行高、选择时序或滚动 delegate。
+
+库回归覆盖真实窗口／父视图缩放、regular／compact、安全区域与导航栏变化、中间尺寸、LTR／RTL、缓存页面切回，以及保护结束后的正常滚动和恢复。UI 新增精确 546 pt 起点的 LTR／RTL 双轮全屏→浮动→分屏→恢复、短页往返，以及三轮真实滑动减速后的分屏恢复。原有失败用例及其位置容差保持不变：库测试 0.5 pt、UI 1 pt；没有扩大断言或重写保存基准。
+
+排查过程中的失败均保留：`20261025-split-unit-red` 是新增夹具漏算窗口继承安全区域，后改为使用实际 safeAreaInsets；`20261025-split-exact-trace` 是测试入口误用库内部成员的编译失败，改用 Demo 自有子控制器；`20261025-split-trace`、`20261025-split-trace-ready`、`20261025-split-position-trace`、`20261025-split-exact-trace-build` 和 `20261025-split-no-trace-red` 涉及模拟器 AX 查询／Settings 启动超时，最后一轮主动取消后仅重启本次启动的 iPad。截图可见页面并不等于无障碍断言通过，不把这些运行计为通过。未修改系统设置或擦除模拟器。
+
+修复前的原生排查中，`20261025-split-exact-ready` 的精确起点双轮恢复和 `20261025-split-deceleration-trace` 的三轮减速恢复均通过；四项窗口几何测试在 `20261025-split-navigation-red` 通过。这说明历史偏移具有间歇性，不能以偶然通过代替回写保护的红／绿对照。
+
+[修复后专项](Results/20261025-split-deferred-green/summary.json) 5/5 通过，四类运行时诊断为 0。该批次启动后还清理了 Demo 临时探针、补充正常滚动恢复断言，因此摘要标记了源码变化；最终一致性以随后完整回归为准。
+
+[完整库首轮](Results/20261025-split-final-library/summary.json) 313 项断言通过，但诊断检测到 1 条 appearance 不平衡警告，整轮判为失败；警告出现在独立标签栏的 `testCandidateMeasurementsPreserveSelectionAnimationAndAccessoryConstraints`，该夹具不包含分页容器。未删除警告，也未将断言通过误报为整轮通过。
+
+[完整库复验](Results/20261025-split-library-verified/summary.json) 在源码不变的条件下 313/313 通过，四类运行时诊断均为 0；首次 appearance 警告未重现，原因未进一步确认，不将其归结为本次生产修复。
+
+[Demo 宿主](Results/20261025-split-final-demo-unit/mcp-result.json) 通过官方 Xcode MCP 执行，12/12 通过、四类诊断均为 0，[源码审计](Results/20261025-split-final-demo-unit/source-audit.json) 一致。
+
+[iPad UI 首轮](Results/20261025-split-final-ipad/summary.json) 在分屏前的状态等待失败：XCTWaiter 返回超时，但同次失败信息中的真实状态已经包含 `progress=1.00`。日志显示轮询先查询 exists 再查询 value，两次远程查询耗尽 5 秒预算。停止批次并保留当时测试源码，将状态与方向轮询改为每次获取一个新的 XCUIElementSnapshot；状态条件、5／6 秒等待预算和全部位置精度不变，不缓存旧快照、不补发触摸。生产代码及单元测试没有变化。
+
+[快照轮询复验](Results/20261025-split-ipad-snapshot/summary.json) 发现 XCUIElementSnapshot.value 只返回前 512 个字符，手势诊断较长时状态字段被截掉，故再次中止并保留源码。最终辅助方法每轮重新解析元素并直接读取一次完整 value，移除重复 exists 查询；保留原始诊断字段与全部等待预算。iPad 后台 mediaanalysisd 持续高占用时，两次仅对已核对属于该设备的进程发送 SIGTERM（系统按需自动重启），没有修改服务配置或数据。
+
+[原始 LTR 分屏手势复验](Results/20261025-split-ltr-verified/summary.json) 1/1 通过，耗时 327.552 秒，四类诊断均为 0，源码哈希一致。覆盖竖屏／横屏分屏、短距离取消、各方向三轮短页往返；原用例位置断言仍为 1 pt。剩余窗口专项复用该轮同一已构建产物执行。
+
+[iPad 剩余专项](Results/20261025-split-ipad-remaining/summary.json) 6 通过、1 失败，四类诊断为 0，源码哈希一致。通过项包括减速后三轮恢复、LTR／RTL 精确 546 pt 双轮恢复、RTL 分屏取消／分页、LTR／RTL 连续缩放。唯一失败的带附件缩放在状态查询返回 `<无状态值>` 时中止，尚未进入该阶段的正文位置断言；保留失败证据并隔离复验。
+
+[Gallery 共用辅助方法复验](Results/20261025-split-gallery-verified/summary.json) 在 iPhone 上 1/1 通过，四类诊断为 0、源码哈希一致，覆盖全部指示器预设、自定义卡片及旋转后选择。带附件失败截图可见正确列表和状态标签，但无障碍值读取失败，截图不代替断言；关闭并重新启动本次 iPad，保持源码与断言不变进行独立复验，不再启动分屏陪测应用。
+
+[附件独立首轮](Results/20261025-split-accessories-verified/summary.json) 1 失败：启动后的入口点击没有进入 Demo，5 秒后首个标签不存在；截图及 UI 层级仍为正常入口页，尚未执行窗口缩放。没有补发点击或放宽入口断言，保留证据后在已稳定启动的同一设备按原样复验。
+
+[附件独立复验](Results/20261025-split-accessories-warm/summary.json) 1/1 通过，耗时 521.342 秒，四类诊断均为 0，源码哈希一致；包括连续缩放、分页往返、恢复全屏、Header 三种折叠状态、再次滚动和搜索附件弹窗。原状态条件、等待预算及位置容差均未改变。
+
+本轮终态覆盖如下，不将含失败的整次运行改写为通过，也不重复统计复跑用例：
+
+| 终态验证 | 结果 | 证据 |
+| --- | --- | --- |
+| 完整库 | 313/313 通过 | [完整库复验](Results/20261025-split-library-verified/summary.json)，含 5 项新增窗口回归及原有取消／重叠转场测试。 |
+| Demo 宿主 | 12/12 通过 | [官方 MCP 结果](Results/20261025-split-final-demo-unit/mcp-result.json)，覆盖卡片、Header、大字号与指示器。 |
+| 原始 LTR 分屏失败用例 | 1/1 通过 | [独立复验](Results/20261025-split-ltr-verified/summary.json)，保留原正文位置断言。 |
+| 其他 iPad 专项 | 6 项通过 | [批次结果](Results/20261025-split-ipad-remaining/summary.json)中 6 项通过；该批次另有 1 项附件状态读取失败，以上述独立复验补齐。 |
+| iPad 附件缩放 | 1/1 通过 | [独立复验](Results/20261025-split-accessories-warm/summary.json)。 |
+| iPhone Gallery | 1/1 通过 | [旋转及指示器预设](Results/20261025-split-gallery-verified/summary.json)，验证共用状态读取的另一入口。 |
+
+共 9 项不同 UI 专项已有终态源码通过证据，其中 8 项为 iPad 窗口／分屏回归。终态使用的运行四类诊断均为 0；系统旧 AX 窗口警告及此前失败仍保留在原始日志中。
+
+[最终源码审计](Results/20261025-split-accessories-warm/final-source-audit.json)确认库、应用和单元测试自完整库／宿主通过后未再变化，之后只有 UI 的 `expect(_:)`、`rotate(to:)` 两个查询辅助方法变化，[函数范围审计](Results/20261025-split-ltr-verified/final-source-audit.json)确认其余 UI 用例逐字一致。四个终态 UI 批次均与当前全部源码哈希一致；复用产物的批次使用原始 LTR 通过时构建的同一版本。
+
+已核对实际画面：[LTR 竖屏分屏](Results/20261025-split-ltr-verified/attachments/41600667-6D92-4273-BCCA-8BFBAB73C64E.png)、[LTR 横屏分屏](Results/20261025-split-ltr-verified/attachments/6327C6B6-A3F7-4280-BED7-9CE2230C4D06.png)、[RTL 横屏分屏](Results/20261025-split-ipad-remaining/all-attachments/598683BB-7BA2-4811-8DAB-631E6A89B566.png)。本次 5 个相关 Swift 文件的 SwiftFormat 0.64.0 lint 与 `git diff --check` 通过。环境为 Xcode 26.5 / Swift 6.3.2 / Debug / iOS 26.5 Simulator；库 scheme 未由官方 MCP 暴露，库和指定设备 UI 使用验证脚本，Demo 宿主使用官方 MCP。未重跑全部 81 项 Demo UI、Release、iOS 15、真机、VoiceOver 或性能验证。仅关闭本次启动的 iPad，保留原有 iPhone 会话；未提交或推送。
+
+## 2026-10-25：回退复查与下划线内容适配
+
+复查确认 `SPTabBar.swift` 与 `SPPageViewController.swift` 的 SHA-256 与选中时序调整前的最终基线一致，保留点击立即预览、手势半程预览及最终提交回调；紧凑卡片留白与 Header 修复未被撤回。复查过程中按用户新增要求调整 Demo 默认样式：完整／高度适配卡片使用边框和标题颜色，默认关闭下划线；紧凑文字按实际文字宽度绘制，排除内部留白。显式选择下划线、胶囊或自定义视图后跨内容模式保留，自动模式可恢复。卡片显式下划线对齐可见边框。内置纯文字既有布局已按选中态标题测量，本轮补充排除 Item 留白的回归断言，没有统一减去固定宽度，也未改变框架公开 API。
+
+新增真实 UIWindow 测试覆盖 LTR／RTL、内容／等宽／固定项宽、最大辅助字号、完整／紧凑卡片与自动样式恢复，并补充两个真实菜单切换 UI 用例。README 同步说明自动与显式规则。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug / iOS 26.5 Simulator。Demo 宿主测试使用 Apple 官方 Xcode MCP；库 scheme 未由 MCP 暴露，使用独立 UIKit 宿主脚本。UI 沿用脚本，避开此前已记录的 MCP Runner 附加失败。各批次顺序执行；最终宽度专项在同一 xcodebuild 批次指定两台设备，失败证据保留。
+
+| 阶段 | 结果 | 说明 |
+| --- | --- | --- |
+| [回退后完整库](Results/20261025-rollback-review-library/summary.json) | 307 通过 | 样式改动前的完整回退复查；四类诊断均为 0。 |
+| [回退后 Demo 宿主](Results/20261025-rollback-review-demo-unit/summary.json) | 10 通过 | 样式改动前，包含卡片及 Header 组合；四类诊断均为 0。 |
+| [回退 UI 首轮](Results/20261025-rollback-review-ui/summary.json) | 16 通过、1 断言失败、1 取消 | 接到新增样式需求后主动中止，不能视为完整通过。最大字号 RTL 卡片宽 467 pt、视口 402 pt，旧断言错误要求整项进入视口；改为检查超宽项居中，普通项保留原边界断言。 |
+| [样式宿主专项](Results/20261025-indicator-content-focused/mcp-result.json) | 3 通过 | 卡片自动／显式切换、紧凑文字宽度、原渐变指示器；后续小调整由最终宿主回归覆盖。 |
+| [文字宽度库专项](Results/20261025-indicator-text-library-focused/summary.json) | 23 通过 | 含新增 LTR／RTL 纯文字测量断言；四类诊断均为 0。 |
+| [样式 UI 与 RTL 首轮](Results/20261025-indicator-content-ui-focused/summary.json) | 2 通过、1 失败 | 新增 LTR／RTL 样式切换通过；旧最大字号 RTL 用例横屏时向工具栏遮挡区域发送拖动，标签没有移动，随后目标查找失败。修正测试的真实触摸范围，未修改生产 RTL 布局。 |
+
+[RTL 触摸首轮复验](Results/20261025-indicator-rtl-touch-focused/summary.json) 仍为 1 失败：横屏标签选择已通过，后续 Header 折叠继续沿用被工具栏遮挡的中点。将标签点击、横向查找及 Header 折叠起点统一到窗口内、工具栏上方的区域，保留原进度、布局及恢复断言。该轮四类运行时诊断均为 0。
+
+终态已完成：[RTL 最大字号及 Header 四方向专项](Results/20261025-indicator-rtl-viewport-focused/summary.json) 1/1 通过，[完整库](Results/20261025-indicator-final-library/summary.json) 308/308 通过，[全部 Demo 宿主](Results/20261025-indicator-final-demo-unit/summary.json) 12/12 通过。三组运行结束时源码哈希均一致；随后仅调整下述 UI 宽度测试函数，库、应用、Demo 宿主测试源码没有再变。四类运行时诊断均为 0。33 个变更 Swift 文件的 SwiftFormat 0.64.0 lint、验证脚本 8 项自测和 `git diff --check` 通过。
+
+[完整 iPhone UI](Results/20261025-indicator-final-ui/summary.json) 执行全部 78 项：69 通过、1 失败、8 项 iPad 专属跳过；四类诊断均为 0。唯一失败位于旧 `testCustomWidthPolicyAndRequiredOverflowInBothDirections`：402 pt 整栏扣除默认首尾各 16 pt 后，可用宽度为 370 pt，Demo 的 `max(480, availableWidth + 80)` 应为 480 pt；旧测试使用整栏宽度，错误期望 482 pt。同一用例的最小项宽预期随后也作了校正，见下文。生产源码未改动，仅调整该测试函数的宽度计算，其他 69 项已通过的 UI 用例实现不变；保留原始失败和修改前测试源码。
+
+[宽度预期首轮修正](Results/20261025-indicator-width-final/summary.json) 1 失败：扣除留白后，旧测试仍假定最小项宽会把内容强制压成均分宽度，要求 28.46 pt，但编号本身理想宽度为 30 pt。改为断言最小下限、降低下限后实际缩小（宽屏均分时允许保持）、选择交互和超宽内容的精确宽度；没有扩大容差或修改生产布局。后续 iPad 补测进一步确认该用例默认使用 `.content`，最终断言见下文。
+
+[宽度 iPhone 复验](Results/20261025-indicator-width-verified/summary.json) 1/1 通过，覆盖 LTR／RTL，四类诊断为 0；后续又修正 iPad 默认内容策略预期，并在两台设备重新验证，最终结果见下文。
+
+[iPad 首轮补测](Results/20261025-indicator-final-ipad/summary.json)：7 通过、2 失败、0 跳过，四类运行时诊断为 0。7 项通过包括指针输入、LTR／RTL 分屏位置恢复、RTL 分屏取消与分页、三种连续窗口缩放。宽度失败揭示旧测试仍把默认策略当作 balanced：实际默认 `.content` 在宽屏也保留 44 pt 下限，不能要求均分成 76.92 pt。最终将预期明确为默认内容策略的 44 pt、降低下限后的真实收缩，以及扣除首尾留白后的超宽内容精确尺寸；应用没有改动。
+
+首次 LTR 分屏手势用例停在系统“左右”菜单查询，尚未执行分页断言。失败截图显示应用回到全屏，日志伴随系统设置远程无障碍窗口查询失败；同轮后续 LTR／RTL 分屏均能正常建立。保留截图、层级、录屏及原始失败，不把后续其他用例通过直接当作该用例通过。
+
+[最终宽度双设备复验](Results/20261025-indicator-width-content-verified/summary.json) 同一用例在 iPhone／iPad 各通过一次，均包含 LTR／RTL，四类诊断为 0，运行时源码与当前一致。[源码差异审计](Results/20261025-indicator-final-ui/final-source-audit.json) 确认完整库、Demo 宿主、完整 iPhone UI 与 iPad 首轮之后仅该宽度测试函数变化；应用实现、库与 Demo 单元测试、其他 UI 函数全部逐字一致。结合完整 iPhone 运行的其他 69 项，iPhone 适用的 70 项全部已有通过证据，不将先前包含失败的整次运行改写成通过。
+
+[LTR 分屏独立复验](Results/20261025-indicator-split-verified/summary.json) 1 失败、四类诊断为 0，源码哈希一致。本次系统“左右”菜单已成功展开，失败位置变为首次分屏后的正文位置校验：`535.5` 对比保存的 `546.0`，偏差 10.5 pt，容差仍为 1 pt。失败发生在横向取消／分页输入之前。该轮不能计为通过，也不能据此确认窗口尺寸变化完全没有回归；当前证据尚不能区分原生自适应行高结算、滚动状态与容器恢复的具体原因。本轮没有扩大容差、改写保存位置或修改分页实现来消除失败。首次菜单失败与此次位置失败分别保留，后续需要针对这项窗口恢复问题继续定位。
+
+终态统计：308 项库测试、12 项 Demo 宿主测试通过；78 项不同 UI 用例中，77 项已有通过证据，1 项 LTR iPad 分屏位置恢复仍失败。紧凑／完整卡片、Header、LTR／RTL 与指示器样式切换的相关用例均通过，但完整 UI 回归未全绿。33 个变更 Swift 文件的格式 lint、脚本 8 项自测与 `git diff --check` 通过。未验证 Release、iOS 15、真机、VoiceOver 或性能；未提交或推送。
+
+已核对实际画面：[卡片自动模式](Results/20261025-indicator-final-ui/style-ltr/9B3FF8ED-8DF9-49A5-8A54-DB30291ED56A.png)、[卡片显式下划线](Results/20261025-indicator-final-ui/style-ltr/5FFDF0AA-EF0F-459A-BCB3-C9A1DDD64D1E.png)、[紧凑文字](Results/20261025-indicator-final-ui/style-ltr/8856EA41-F421-400E-827C-FB1C6870AC66.png)。以下旧章节只代表各自运行时源码，不替代本轮终态结果。
+
+## 2026-10-25：恢复此前选中状态逻辑
+
+按用户最新要求撤回本轮“拖动保留提交项、松手吸附终点切换”的调整，恢复点击立即预览、分页达到 50% 预览目标项、退回阈值以下恢复起始项的既有逻辑。此前的紧凑卡片、上下留白、Header 与布局 API 修复保留。README 和状态说明恢复对应契约；删除本轮新增的分阶段容器及 UI 用例，原有默认／自定义内容测试恢复半程预览断言。
+
+[恢复审计](Results/20261025-selection-restored/restoration-audit.json) 对照上次最终验证的源码 SHA-256，确认 `SPTabBar.swift`、`SPPageViewController.swift`、Demo 源码及 UI 测试均与调整前完全一致；差异仅为内容状态注释和两份等价恢复的库测试断言。撤回前的两轮聚焦结果分别为 [78 项通过](Results/20261025-selection-phases-focused/summary.json) 和 [79 项通过](Results/20261025-selection-phases-verified/summary.json)，仅记录被撤回方案的历史结果，不作为当前行为的验证依据。
+
+恢复后[聚焦验证](Results/20261025-selection-restored/summary.json)：44 项通过、0 失败、0 跳过，覆盖 LTR／RTL 默认与自定义内容、半程预览及回退、指示器端点、真实点击动画提交，以及取消／重载回调。环境为 Xcode 26.5 / Debug / iPhone 17 Pro / iOS 26.5 Simulator；库 scheme 未由官方 MCP 暴露，沿用独立 UIKit 宿主脚本。终态源码哈希一致，四类运行时诊断均为 0；7 个涉及本轮恢复的 Swift 文件格式检查及 `git diff --check` 通过。本次恢复未重跑完整库、Demo UI、Release、iPad、iOS 15 或真机；未提交或推送。
+
+## 2026-10-25：紧凑卡片留白组合与选中反馈时序
+
+Demo 紧凑卡片改为使用 `max(0, fixedHeight - contentInsets.top - contentInsets.bottom)` 判断完整卡片是否可容纳，并计算标题字号。在固定高度不变时切换留白，由既有内容配置刷新重新读取最新 inset，不增加高度缓存。组合回归覆盖 LTR／RTL、默认／最大辅助字号、32／60 pt、无／对称／非对称留白、隐藏和恢复完整卡片；检查业务文字边界及内容根视图，避免外层 frame 正确而内部仍被裁切。
+
+用户随后指出直接点击或滑动时，指示器先到目标、选中样式随后才出现。此前两者确实使用不同更新时机：指示器跟随分页进度，内容样式只在最终提交时刷新。本轮分开视觉预览和逻辑提交：点击被接受后立即呈现目标项；手势到达 50% 时预览目标项，退回阈值以下恢复起始项；取消或重载恢复已提交项。`selectedIndex`、无障碍选中标记和代理回调仍在最终提交时更新。默认字体和自定义配置均采用预览状态；测量上下文保留逻辑状态，指示器端点独立测量，避免字体预览造成端点跳变。
+
+新增库回归检查立即点击反馈、分页过半／回退／终点、LTR／RTL、默认字重、自定义内容、刷新保持、取消与重载恢复，以及真实点击动画完成后恰好一次回调。原有端点回归保留几何断言，将“终点仍为普通字体”的旧预期改为提前显示选中字体。README 同步说明视觉预览与提交契约。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug / iOS 26.5 Simulator。Demo 单元测试使用 Apple 官方 Xcode MCP；库 scheme 未由 MCP 暴露，沿用独立 UIKit 宿主脚本。UI 使用脚本保存完整日志与截图，并避开本会话此前已记录的 MCP Runner 附加失败。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [留白问题复现](Results/20261025-card-insets-red/mcp-result.json) | 1 失败（修复前） | 32 pt 加上下留白后，内容高 25 pt，Item 仅 20／18 pt，标题底部越界；四类运行时诊断均为 0。 |
+| [选中时序首轮](Results/20261025-selection-timing-focused/summary.json) | 40 通过、4 失败 | 两项旧测试仍要求终点普通字体；显式 `.content` 端点被视觉预览影响，已修复独立测量；新容器夹具手动强设 offset 导致取消。另有 1 次 appearance 诊断，后续专项未复现，保留原始日志。 |
+| [选中时序第二轮](Results/20261025-selection-timing-focused-2/summary.json) | 43 通过、1 失败 | 端点和回退均通过，仅上述容器夹具仍失败；四类诊断均为 0。 |
+| [取消调用栈](Results/20261025-selection-timing-trace/xcodebuild.log) | 1 失败（定位用途） | 临时调用栈证明夹具强设 offset 时，UIKit 先触发旧动画结束回调并按起始位置取消点击请求；不是正常点击完成路径。临时日志代码已移除。 |
+| [真实点击最终验证](Results/20261025-selection-click-final/summary.json) | 1 通过、0 失败、0 跳过 | 改为等待真实动画完成；立即视觉反馈、最终恰好一次回调、重载取消均通过，四类诊断为 0。 |
+| [全部 Demo 单元测试](Results/20261025-card-selection-demo-unit/summary.json) | 10 通过、0 失败、0 跳过 | 包含卡片留白完整组合、Header 和指示器回归；库、Demo 应用及宿主测试源码哈希一致，后续仅调整 UI 夹具；四类诊断均为 0。 |
+| [UI 首轮](Results/20261025-card-selection-ui/summary.json) | 3 通过、1 失败 | 默认／自定义指示器真实手势及 LTR 留白切换通过；最大辅助字号 RTL 菜单项在屏幕外被系统回收，直接查询“标签栏高度”失败。补充菜单内滚动定位，保留失败截图和层级；应用源码未变化，四类诊断均为 0。 |
+| [RTL 最大字号恢复首测](Results/20261025-card-selection-rtl-final/summary.json) | 1 失败 | 固定高度与留白组合通过后，恢复完整卡片的目标定位失败。录屏显示完整卡片已恢复，当前在后续标签；总宽度增加后原 5 次拖动不足。扩大有界定位范围，菜单拖动改用视口比例，未改变应用布局或断言；四类诊断均为 0。 |
+| [最终完整库](Results/20261025-card-selection-library/summary.json) | 307 通过、0 失败、0 跳过 | 新增 3 项选中反馈回归及既有布局、分页、缓存、生命周期测试全部通过；库、Demo 应用及宿主测试源码哈希一致，后续仅调整 UI 夹具；四类诊断均为 0。 |
+| [UI 夹具稳定性复测](Results/20261025-card-selection-ui-verified/summary.json) | 2 失败 | LTR 录屏确认栏已隐藏，但直接读取不存在按钮的 `isHittable` 触发查询重试并耗尽 6 秒；改为先判断 `exists`。RTL 初始部分露出的目标点击后仍停留网格，改为按实际 frame 将目标中心移入视口再点击；保留原选择和状态断言及超时，应用代码未改动，四类诊断均为 0。 |
+| [LTR 完整复测与 RTL 定位](Results/20261025-card-selection-ui-confirmed/summary.json) | 1 通过、1 失败 | LTR 全部组合通过；RTL 目标定位的固定距离快速拖动在两侧反复越过目标。改为按实际距离计算位移，采用既有 `.slow` 与末端停留 0.2 秒，保持有界重试及原断言；四类诊断均为 0。 |
+| [RTL 最大字号最终验证](Results/20261025-card-selection-rtl-verified/summary.json) | 1 通过、0 失败、0 跳过 | 32／60 pt、三种留白、隐藏、恢复完整卡片及恢复无留白全部通过；最终 UI 源码哈希一致，四类诊断均为 0。 |
+
+实际画面已核对：[LTR 32 pt 非对称留白](Results/20261025-card-selection-ui/attachments/C7FCF01A-2FC4-4B87-B7B6-CCD4348739D9.png)、[LTR 完整卡片恢复](Results/20261025-card-selection-ui/attachments/EAB3ACB1-1BDB-4B8D-B30F-B2B0C9D62CF9.png)、[RTL 最大字号 32 pt 非对称留白](Results/20261025-card-selection-rtl-verified/attachments/DA25A103-D3CA-46A8-AC7C-615D41018846.png)、[RTL 最大字号完整卡片恢复](Results/20261025-card-selection-rtl-verified/attachments/3CD19597-23CA-4DE6-B0A4-788DFA221369.png)。紧凑标题完整可见，恢复后编号和副标题重新显示；Header 标题和说明完整位于其内容区域。
+
+最终覆盖：307 项库测试、10 项 Demo 宿主测试、4 项不同 UI 专项通过。4 项 UI 分别为首轮的默认／自定义指示器手势、后续的 LTR 完整组合及最终 RTL 最大字号组合，不将包含失败的整次运行记为全通过，也不重复计数。单元测试覆盖 LTR／RTL 与默认／最大辅助字号的完整交叉组合；UI 覆盖默认字号 LTR 和最大字号 RTL。[终态源码审计](Results/20261025-card-selection-rtl-verified/final-source-audit.json) 确认上述库、应用和宿主测试源码未再变化；后续仅修正 `TabBarPositioningUITests.swift` 的定位辅助方法，最终 RTL 用例对应完整终态源码。所有用于终态覆盖的运行四类诊断均为 0。31 个变更 Swift 文件的 SwiftFormat 0.64.0 lint 和 `git diff --check` 通过。未重跑完整 Demo UI、Release、iPad、iOS 15 或真机；未提交或推送。历史失败及其原始证据均保留。
+
+## 2026-10-24：固定栏高卡片修复与 RTL 失败复现
+
+固定栏高不足时，框架现在保留自定义内容的测量高度，在 Item 内从顶部裁切，避免强压业务 required 高度约束；点击和无障碍入口仍限于实际 Item，恢复高度后完整显示。按用户选择，Demo 进一步将放不下的完整卡片切换为单行紧凑卡片，收起编号和副标题并按可用高度适配标题；恢复内容高度策略后还原完整卡片。默认内容与自定义内容切换时同步恢复裁切状态。README 修正遗留 `.automatic` 项宽说明，分别说明最小高度、固定高度及 Demo 紧凑适配。
+
+新增真实窗口回归覆盖 32／60 pt、隐藏与恢复、上下留白、点击与选择、默认／自定义内容切换，以及容器滚动位置与 inset 恢复；Demo 同时覆盖 LTR／RTL、默认／最大辅助字号。验证过程中还发现 Header 安装或替换时短暂宽度为 0，与两端 required 留白冲突；尾端约束改为 999，正常宽度保留原排版，并在 Header 回归中显式布局零宽度状态。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug / iPhone 17 Pro / iOS 26.5 Simulator。Demo 宿主测试使用官方 Xcode MCP；RTL 隔离产物复现、重复运行和 UI 截图使用命令行。库测试沿用独立 UIKit 宿主脚本，未将库测试加入 Demo scheme。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [卡片问题复现](Results/20261024-review-card-repro/mcp-result.json) | 1 失败 | 固定高度触发卡片尺寸断言失败和约束冲突；原始 MCP 日志中的诊断有重复输出，不按重复行数推定独立问题数。 |
+| [裁切修复首测](Results/20261024-review-card-fixed/mcp-result.json) | 断言 9 通过；诊断失败 | 卡片修复通过，但发现 Header 零宽度时的约束冲突；未将此运行记为整体通过。 |
+| [原 RTL 正确断言独立构建](Results/20261024-review-rtl-clean/summary.json) | 1 通过 | 使用新的 DerivedData，`checkGallery` 与历史已改正版本逐字一致，没有断言前的诊断输出或截图。 |
+| [旧错误断言对照](Results/20261024-review-rtl-legacy-repro/summary.json) | 1 失败（预期复现） | 临时恢复与首次失败 SHA-256 相同的旧测试文件，准确复现 `312 / 342`；随后恢复正确测试源码。 |
+| [裁切与 Header 修复验证](Results/20261024-review-demo-final/summary.json) | 11 通过 | 9 项宿主、2 项 UI；四类诊断均为 0。之后按用户要求增加 Demo 紧凑卡片，不作为最终 Demo 源码证据。 |
+| [紧凑卡片首测](Results/20261024-review-compact-unit/mcp-result.json) | 9 通过、1 失败 | 新夹具把框架隐藏角标计入业务标签数量；改为检查业务 `UIContentView` 子树。 |
+| [紧凑卡片第二次测试](Results/20261024-review-compact-unit-final/mcp-result.json) | 9 通过、1 失败 | RTL／大字号切换保留物理滚动偏移，待查首项在屏幕外；按既有夹具约定显式滚动到逻辑首项再检查。 |
+| [Demo 宿主最终验证](Results/20261024-review-compact-unit-verified/final-source-audit.json) | 10 通过、0 失败、0 跳过 | 全部 Demo 宿主测试通过，四类运行时诊断均为 0，源码哈希一致。 |
+| [紧凑卡片 UI 与 RTL](Results/20261024-review-compact-ui/summary.json) | 3 通过、0 失败、0 跳过 | LTR／RTL 下真实点击、固定 32／60、隐藏与恢复，以及 RTL 四种布局模式；源码哈希一致，四类诊断均为 0。 |
+| [RTL 独立重启重复运行](Results/20261024-review-rtl-repeat/summary.json) | 1 个用例重复 2 次，均通过 | `test-without-building`、每轮重启 Runner，保留断言后的截图；没有断言前诊断。源码哈希一致，四类诊断均为 0。 |
+| [受影响库测试](Results/20261024-review-library-focused/summary.json) | 34 通过、0 失败、0 跳过 | 自定义内容、自动内容和容器栏高恢复回归；源码哈希一致，四类诊断均为 0。 |
+| [最终完整库](Results/20261024-review-library-final/summary.json) | 304 通过、0 失败、0 跳过 | 包含新增自定义内容裁切回归及扩展的容器恢复回归；源码哈希一致，四类诊断均为 0。 |
+
+RTL 的首次失败已证明是测试比较了物理左边缘：402 pt 视口、两端 16 pt 留白、5 项时，等宽项宽 74，而内容项宽 44，起始项左边缘随宽度从 342 变为 312；RTL 的起始右边缘应保持 386。历史上改成右边缘后仍出现同值失败的那一轮，本轮未复现；历史日志显示测试源码曾参与编译与链接，不能据此断言是旧二进制或缓存。独立构建、去除断言前诊断和后续重启重复运行用于排查当前是否仍可复现，历史原因保留未确认状态。
+
+实际画面已核对：[固定 32 pt 紧凑卡片](Results/20261024-review-compact-ui/attachments/08ADA539-D6B3-4AA2-A884-964EBD824376.png)、[固定 60 pt](Results/20261024-review-compact-ui/attachments/ADA70A1E-ABC8-46B9-AF91-D5385388A000.png)、[恢复完整卡片](Results/20261024-review-compact-ui/attachments/F8F8CF9A-2CD7-475D-B5D6-58EC9F0A86BA.png)。固定高度下标题完整可见，恢复后编号和副标题重新显示。
+
+最终覆盖：304 项完整库、10 项 Demo 宿主、3 项 UI 专项通过；RTL 同一用例另重启重复两次均通过，不计为新增用例。上述最终运行与当前源码一致，四类运行时诊断均为 0。30 个变更 Swift 文件的 SwiftFormat 0.64.0 lint 和 `git diff --check` 通过。未重跑完整 Demo UI 套件、Release、iPad、iOS 15 或真机；未提交或推送。下方历史记录描述各自当时的源码状态，不替代本轮验证。
+
+## 2026-10-24：标签布局 API 与默认尺寸配置重构
+
+本轮将项宽策略、整组对齐、最小／最大项宽、间距及外围留白统一为 `layoutConfiguration`；新增 `defaultContentLayout`，将图文排列从 Appearance 迁出并开放内部留白、图标区域、图文间距与最小高度。容器新增 `.content(minimum:) / .fixed / .hidden` 栏高策略，保留旧高度入口转发；越界索引现在忽略，`nil` 才清空选择。Demo、README 与库／Demo 测试同步迁移，新增真实窗口与菜单回归。
+
+环境：Xcode 26.5 / Swift 6.3.2 / Debug / iPhone 17 Pro 与 iPad Pro 13-inch (M5) / iOS 26.5 Simulator。官方 Xcode MCP 首次 Demo 构建通过；MCP 仅暴露 Demo scheme，根目录库使用脚本的独立 UIKit 宿主流程。脚本与 xcresulttool 需要访问模拟器服务及 Xcode TestReport 缓存，通过获准的沙箱外执行完成。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [首次聚焦编译](Results/20261024-tab-layout-focused/xcodebuild.log) | 编译失败，未运行测试 | 部分闭包中的旧属性调用未迁移，新测试的 `.nan` 字面量类型歧义；均已修正。 |
+| [第二次聚焦](Results/20261024-tab-layout-focused-2/xcodebuild.log) | 32 通过、1 失败 | 旧纯算法用例迁移到新配置后误带默认 44 pt 下限；显式恢复该夹具的 0 下限，保留原断言。新增 7 项回归均通过。 |
+| [布局聚焦复测](Results/20261024-tab-layout-focused-final/summary.json) | 33 通过、0 失败、0 跳过 | 布局主体实现通过；后续补充图标栅格上限、Demo 约束及诊断检查，见下方复测。 |
+| [完整库](Results/20261024-tab-layout-library/summary.json) | 301 通过、0 失败、0 跳过 | 布局主体实现通过；按新增检查重审后四类诊断均为 0。后续图标栅格上限单独复测，不将此记录标为全部终态源码一致。 |
+| [Demo 宿主首轮](Results/20261024-tab-layout-demo-unit/summary.json) | 断言 7 通过；约束诊断失败 | 官方 MCP 执行。原三类诊断为 0；额外检查发现卡片切换在旧窄 frame 下有约束冲突，原始日志保留。 |
+| [官方 MCP UI](Results/20261024-tab-layout-demo-ui/summary.json) | 环境阻塞，6 项未执行 | LLDB 无法附加 UI Runner：`Could not attach to pid`。保留原始 xcresult，回退仓库脚本。 |
+| [Demo 宿主复测](Results/20261024-tab-layout-demo-unit-final/summary.json) | 7 通过、0 失败、0 跳过 | 卡片约束修复后四类诊断均为 0；之后仅图标栅格边界及相关测试变化，不影响此卡片修复。 |
+| [iPad 图标专项首次启动](Results/20261024-tab-layout-raster-ipad/xcodebuild.log) | 中止，未执行测试 | 与 iPhone UI 并行时持续重复 Package 解析；终止本次库构建，保留日志并串行重试。 |
+| [命令行 UI 首轮](Results/20261024-tab-layout-ui-final/summary.json) | 5 通过、1 失败 | RTL 菜单用例误用物理左边缘判断逻辑起始对齐；改为核对右边缘。大字号几何断言通过，但用户截图暴露 Header 文字裁切，不能将该断言通过解释为视觉正确。 |
+| [Header 宿主回归](Results/20261024-tab-layout-header-unit/summary.json) | 8 通过、0 失败、0 跳过 | 新增 Header View／Controller、RTL、大字号及字号恢复的实际文字尺寸检查；四类诊断为 0。后续补充容器吸顶契约。 |
+| [终态边界聚焦](Results/20261024-tab-layout-boundary-final/summary.json) | 9 通过、0 失败、0 跳过 | 图标栅格边界、统一尺寸与 Header 增高后吸顶／正文／缓存页位置；四类诊断为 0。 |
+| [终态完整库](Results/20261024-tab-layout-library-final/summary.json) | 303 通过、0 失败、0 跳过 | 包含新增 Header 吸顶契约与图标栅格保护；库源码及库测试终态一致，四类诊断均为 0。之后仅调整 Demo Header 排版及其测试。 |
+| [Header 视觉复查](Results/20261024-tab-layout-ui-verified/summary.json) | 主动中止，不记为通过 | 标题已不裁切，但截图显示品牌名末尾单个 `t` 被换行。保留截图和 canceled 结果，停止旧版 UI 验证后拆分品牌名与说明。 |
+| [Header 终态回归](Results/20261024-tab-layout-header-final/summary.json) | 10 通过、1 失败 | 8 项 Demo 宿主、大字号 RTL 四个方向流程及默认尺寸切换通过；RTL 菜单仍报告此前的左边缘比较数值，后续增加逐项几何记录并复测。 |
+| [RTL 几何复测](Results/20261024-tab-layout-rtl-diagnostic/summary.json) | 1 通过、0 失败、0 跳过 | 四种布局及自定义／默认内容恢复通过；实测等宽 74 pt、首尾各 16 pt，内容居中余量正确。`sourceChangedSinceRun=[]`，四类诊断为 0。前轮失败原因未进一步确认，保留全部证据。 |
+| [iPad 系统容器](Results/20261024-tab-layout-ipad-final/summary.json) | 1 通过、0 失败、0 跳过 | 分页往返、系统标签切换、三次旋转与正文位置恢复；`sourceChangedSinceRun=[]`，四类诊断为 0。 |
+
+Demo 卡片内部水平留白现在使用 999 优先级，在内容配置先于新 Cell frame 生效时允许临时压缩；最终尺寸下恢复理想留白。诊断脚本新增约束冲突检查，并新增“断言通过不能掩盖约束冲突”的脚本回归。脚本 8 项测试通过。边界复查补充图标最大 1024 × 1024 像素的栅格化上限，保留逻辑尺寸；新增真实内容视图回归已通过。
+
+用户指出大字号截图中 Header 副标题被截断：Demo 标题缺少尾端约束，220 pt 固定高度也容不下放大文字。最终将品牌名与说明拆为独立标签：品牌名单行适配宽度，说明独立换行；Demo 的 220／300 pt 作为下限，按文字和顶部安全区域增高，恢复字号及旋转时重测。框架显式 Header 高度配置增大时同步保留已吸顶状态和正文位置，新增缓存页回归；UI 大字号用例补查两段文字四边，系统容器测试按实际 Header 高度计算正文位置。
+
+实际画面复查：[默认字号](Results/20261024-tab-layout-header-final/header-default.png) 的 Header 为 220 pt，[最大辅助字号](Results/20261024-tab-layout-header-final/header-large-text.png) 为 351 pt，两段文字完整可见，品牌名不再出现孤立尾字母。iPhone 模拟器已恢复默认字号并打开 Demo。完整库结果之后仅有 Demo 排版与测试变化；Header 终态运行之后仅为 RTL 用例增加几何记录和截图，应用源码未再变化。
+
+终态覆盖：303 项完整库、8 项 Demo 宿主、4 项 UI 专项及 8 项验证脚本测试通过；UI 通过结果分别来自 Header 终态运行、RTL 复测及 iPad 运行，不将含失败的整次运行标为整体通过。四类运行时诊断在终态覆盖中均为 0。SwiftFormat 0.64.0 的 30 个变更 Swift 文件 lint 与 `git diff --check` 通过。未执行完整 Demo UI 套件、Release、iOS 15 运行时或真机验证；未提交或推送。
 
 ## 2026-10-24：提交前复查
 

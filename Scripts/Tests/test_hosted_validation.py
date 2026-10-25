@@ -105,6 +105,12 @@ class HostedValidationTests(unittest.TestCase):
     def test_clean_log_has_no_observation_diagnostic(self):
         self.assertEqual(diagnostics('** TEST SUCCEEDED **')['observationFeedbackLoopCount'], 0)
 
+    def test_constraint_conflicts_are_not_hidden_by_passing_assertions(self):
+        result = diagnostics('Unable to simultaneously satisfy constraints.\n** TEST SUCCEEDED **')
+        self.assertEqual(result['unsatisfiableConstraintsCount'], 1)
+        self.assertEqual(result['constraintLineNumbers'], [1])
+        self.assertEqual(result['status'], 'failed')
+
 
 if __name__ == '__main__':
     unittest.main()

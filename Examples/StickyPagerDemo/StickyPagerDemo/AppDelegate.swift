@@ -98,10 +98,13 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         "compositional": "组合布局"
     ]
     private let status = RegressionStatusLabel()
+    private var displayedHeaderProgress = "0.00"
     private let indicatorProvider = DemoIndicatorProvider()
     private let customTabProvider = DemoTabContentProvider()
     private var controllerHeader = false
+    private var minimumDemoHeaderHeight: CGFloat = 220
     private var generation = 0
+    private var seededSplitPosition = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -127,9 +130,15 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         }
         if ProcessInfo.processInfo.arguments.contains("--accessories") {
             DemoTabBarAccessories.install(on: tabBar, owner: self, leading: true, trailing: true)
-            tabBar.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+            tabBar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(
+                top: 6,
+                leading: 16,
+                bottom: 6,
+                trailing: 16
+            )
         }
         tabBar.contentDelegate = customTabProvider
+        indicatorProvider.contentProvider = customTabProvider
         if ProcessInfo.processInfo.arguments.contains("--custom-tabs") {
             tabBar.contentStyle = .custom
         }
@@ -142,13 +151,14 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
             guard let self else {
                 return
             }
-            self.layout.headerHeight = self.layout.headerHeight == 220 ? 300 : 220
-            self.updateStatus()
+            self.minimumDemoHeaderHeight = self.minimumDemoHeaderHeight == 220 ? 300 : 220
+            self.updateHeaderHeight()
         }
         let height = UIBarButtonItem(title: "高度", primaryAction: heightAction)
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
             DemoTabBarPositioning.menu(for: tabBar),
+            DemoTabBarPositioning.contentMenu(for: tabBar),
             DemoTabBarAccessories.menu(for: tabBar, owner: self),
             indicatorProvider.menu(for: tabBar),
             headerAction,
@@ -168,7 +178,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
             },
             UIMenu(title: "标签间距", children: [0, 8, 16, 24].map { spacing in
                 UIAction(title: "项间距 \(spacing)") { [weak self] _ in
-                    self?.tabBar.itemSpacing = CGFloat(spacing)
+                    self?.tabBar.layoutConfiguration.itemSpacing = CGFloat(spacing)
                 }
             }),
             UIMenu(title: "标签宽度", children: [
@@ -194,12 +204,16 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                 }
             ] + [24, 44, 120].map { width in
                 UIAction(title: "最小项宽 \(width)") { [weak self] _ in
-                    self?.tabBar.minimumItemWidth = CGFloat(width)
+                    self?.tabBar.layoutConfiguration.minimumItemWidth = CGFloat(width)
                 }
             }),
-            UIMenu(title: "标签栏最小高度", children: [32, 60, 0, 44].map { height in
+            UIMenu(title: "标签栏高度", children: [32, 60, 0, 44].map { height in
                 UIAction(title: height == 0 ? "隐藏标签栏" : "最小栏高 \(height)") { [weak self] _ in
-                    self?.layout.tabBarHeight = CGFloat(height)
+                    self?.layout.tabBarSizing = height == 0 ? .hidden : .content(minimum: CGFloat(height))
+                }
+            } + [32, 60].map { height in
+                UIAction(title: "固定栏高 \(height)") { [weak self] _ in
+                    self?.layout.tabBarSizing = .fixed(CGFloat(height))
                 }
             }),
             UIAction(title: "切换多行副标题") { [weak self] _ in
@@ -258,10 +272,10 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                 guard let self else {
                     return
                 }
-                self.tabBar.indicatorStyle = self.tabBar.indicatorStyle == .capsule ? .underline : .capsule
-                let appearance = self.tabBar.standardAppearance
-                appearance.indicatorLayout = nil
-                appearance.indicatorColor = nil
+                self.indicatorProvider.selectStyle(
+                    self.tabBar.indicatorStyle == .capsule ? .underline : .capsule,
+                    on: self.tabBar
+                )
             },
             UIAction(title: "重排页面") { [weak self] _ in
                 guard let self else {
@@ -308,9 +322,61 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         navigationController?.setToolbarHidden(usesSystemContainer, animated: animated)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !seededSplitPosition,
+              ProcessInfo.processInfo.arguments.contains("--split-self-sizing-regression") else {
+            return
+        }
+        seededSplitPosition = true
+        // 为系统窗口回归提供确定的估算行高边界；不参与普通 Demo 的滚动行为。
+        setSelectedIndex(1, animated: false)
+        view.layoutIfNeeded()
+        guard let scroll = children.compactMap({ $0 as? DemoList }).first(where: { $0.count == 80 })?.tableView else {
+            return
+        }
+        scroll.layoutIfNeeded()
+        let range = max(0, layout.headerHeight - view.safeAreaInsets.top - layout.minimumHeaderHeight)
+        let position: CGFloat = ProcessInfo.processInfo.arguments.contains("--exact-split-position-regression") ? 582
+            : ProcessInfo.processInfo.arguments.contains("--row-boundary-regression") ? 513.5 : 546
+        scroll.contentOffset.y = position + range - scroll.adjustedContentInset.top
+    }
+
     override func viewDidLayoutSubviews() {
+        updateTabContentHeight()
+        indicatorProvider.updateContentStyle(on: tabBar)
+        updateHeaderHeight()
         super.viewDidLayoutSubviews()
         updateHeaderContentClip()
+    }
+
+    private func updateTabContentHeight() {
+        let height: CGFloat? = if case let .fixed(value) = layout.tabBarSizing, value.isFinite {
+            max(0, value)
+        } else {
+            nil
+        }
+        guard customTabProvider.fixedHeight != height else {
+            return
+        }
+        customTabProvider.fixedHeight = height
+        tabBar.reloadContent()
+    }
+
+    private func updateHeaderHeight() {
+        guard let header = (headerView ?? headerViewController?.view) as? DemoHeaderView else {
+            return
+        }
+        // Demo 的高度选项作为下限；测量使用容器安全区域，避免折叠位置反过来影响内容高度。
+        let height = max(minimumDemoHeaderHeight, header.preferredHeight(
+            for: view.bounds.width,
+            safeAreaInsets: view.safeAreaInsets
+        ))
+        guard abs(layout.headerHeight - height) > 0.5 else {
+            return
+        }
+        layout.headerHeight = height
+        updateStatus()
     }
 
     private func updateHeaderContentClip() {
@@ -342,12 +408,17 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
 
     private func updateStatus(progress: CGFloat? = nil) {
         let page = selectedIndex.map { pageIDs[$0] } ?? "none"
-        let oldProgress = status.accessibilityValue?.components(separatedBy: "progress=").last ?? "0.00"
-        status.text = "\(names[page] ?? page) · \(controllerHeader ? "Controller" : "View") · H\(Int(layout.headerHeight))"
-        if usesSystemContainer {
-            status.text = "系统容器演示\n\(names[page] ?? page) · H\(Int(layout.headerHeight))"
+        // 状态显示不反向读取 AX 诊断；回归模式的 getter 会序列化完整手势记录。
+        if let progress {
+            displayedHeaderProgress = String(format: "%.2f", Double(progress))
         }
-        status.accessibilityValue = "direction=\(view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? "rtl" : "ltr");page=\(page);header=\(controllerHeader ? "controller" : "view");height=\(Int(layout.headerHeight));progress=\(progress.map { String(format: "%.2f", Double($0)) } ?? oldProgress)"
+        var text = "\(names[page] ?? page) · \(controllerHeader ? "Controller" : "View") · H\(Int(layout.headerHeight))"
+        if usesSystemContainer {
+            text = "系统容器演示\n\(names[page] ?? page) · H\(Int(layout.headerHeight))"
+        }
+        status.accessibilityValue = "direction=\(view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? "rtl" : "ltr");page=\(page);header=\(controllerHeader ? "controller" : "view");height=\(Int(layout.headerHeight));progress=\(displayedHeaderProgress)"
+        status.text = text
+        // 保留字号与系统容器变化时的原有测量刷新。
         status.sizeToFit()
     }
 
@@ -399,6 +470,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
     }
 
     func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) {
+        (view.window as? PagingTraceWindow)?.recordSelection(index)
         updateStatus()
     }
 
@@ -427,25 +499,56 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
 @MainActor
 final class DemoHeaderView: UIView {
     private let contentClip = UIView()
+    private let title = UILabel()
+    private let subtitle = UILabel()
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .systemIndigo
         accessibilityIdentifier = "demo.headerView"
-        let title = UILabel()
-        title.text = "StickyPagerKit\n纵向联动 · 横向分页"
-        title.numberOfLines = 0
+        title.text = "StickyPagerKit"
+        title.numberOfLines = 1
+        title.adjustsFontSizeToFitWidth = true
+        title.minimumScaleFactor = 0.5
         title.font = .preferredFont(forTextStyle: .title1)
         title.adjustsFontForContentSizeCategory = true
         title.textColor = .white
         title.accessibilityIdentifier = "demo.headerTitle"
-        title.translatesAutoresizingMaskIntoConstraints = false
+        subtitle.text = "纵向联动 · 横向分页"
+        subtitle.numberOfLines = 0
+        subtitle.font = .preferredFont(forTextStyle: .body)
+        subtitle.adjustsFontForContentSizeCategory = true
+        subtitle.textColor = .white
+        subtitle.accessibilityIdentifier = "demo.headerSubtitle"
+        let stack = UIStackView(arrangedSubviews: [title, subtitle])
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
         contentClip.clipsToBounds = true
         addSubview(contentClip)
-        contentClip.addSubview(title)
+        contentClip.addSubview(stack)
+        let trailing = stack.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -24)
+        // 挂载和替换 Header 时可能先以零宽度布局；尾端留白允许临时压缩，避免负内容宽度。
+        trailing.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
-            title.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            title.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor)
+            stack.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            trailing,
+            stack.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor)
         ])
+    }
+
+    func preferredHeight(for width: CGFloat, safeAreaInsets: UIEdgeInsets) -> CGFloat {
+        let font = UIFont.preferredFont(forTextStyle: .title1, compatibleWith: traitCollection)
+        if title.font != font {
+            title.font = font
+        }
+        let subtitleFont = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        if subtitle.font != subtitleFont {
+            subtitle.font = subtitleFont
+        }
+        let contentWidth = max(1, width - safeAreaInsets.left - safeAreaInsets.right - 48)
+        let proposal = CGSize(width: contentWidth, height: .greatestFiniteMagnitude)
+        let contentHeight = title.sizeThatFits(proposal).height + subtitle.sizeThatFits(proposal).height + 8
+        return safeAreaInsets.top + ceil(contentHeight) + 32
     }
 
     func clipContent(below top: CGFloat) {
@@ -470,24 +573,37 @@ final class DemoHeaderController: UIViewController {
 /// UI 回归直接读取窗口场景方向，避免将设备旋转请求误认为界面已旋转。
 @MainActor
 final class RegressionStatusLabel: UILabel {
+    private var regressionState: String {
+        let orientation: UIInterfaceOrientation
+        let orientationLock: String
+        if #available(iOS 26.0, *) {
+            let geometry = window?.windowScene?.effectiveGeometry
+            orientation = geometry?.interfaceOrientation ?? .unknown
+            orientationLock = geometry.map { $0.isInterfaceOrientationLocked ? "1" : "0" } ?? "unknown"
+        } else {
+            orientation = window?.windowScene?.interfaceOrientation ?? .unknown
+            orientationLock = "unavailable"
+        }
+        let safe = window?.safeAreaInsets ?? .zero
+        return "interfaceOrientation=\(orientation.rawValue);interfaceOrientationLocked=\(orientationLock);safeLeft=\(safe.left);safeRight=\(safe.right);\(super.accessibilityValue ?? "")"
+    }
+
+    // 状态等待以短 label 为条件；完整触摸诊断仍通过 value 显式读取。
+    override var accessibilityLabel: String? {
+        get {
+            ProcessInfo.processInfo.arguments.contains("--window-regression") ? regressionState : super
+                .accessibilityLabel
+        }
+        set { super.accessibilityLabel = newValue }
+    }
+
     override var accessibilityValue: String? {
         get {
             guard ProcessInfo.processInfo.arguments.contains("--window-regression") else {
                 return super.accessibilityValue
             }
-            let orientation: UIInterfaceOrientation
-            let orientationLock: String
-            if #available(iOS 26.0, *) {
-                let geometry = window?.windowScene?.effectiveGeometry
-                orientation = geometry?.interfaceOrientation ?? .unknown
-                orientationLock = geometry.map { $0.isInterfaceOrientationLocked ? "1" : "0" } ?? "unknown"
-            } else {
-                orientation = window?.windowScene?.interfaceOrientation ?? .unknown
-                orientationLock = "unavailable"
-            }
             let trace = (window as? PagingTraceWindow).map { "gesture=\($0.pagingTrace);" } ?? ""
-            let safe = window?.safeAreaInsets ?? .zero
-            return "\(trace)interfaceOrientation=\(orientation.rawValue);interfaceOrientationLocked=\(orientationLock);safeLeft=\(safe.left);safeRight=\(safe.right);\(super.accessibilityValue ?? "")"
+            return "\(trace)\(regressionState)"
         }
         set { super.accessibilityValue = newValue }
     }
@@ -638,6 +754,18 @@ final class DemoList: UITableViewController {
         if ProcessInfo.processInfo.arguments.contains("--disabled-list-regression") {
             tableView.isScrollEnabled = false
         }
+    }
+
+    override func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        (view.window as? PagingTraceWindow)?.recordVerticalRelease(
+            scrollView,
+            velocity: velocity,
+            target: targetContentOffset.pointee
+        )
     }
 
     @objc private func refreshContent() {

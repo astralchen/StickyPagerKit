@@ -22,6 +22,28 @@ final class StickyPagerDemoUITests: XCTestCase {
             .contains("testPagesMenu") || name.contains("testAutomaticCustomTabHeight") {
             app.launchArguments.append("--paging-trace")
         }
+        if name.contains("CoalescedPaging") {
+            app.launchArguments += ["--split-self-sizing-regression", "--coalesced-pan-regression"]
+        }
+        if name.contains("MomentumPaging") || name.contains("CancelledNativePaging") || name
+            .contains("ReversingNativePaging") {
+            app.launchArguments += ["--split-self-sizing-regression", "--coalesced-pan-regression"]
+        }
+        if name.contains("MomentumPaging") {
+            app.launchArguments.append("--momentum-pan-regression")
+        }
+        if name.contains("CancelledNativePaging") {
+            app.launchArguments.append("--cancel-pan-regression")
+        }
+        if name.contains("RowBoundary") {
+            app.launchArguments += ["--split-self-sizing-regression", "--row-boundary-regression"]
+        }
+        if name.contains("ExactRegressionPosition") {
+            app.launchArguments += ["--split-self-sizing-regression", "--exact-split-position-regression"]
+        }
+        if name.contains("SelfSizingPosition") {
+            app.launchArguments.append("--split-self-sizing-regression")
+        }
         if name.contains("testSiblingLabel") {
             app.launchArguments.append("--mixed-page")
         }
@@ -183,25 +205,23 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     private func expect(_ fragment: String) {
-        // 每次轮询重新解析元素，避免 KVC 谓词复用切页或旋转前的辅助快照。
-        var latestValue = "<尚未找到状态>"
-        let predicate = NSPredicate { [weak self] _, _ in
-            guard let self else {
-                return false
-            }
-            let current = self.app.staticTexts["demo.status"]
-            guard current.exists else {
-                return false
-            }
-            latestValue = current.value as? String ?? "<无状态值>"
-            return latestValue.contains(fragment)
+        // 将条件交给元素查询，避免在 XCTWaiter 的谓词回调中同步请求整棵 AX 快照。
+        let matchingState = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ AND label CONTAINS %@",
+            "demo.status",
+            fragment
+        )).firstMatch
+        XCTAssertTrue(matchingState.waitForExistence(timeout: 5), "等待状态 \(fragment)")
+    }
+
+    /// 排除窗口外及工具栏遮挡的区域，保证最大字号横屏时仍发送真实标签触摸。
+    private func tabTouchViewport(_ tabs: XCUIElement) -> CGRect {
+        var viewport = tabs.frame.intersection(app.windows.firstMatch.frame)
+        let toolbar = app.toolbars.firstMatch
+        if toolbar.exists, toolbar.frame.intersects(viewport) {
+            viewport.size.height = max(0, toolbar.frame.minY - viewport.minY)
         }
-        let expected = XCTNSPredicateExpectation(predicate: predicate, object: nil)
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [expected], timeout: 5),
-            .completed,
-            "等待状态 \(fragment)，实际：\(latestValue)"
-        )
+        return viewport
     }
 
     private func select(_ index: Int, file: StaticString = #filePath, line: UInt = #line) {
@@ -209,13 +229,14 @@ final class StickyPagerDemoUITests: XCTestCase {
         let target = app.buttons["sp.tab.\(index)"]
         // 标签可能尚未创建 Cell；先滚动至可见，避免依赖 XCTest 对屏幕外元素的隐式滚动。
         for _ in 0 ..< 20 {
-            let viewport = tabs.frame
+            let tabFrame = tabs.frame
+            let viewport = tabTouchViewport(tabs)
             if target.exists {
                 let visibleFrame = target.frame.intersection(viewport)
                 if !visibleFrame.isNull, visibleFrame.width >= min(44, target.frame.width), visibleFrame.height >= 20 {
                     // 点击真实露出的按钮区域；避免 XCTest 在裁切标签上查询无效激活点。
                     tabs.coordinate(withNormalizedOffset: .zero).withOffset(
-                        CGVector(dx: visibleFrame.midX - viewport.minX, dy: visibleFrame.midY - viewport.minY)
+                        CGVector(dx: visibleFrame.midX - tabFrame.minX, dy: visibleFrame.midY - tabFrame.minY)
                     ).tap()
                     return
                 }
@@ -234,8 +255,15 @@ final class StickyPagerDemoUITests: XCTestCase {
             // 短标签容易被快速 swipe 的惯性整段越过；使用小幅拖动逐步查找。
             // 目标已露出一部分时按物理位置补足；它等于首个可见索引，不能按 index < first 判断方向。
             let movesRight = target.exists ? target.frame.midX < viewport.midX : towardStart != rtl
-            let start = tabs.coordinate(withNormalizedOffset: CGVector(dx: movesRight ? 0.3 : 0.7, dy: 0.5))
-            let end = tabs.coordinate(withNormalizedOffset: CGVector(dx: movesRight ? 0.7 : 0.3, dy: 0.5))
+            let origin = tabs.coordinate(withNormalizedOffset: .zero)
+            let start = origin.withOffset(CGVector(
+                dx: viewport.minX - tabFrame.minX + viewport.width * (movesRight ? 0.3 : 0.7),
+                dy: viewport.midY - tabFrame.minY
+            ))
+            let end = origin.withOffset(CGVector(
+                dx: viewport.minX - tabFrame.minX + viewport.width * (movesRight ? 0.7 : 0.3),
+                dy: viewport.midY - tabFrame.minY
+            ))
             start.press(forDuration: 0.1, thenDragTo: end)
         }
         XCTFail("未找到可点击的标签 \(index)", file: file, line: line)
@@ -249,7 +277,14 @@ final class StickyPagerDemoUITests: XCTestCase {
         let rightEdge = app.buttons["sp.tab.\(rtl ? 0 : 12)"]
         let aligned = NSPredicate { _, _ in
             let viewport = tabs.frame, frame = selected.frame
-            guard selected.isSelected, frame.minX >= viewport.minX - 1,
+            guard selected.isSelected else {
+                return false
+            }
+            // 大字号自定义卡片允许宽于视口，此时契约是居中显示，不能要求整项同时落入视口。
+            if frame.width > viewport.width {
+                return abs(frame.midX - viewport.midX) < 1 && frame.minX <= viewport.minX && frame.maxX >= viewport.maxX
+            }
+            guard frame.minX >= viewport.minX - 1,
                   frame.maxX <= viewport.maxX + 1 else {
                 return false
             }
@@ -276,20 +311,12 @@ final class StickyPagerDemoUITests: XCTestCase {
         // 设备方向请求可能被模拟器忽略；必须看到系统界面方向改变，不能在原方向下误报通过。
         let expected: UIInterfaceOrientation = orientation == .landscapeLeft ? .landscapeRight
             : orientation == .landscapeRight ? .landscapeLeft : .portrait
-        var actual = "<未取得状态>"
-        let predicate = NSPredicate { [self] _, _ in
-            let current = status.exists ? status : app.staticTexts["demo.gallery.status"]
-            guard current.exists else {
-                return false
-            }
-            actual = current.value as? String ?? "<无状态值>"
-            return actual.contains("interfaceOrientation=\(expected.rawValue);")
-        }
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 6),
-            .completed,
-            "请求界面方向 \(expected.rawValue)，实际：\(actual)，window=\(app.windows.firstMatch.frame)"
-        )
+        let matchingState = app.staticTexts.matching(NSPredicate(
+            format: "identifier IN %@ AND label CONTAINS %@",
+            ["demo.status", "demo.gallery.status"],
+            "interfaceOrientation=\(expected.rawValue);"
+        )).firstMatch
+        XCTAssertTrue(matchingState.waitForExistence(timeout: 6), "请求界面方向 \(expected.rawValue)")
         print("INTERFACE ORIENTATION: \(expected.rawValue), window=\(app.windows.firstMatch.frame)")
     }
 
@@ -430,16 +457,39 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     private func contentPosition() -> CGFloat {
-        let table = app.tables["demo.list"]
-        guard let value = table.value as? String, let data = value.data(using: .utf8),
+        // 一次远程快照取得三个坐标，避免窗口转场中混用不同帧的 table／导航栏／window。
+        guard let root = try? app.snapshot() else {
+            XCTFail("未取得应用几何快照")
+            return .nan
+        }
+        func first(
+            in node: any XCUIElementSnapshot,
+            matching predicate: (any XCUIElementSnapshot) -> Bool
+        ) -> (any XCUIElementSnapshot)? {
+            if predicate(node) {
+                return node
+            }
+            for child in node.children {
+                if let match = first(in: child, matching: predicate) {
+                    return match
+                }
+            }
+            return nil
+        }
+        guard let table = first(in: root, matching: { $0.identifier == "demo.list" && $0.elementType == .table }),
+              let navigation = first(in: root, matching: { $0.elementType == .navigationBar }),
+              let window = first(in: root, matching: { $0.elementType == .window }),
+              let value = table.value as? String, let data = value.data(using: .utf8),
               let geometry = try? JSONSerialization.jsonObject(with: data) as? [String: Double],
               let position = geometry["position"] else {
             XCTFail("未取得 UITableView 的真实滚动坐标")
             return .nan
         }
-        // Demo 的 Header 高度为 220，吸顶基线为当前窗口中的导航栏底边。
-        let safeTop = app.navigationBars.firstMatch.frame.maxY - app.windows.firstMatch.frame.minY
-        return max(0, CGFloat(position) - max(0, 220 - safeTop))
+        // Demo 的 Header 高度为 220，吸顶基线仍由实际导航栏底边计算，容差不变。
+        let safeTop = navigation.frame.maxY - window.frame.minY
+        let body = max(0, CGFloat(position) - max(0, 220 - safeTop))
+        print("BODY SNAPSHOT raw=\(position) safeTop=\(safeTop) body=\(body) window=\(window.frame) table=\(value)")
+        return body
     }
 
     private func assertPageFrame(_ page: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
@@ -720,6 +770,366 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     func testSystemSplitPagingGestureBoundaries() throws {
         try verifyPagingGestureBoundaries(rtl: false)
+    }
+
+    func testSystemSplitCoalescedPagingPreservesTravel() throws {
+        try verifyCoalescedPaging(rtl: false)
+    }
+
+    func testSystemSplitWindowsRTLCoalescedPagingPreservesTravel() throws {
+        try verifyCoalescedPaging(rtl: true)
+    }
+
+    private func verifyCoalescedPaging(rtl: Bool) throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "使用真实 iPad 窗口尺寸")
+        expect(rtl ? "direction=rtl" : "direction=ltr")
+        expect("page=list"); expect("progress=1.00")
+        resizeSystemWindow(dx: -500, dy: -600)
+        XCTAssertLessThan(app.windows.firstMatch.frame.width, 650)
+        let position = contentPosition()
+        try swipePage(towardNext: true, rtl: rtl, expectedPage: "short")
+        try assertRecognizedPagingTravel()
+        try swipePage(towardNext: false, rtl: rtl, expectedPage: "list")
+        try assertRecognizedPagingTravel()
+        XCTAssertEqual(contentPosition(), position, accuracy: 1)
+        let before = try pagingTrace()
+        let table = app.tables["demo.list"]
+        let start = table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.1,
+            thenDragTo: start.withOffset(CGVector(dx: rtl ? 180 : -180, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.2
+        )
+        expect("page=list")
+        let cancelled = try pagingTrace()
+        try assertRecognizedPagingTravel()
+        XCTAssertEqual(
+            try XCTUnwrap(cancelled["offset"] as? Double),
+            try XCTUnwrap(before["offset"] as? Double),
+            accuracy: 1
+        )
+        XCTAssertEqual(contentPosition(), position, accuracy: 1)
+    }
+
+    private func assertRecognizedPagingTravel(file: StaticString = #filePath, line: UInt = #line) throws {
+        let trace = try pagingTrace()
+        let first = try XCTUnwrap(trace["firstPan"] as? [String: Double])
+        let samples = try XCTUnwrap(trace["samples"] as? [[String: Double]])
+        let last = try XCTUnwrap(samples.last)
+        let recognizedTravel = abs(try XCTUnwrap(last["x"]) - XCTUnwrap(first["x"]))
+        let actualTravel = try XCTUnwrap(trace["maxOffset"] as? Double) - XCTUnwrap(trace["minOffset"] as? Double)
+        XCTAssertEqual(actualTravel, recognizedTravel, accuracy: 1, "已获接受的触摸位移不能在开始拖动时丢失", file: file, line: line)
+        let beganSamples = try XCTUnwrap(trace["beganSamples"] as? [[String: Double]])
+        XCTAssertFalse(beganSamples.isEmpty, file: file, line: line)
+        for sample in beganSamples {
+            let movement = try XCTUnwrap(sample["x"]) - XCTUnwrap(sample["previousX"])
+            if abs(movement) > 0.5 {
+                let velocity = try XCTUnwrap(sample["velocity"])
+                XCTAssertGreaterThan(abs(velocity), 1, "移动中的起拖速度不能被补偿操作清零", file: file, line: line)
+                XCTAssertGreaterThan(velocity * movement, 0, "起拖速度应保持物理移动方向", file: file, line: line)
+            }
+        }
+    }
+
+    func testSystemSplitMomentumPaging() throws {
+        try verifyMomentumPaging(rtl: false)
+    }
+
+    func testSystemSplitWindowsRTLMomentumPaging() throws {
+        try verifyMomentumPaging(rtl: true)
+    }
+
+    private func verifyMomentumPaging(rtl: Bool) throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "使用真实 iPad 窗口尺寸")
+        expect("page=list"); expect("progress=1.00")
+        resizeSystemWindow(dx: -500, dy: -600)
+        let saved = contentPosition()
+        for next in [true, false] {
+            let before = try pagingTrace()
+            let frame = app.windows.firstMatch.frame
+            let page = app.tables["demo.list"].frame.intersection(frame)
+            let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+            let start = origin.withOffset(CGVector(dx: frame.width * 0.5, dy: page.midY - frame.minY))
+            let direction: CGFloat = (next != rtl) ? -1 : 1
+            start.press(
+                forDuration: 0.1,
+                thenDragTo: start.withOffset(CGVector(dx: direction * frame.width * 0.35, dy: 0)),
+                withVelocity: .fast,
+                thenHoldForDuration: 0
+            )
+            expect(next ? "page=short" : "page=list")
+            let after = try pagingTrace()
+            let release = try XCTUnwrap(after["release"] as? [String: Double])
+            let velocity = try XCTUnwrap(release["velocity"])
+            XCTAssertGreaterThan(abs(velocity), 0.1, "松手必须保留非零速度")
+            XCTAssertGreaterThan(velocity * -Double(direction), 0)
+            let width = try XCTUnwrap(after["width"] as? Double)
+            let initialOffset = try XCTUnwrap(before["offset"] as? Double)
+            let releaseOffset = try XCTUnwrap(release["offset"])
+            // ended 事件返回时可能已进入减速；手指行程必须在松手回调的同一时点测量。
+            let travel = abs(releaseOffset - initialOffset)
+            XCTAssertLessThan(travel, width * 0.5, "不足半页的输入应通过速度决定吸附")
+            XCTAssertEqual(
+                try XCTUnwrap(after["offset"] as? Double),
+                try XCTUnwrap(before["offset"] as? Double) - Double(direction) * width,
+                accuracy: 1
+            )
+            XCTAssertEqual(after["selectionEvents"] as? [Int], [next ? 2 : 1])
+            let first = try XCTUnwrap(after["firstPan"] as? [String: Double])
+            let last = try XCTUnwrap((after["samples"] as? [[String: Double]])?.last)
+            XCTAssertEqual(last["phase"], Double(UITouch.Phase.ended.rawValue))
+            let acceptedDelta = try XCTUnwrap(last["x"]) - XCTUnwrap(first["x"])
+            XCTAssertEqual(
+                releaseOffset,
+                initialOffset - acceptedDelta,
+                accuracy: 1,
+                "松手时位移必须等于已获接受的触摸位移，不能包含后续减速"
+            )
+        }
+        XCTAssertEqual(contentPosition(), saved, accuracy: 1)
+    }
+
+    func testSystemSplitReversingNativePaging() async throws {
+        try await verifyReversingNativePaging(rtl: false)
+    }
+
+    func testSystemSplitWindowsRTLReversingNativePaging() async throws {
+        try await verifyReversingNativePaging(rtl: true)
+    }
+
+    private func verifyReversingNativePaging(rtl: Bool) async throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "使用真实 iPad 窗口尺寸")
+        guard let endpoint = ProcessInfo.processInfo.environment["SP_SIM_HID_WS"],
+              let url = URL(string: endpoint) else {
+            throw XCTSkip("连续触摸需要 serve-sim 桥接；运行 Scripts/validate_native_gestures.py")
+        }
+        let screen = app.windows.firstMatch.frame
+        expect("page=list"); expect("progress=1.00")
+        resizeSystemWindow(dx: -500, dy: -600)
+        let saved = contentPosition()
+        // 先验证桥接冷启动的静止触摸已完整送达，避免把初始化积压当成手势速度。
+        let initial = try pagingTrace()
+        let frame = app.windows.firstMatch.frame
+        let page = app.tables["demo.list"].frame.intersection(frame)
+        let warmPoint = CGPoint(x: frame.midX / screen.width, y: page.midY / screen.height)
+        try await NativeTouchPath.drag(url: url, points: [warmPoint])
+        let warmed = try pagingTrace()
+        XCTAssertEqual(warmed["sequence"] as? Int, (try XCTUnwrap(initial["sequence"] as? Int)) + 1)
+        XCTAssertEqual((warmed["samples"] as? [[String: Double]])?.last?["phase"], Double(UITouch.Phase.ended.rawValue))
+        XCTAssertEqual(warmed["selectionEvents"] as? [Int], [])
+        XCTAssertEqual(contentPosition(), saved, accuracy: 1)
+        for next in [true, false] {
+            let before = try pagingTrace()
+            let frame = app.windows.firstMatch.frame
+            let page = app.tables["demo.list"].frame.intersection(frame)
+            let left = next != rtl
+            func point(_ fraction: CGFloat) -> CGPoint {
+                CGPoint(
+                    x: (frame.minX + frame.width * (left ? fraction : 1 - fraction)) / screen.width,
+                    y: page.midY / screen.height
+                )
+            }
+            // 同一根手指先越过半页，再折返到不足半页；不重设 pan.translation 或滚动位置。
+            try await NativeTouchPath.drag(url: url, points: [point(0.85), point(0.15), point(0.70)])
+            expect("page=list")
+            let after = try pagingTrace()
+            XCTAssertEqual(after["sequence"] as? Int, (try XCTUnwrap(before["sequence"] as? Int)) + 1)
+            XCTAssertEqual(after["touchReversals"] as? Int, 1)
+            XCTAssertEqual(after["selectionEvents"] as? [Int], [])
+            XCTAssertEqual(after["cancelledOffsets"] as? [Double], [])
+            let width = try XCTUnwrap(after["width"] as? Double)
+            XCTAssertGreaterThan(
+                try XCTUnwrap(after["maxOffset"] as? Double) - XCTUnwrap(after["minOffset"] as? Double),
+                width * 0.5
+            )
+            let first = try XCTUnwrap(after["firstPan"] as? [String: Double])
+            let last = try XCTUnwrap((after["samples"] as? [[String: Double]])?.last)
+            let release = try XCTUnwrap(after["release"] as? [String: Double])
+            let acceptedDelta = try XCTUnwrap(last["x"]) - XCTUnwrap(first["x"])
+            XCTAssertEqual(
+                try XCTUnwrap(release["offset"]),
+                try XCTUnwrap(before["offset"] as? Double) - acceptedDelta,
+                accuracy: 1
+            )
+            XCTAssertLessThan(abs(acceptedDelta), width * 0.5)
+            XCTAssertEqual(
+                try XCTUnwrap(after["offset"] as? Double),
+                try XCTUnwrap(before["offset"] as? Double),
+                accuracy: 1
+            )
+            XCTAssertEqual(contentPosition(), saved, accuracy: 1)
+        }
+    }
+
+    func testSystemSplitCancelledNativePaging() throws {
+        try verifyCancelledNativePaging(rtl: false)
+    }
+
+    func testSystemSplitWindowsRTLCancelledNativePaging() throws {
+        try verifyCancelledNativePaging(rtl: true)
+    }
+
+    private func verifyCancelledNativePaging(rtl: Bool) throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "使用真实 iPad 窗口尺寸")
+        expect("page=list"); expect("progress=1.00")
+        resizeSystemWindow(dx: -500, dy: -600)
+        let saved = contentPosition()
+        let before = try pagingTrace()
+        let frame = app.windows.firstMatch.frame
+        let page = app.tables["demo.list"].frame.intersection(frame)
+        let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: frame.width * (rtl ? 0.15 : 0.85), dy: page.midY - frame.minY))
+        start.press(
+            forDuration: 0.1,
+            thenDragTo: start.withOffset(CGVector(dx: frame.width * (rtl ? 0.7 : -0.7), dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.2
+        )
+        expect("page=list")
+        let after = try pagingTrace()
+        XCTAssertEqual(try XCTUnwrap(after["cancelledOffsets"] as? [Double]).count, 1, "必须收到真实 recognizer .cancelled")
+        XCTAssertGreaterThan(
+            try XCTUnwrap(after["maxOffset"] as? Double) - XCTUnwrap(after["minOffset"] as? Double),
+            frame.width * 0.5
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(after["offset"] as? Double),
+            try XCTUnwrap(before["offset"] as? Double),
+            accuracy: 1
+        )
+        XCTAssertEqual(after["selectionEvents"] as? [Int], [])
+        XCTAssertEqual(contentPosition(), saved, accuracy: 1)
+    }
+
+    func testSystemSplitHeaderPartialAfterPageRoundTrip() throws {
+        try verifySplitHeaderAfterPageRoundTrip()
+    }
+
+    func testSystemSplitWindowsRTLHeaderPartialAfterPageRoundTrip() throws {
+        try verifySplitHeaderAfterPageRoundTrip()
+    }
+
+    private func verifySplitHeaderAfterPageRoundTrip() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统分屏仅适用于 iPad")
+        select(1)
+        app.tables["demo.list"].swipeUp()
+        expect("progress=1.00")
+        XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
+        arrangeSideBySide()
+        verifyRootFollowsHeaderInCurrentWindow()
+    }
+
+    func testSystemSplitRowBoundaryPosition() throws {
+        try verifySystemSplitRowBoundaryPosition()
+    }
+
+    func testSystemSplitWindowsRTLRowBoundaryPosition() throws {
+        try verifySystemSplitRowBoundaryPosition()
+    }
+
+    private func verifySystemSplitRowBoundaryPosition() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统分屏仅适用于 iPad")
+        expect("page=list"); expect("progress=1.00")
+        XCTAssertEqual(contentPosition(), 513.5, accuracy: 1)
+        print("BOUNDARY BEFORE \(app.tables["demo.list"].value ?? "")")
+        resizeSystemWindow(dx: -250, dy: -350)
+        print("BOUNDARY FLOAT \(app.tables["demo.list"].value ?? "")")
+        XCTAssertEqual(contentPosition(), 513.5, accuracy: 1)
+        XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
+        arrangeSideBySide()
+        print("BOUNDARY SPLIT \(app.tables["demo.list"].value ?? "")")
+        assertPinnedList(position: 513.5)
+        select(2); select(1)
+        assertPinnedList(position: 513.5)
+        restoreFullScreen()
+        assertPinnedList(position: 513.5)
+    }
+
+    func testSystemSplitSelfSizingPosition() throws {
+        try verifySplitSelfSizingPosition()
+    }
+
+    func testSystemSplitExactRegressionPosition() throws {
+        try verifyExactRegressionPosition()
+    }
+
+    func testSystemSplitWindowsRTLExactRegressionPosition() throws {
+        try verifyExactRegressionPosition()
+    }
+
+    func testSystemSplitUnobservedExactRegressionPosition() throws {
+        try verifyExactRegressionPosition(observeFloatingWindow: false)
+    }
+
+    func testSystemSplitWindowsRTLUnobservedExactRegressionPosition() throws {
+        try verifyExactRegressionPosition(observeFloatingWindow: false)
+    }
+
+    private func verifyExactRegressionPosition(observeFloatingWindow: Bool = true) throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统分屏仅适用于 iPad")
+        expect("page=list")
+        assertPinnedList(position: 582)
+        resizeSystemWindow(dx: -250, dy: -350)
+        if observeFloatingWindow {
+            assertPinnedList(position: 582)
+        }
+        XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
+        arrangeSideBySide()
+        assertPinnedList(position: 582)
+        select(2); select(1)
+        assertPinnedList(position: 582)
+        restoreFullScreen()
+        assertPinnedList(position: 582)
+    }
+
+    func testSystemSplitPositionAfterDeceleration() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统分屏仅适用于 iPad")
+        for iteration in 0 ..< 3 {
+            if iteration > 0 {
+                app.terminate(); app.launch(); restoreFullScreen()
+                app.buttons["demo.open"].tap()
+                XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+            }
+            select(1)
+            app.tables["demo.list"].swipeUp(); expect("progress=1.00")
+            let position = contentPosition()
+            resizeSystemWindow(dx: -250, dy: -350)
+            XCTAssertEqual(contentPosition(), position, accuracy: 1, "浮动窗口必须保持正文距离")
+            XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
+            arrangeSideBySide()
+            XCTAssertEqual(contentPosition(), position, accuracy: 1, "分屏必须保持正文距离")
+            restoreFullScreen()
+            XCTAssertEqual(contentPosition(), position, accuracy: 1, "恢复全屏必须保持正文距离")
+        }
+    }
+
+    func testSystemSplitWindowsRTLSelfSizingPosition() throws {
+        try verifySplitSelfSizingPosition()
+    }
+
+    private func verifySplitSelfSizingPosition() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "系统分屏仅适用于 iPad")
+        expect("page=list")
+        expect("progress=1.00")
+        let position = contentPosition()
+        XCTAssertEqual(position, 546, accuracy: 1)
+        let companion = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        for _ in 0 ..< 2 {
+            resizeSystemWindow(dx: -250, dy: -350)
+            companion.activate()
+            arrangeSideBySide()
+            rotate(to: .portrait)
+            if app.windows.firstMatch.frame.intersection(companion.windows.firstMatch.frame).width > 1 {
+                arrangeSideBySide()
+            }
+            XCTAssertEqual(contentPosition(), position, accuracy: 1)
+            assertPinnedList(position: position)
+            select(2); expect("page=short")
+            select(1); assertPinnedList(position: position)
+            restoreFullScreen()
+            assertPinnedList(position: position)
+        }
     }
 
     func testSystemSplitWindowsRTLPagingGestureBoundaries() throws {
@@ -1287,11 +1697,16 @@ final class StickyPagerDemoUITests: XCTestCase {
             }
             choose("紧凑编号内容")
             let tabs = app.collectionViews["sp.tabBar.collection"]
-            // Demo 有 13 项；宽屏余量会均分，minimumItemWidth 是下限而非固定宽度。
-            let equalWidth = tabs.frame.width / 13
-            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, max(44, equalWidth), accuracy: 1)
+            // 默认 content 策略保留自然宽度，宽屏也不均分余量。
+            // 自定义配置收到的宽度已扣除默认首尾各 16 pt 留白。
+            let availableWidth = max(0, tabs.frame.width - 32)
+            let originalWidth = app.buttons["sp.tab.0"].frame.width
+            XCTAssertEqual(originalWidth, 44, accuracy: 1)
             choose("最小项宽 24")
-            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, max(24, equalWidth), accuracy: 1)
+            // 最小项宽是下限；编号的自然宽度可能大于 24 pt。
+            let compactWidth = app.buttons["sp.tab.0"].frame.width
+            XCTAssertGreaterThanOrEqual(compactWidth, 24)
+            XCTAssertLessThan(compactWidth, originalWidth - 1, "降低下限后编号项应实际缩小")
             select(1)
             expect("page=list")
             select(0)
@@ -1307,7 +1722,7 @@ final class StickyPagerDemoUITests: XCTestCase {
             choose("不可压缩宽内容")
             expect("page=grid")
             XCTAssertGreaterThan(app.buttons["sp.tab.0"].frame.width, tabs.frame.width)
-            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, max(480, tabs.frame.width + 80), accuracy: 1)
+            XCTAssertEqual(app.buttons["sp.tab.0"].frame.width, max(480, availableWidth + 80), accuracy: 1)
             assertPageFrame(app.collectionViews["demo.grid"])
             select(1)
             expect("page=list")
@@ -1321,7 +1736,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertEqual(tabs.frame.height, 44, accuracy: 1)
         for height in [32, 60, 0, 32, 44] {
             app.buttons["demo.pages"].tap()
-            app.buttons["标签栏最小高度"].tap()
+            app.buttons["标签栏高度"].tap()
             app.buttons[height == 0 ? "隐藏标签栏" : "最小栏高 \(height)"].tap()
             if height == 0 {
                 XCTAssertFalse(app.buttons["sp.tab.0"].isHittable)
@@ -1601,6 +2016,13 @@ final class StickyPagerDemoUITests: XCTestCase {
             .enumerated() {
             rotate(to: orientation)
             expect(step == 0 ? "page=grid" : "page=weekly")
+            for identifier in ["demo.headerTitle", "demo.headerSubtitle"] {
+                let text = app.staticTexts[identifier]
+                XCTAssertGreaterThanOrEqual(text.frame.minY, app.navigationBars.firstMatch.frame.maxY - 1)
+                XCTAssertLessThanOrEqual(text.frame.maxY, tabs.frame.minY + 1)
+                XCTAssertGreaterThanOrEqual(text.frame.minX, tabs.frame.minX)
+                XCTAssertLessThanOrEqual(text.frame.maxX, tabs.frame.maxX)
+            }
             expectSelectedTabAlignment(step == 0 ? 0 : 9)
             select(0); expect("page=grid")
             assertPageFrame(app.collectionViews["demo.grid"])
@@ -1637,7 +2059,11 @@ final class StickyPagerDemoUITests: XCTestCase {
             // 多显示面设备的 SpringBoard 坐标可能属于另一屏；触摸锚定当前 App 窗口。
             // frame 为屏幕坐标，需扣除浮动窗口原点后转换为窗口内偏移。
             let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
-            let collapseStart = tabs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let touchViewport = tabTouchViewport(tabs)
+            let collapseStart = origin.withOffset(CGVector(
+                dx: touchViewport.midX - window.minX,
+                dy: touchViewport.midY - window.minY
+            ))
             print(
                 "SAFE AREA DRAG: window=\(window), tabs=\(tabs.frame), navigation=\(app.navigationBars.firstMatch.frame)"
             )

@@ -3,7 +3,6 @@ import UIKit
 /// 支持可滚动图文标签、动态内容和分页进度的标签栏。
 @MainActor
 open class SPTabBar: UIView {
-    private static let defaultMinimumItemWidth: CGFloat = 44
     // 保留半点阈值；它是滚动呈现容差，不随屏幕像素密度变化。
     private static let scrollOffsetTolerance: CGFloat = 0.5
     private static let maximumEdgeFadeWidth: CGFloat = 16
@@ -48,90 +47,46 @@ open class SPTabBar: UIView {
         }
     }
 
-    /// 整栏标签的宽度分配方式，命名沿用 UIKit 的 itemPositioning 风格。
-    public enum ItemPositioning: Int, Sendable {
-        /// 优先满足各项内容宽度，其余项尽量等宽。
-        case automatic
-        /// 均分可用宽度，不小于 minimumItemWidth；内容宽度不撑开 Cell。
-        case fill
-        /// 使用各项内容宽度，空间充足时整组居中。
-        case centered
-        /// 使用各项内容宽度，整组靠逻辑起始端排列，余量留在 trailing；RTL 下从右侧开始。
-        case leading
-    }
-
-    /// 整栏标签的宽度分配，默认 leading 按内容宽度靠逻辑起始端排列。
-    /// automatic 优先满足内容宽度，其余项尽量等宽；fill 均分可用宽度，但不小于 minimumItemWidth。
-    /// centered 与 leading 按内容宽度排列，分别整组居中或靠逻辑起始端；所有模式超出视口时均可横向滚动。
-    /// fill 不以内容宽度撑开 Cell；自定义内容应支持压缩或换行。
-    public var itemPositioning: ItemPositioning = .leading {
-        didSet {
-            if oldValue != itemPositioning {
-                refreshContentLayout()
-            }
-        }
-    }
-
-    /// 每项 Cell 的最小布局宽度，默认 44 pt；适用于默认内容、自定义内容和回退项。
-    /// 实际宽度由 itemPositioning 决定；所有模式都遵守该下限。
-    /// 0 表示不额外设置宽度下限；负数归零，非有限值恢复为 44，大于 1,000,000 pt 时截到该上限。
-    /// 不改变内容的理想尺寸，不扩大 Cell 之外的点击区域；实际几何不变时保留滚动和转场。
-    public var minimumItemWidth: CGFloat {
-        get { storedMinimumItemWidth }
+    private var storedLayoutConfiguration = SPTabBarLayoutConfiguration()
+    /// 标签组布局的唯一配置；数值归一化后等值赋值不触发刷新。
+    public var layoutConfiguration: SPTabBarLayoutConfiguration {
+        get { storedLayoutConfiguration }
         set {
-            let value = newValue.isFinite ? min(SPTabBarGeometryLimits.maximumMagnitude, max(0, newValue)) : Self
-                .defaultMinimumItemWidth
-            guard value != storedMinimumItemWidth else {
+            let value = newValue.normalized
+            guard value != storedLayoutConfiguration else {
                 return
             }
-            storedMinimumItemWidth = value
+            storedLayoutConfiguration = value
             refreshContentLayout()
         }
     }
 
-    private var storedMinimumItemWidth: CGFloat = SPTabBar.defaultMinimumItemWidth
-
-    /// 相邻 Item 布局区域之间的固定水平间距，默认 0；首尾不额外留白。
-    /// 不计入 Item 的内容测量或 minimumItemWidth；宽度分配和滚动范围包含总间距。
-    /// 负数及非有限值归零，大于 1,000,000 pt 时截到该上限；空列表或单项不产生间距。
-    /// 运行时修改保留选择与分页进度；几何变化时沿用内容布局的滚动与动画更新策略。
-    public var itemSpacing: CGFloat {
-        get { storedItemSpacing }
+    private var storedDefaultContentLayout = SPTabBarDefaultContentLayout()
+    /// 内置内容与自定义内容回退项共用的尺寸规范；不改变业务自定义内容的内部尺寸。
+    public var defaultContentLayout: SPTabBarDefaultContentLayout {
+        get { storedDefaultContentLayout }
         set {
-            let value = newValue.isFinite ? min(SPTabBarGeometryLimits.maximumMagnitude, max(0, newValue)) : 0
-            guard value != storedItemSpacing else {
+            let value = newValue.normalized
+            guard value != storedDefaultContentLayout else {
                 return
             }
-            storedItemSpacing = value
+            storedDefaultContentLayout = value
             refreshContentLayout()
         }
     }
 
-    private var storedItemSpacing: CGFloat = 0
-
-    /// 标签内容四周的留白，默认左右各 16 pt、上下为零；水平首尾留白随内容滚动，上下留白参与建议栏高。
-    /// 不作用于固定附件。负数及非有限分量归零，每个分量最多 1,000,000 pt。
-    public var contentInsets: NSDirectionalEdgeInsets {
-        get { storedContentInsets }
-        set {
-            func normalized(_ value: CGFloat) -> CGFloat {
-                value.isFinite ? min(SPTabBarGeometryLimits.maximumMagnitude, max(0, value)) : 0
-            }
-            let value = NSDirectionalEdgeInsets(
-                top: normalized(newValue.top),
-                leading: normalized(newValue.leading),
-                bottom: normalized(newValue.bottom),
-                trailing: normalized(newValue.trailing)
-            )
-            guard value != storedContentInsets else {
-                return
-            }
-            storedContentInsets = value
-            refreshContentLayout()
-        }
+    private var minimumItemWidth: CGFloat {
+        layoutConfiguration.minimumItemWidth
     }
 
-    private var storedContentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+    private var itemSpacing: CGFloat {
+        layoutConfiguration.itemSpacing
+    }
+
+    private var contentInsets: NSDirectionalEdgeInsets {
+        layoutConfiguration.contentInsets
+    }
+
     private let leadingAccessoryHost = SPTabBarAccessoryHost()
     private let trailingAccessoryHost = SPTabBarAccessoryHost()
     private var appliedAccessoryGeometry: AccessoryGeometry?
@@ -254,10 +209,7 @@ open class SPTabBar: UIView {
         let delegateIdentity: ObjectIdentifier?
         let contents: [SPTabBarContent?]
         let itemWidths: [CGFloat]
-        let itemSpacing: CGFloat
-        let itemPositioning: ItemPositioning
-        let minimumItemWidth: CGFloat
-        let insets: NSDirectionalEdgeInsets
+        let layoutConfiguration: SPTabBarLayoutConfiguration
         let height: CGFloat
     }
 
@@ -290,6 +242,17 @@ open class SPTabBar: UIView {
 
     internal var selectionRequest: ((SPTabBarItem) -> Void)?
     private var pendingSelection: SPTabBarItem?
+    // 视觉反馈可先于页面提交；逻辑索引、无障碍选中状态和代理回调仍遵守提交契约。
+    private var presentationSelectedIndex: Int? {
+        if let pendingSelection, let index = items.firstIndex(where: { $0 === pendingSelection }) {
+            return index
+        }
+        if let transition {
+            return transition.progress >= 0.5 ? transition.to : transition.from
+        }
+        return selectedIndex
+    }
+
     private var requestGeneration: UInt = 0
     private let materialView = UIVisualEffectView()
     private let backgroundImageView = UIImageView()
@@ -319,11 +282,19 @@ open class SPTabBar: UIView {
     }
 
     internal func beginUserSelection(_ item: SPTabBarItem) {
+        let previous = presentationSelectedIndex
         pendingSelection = item
+        if previous != presentationSelectedIndex {
+            updateVisibleCells()
+        }
     }
 
     internal func cancelUserSelection() {
+        let previous = presentationSelectedIndex
         pendingSelection = nil; requestGeneration &+= 1
+        if previous != presentationSelectedIndex {
+            updateVisibleCells()
+        }
     }
 
     internal func completeUserSelection() {
@@ -635,8 +606,8 @@ open class SPTabBar: UIView {
     /// 测量建议宽度对应的高度，不改变当前配置、Cell 布局、滚动偏移或指示器。
     /// 正宽度扣除左右安全区域、附件及水平留白后用于内容测量；非正宽度使用当前栏宽。
     /// 上下留白加入内容高度，再与附件理想高度取最大值。
-    /// 默认图文上下各留 11 pt、至少 44 pt 高；自定义内容使用其理想高度，不额外设高度下限。
-    /// 容器通过 SPPageLayout.tabBarHeight 设置最小栏高；独立使用时由宿主设置最终高度。
+    /// 内置内容使用 defaultContentLayout（默认上下各 11 pt、至少 44 pt）；自定义内容使用自身理想高度。
+    /// 容器通过 SPPageLayout.tabBarSizing 选择高度策略；独立使用时由宿主设置最终高度。
     open override func sizeThatFits(_ size: CGSize) -> CGSize {
         let proposedWidth = size.width.isFinite && size.width > 0 ? size.width : bounds.width
         let geometry = accessoryGeometry(in: CGRect(
@@ -647,7 +618,7 @@ open class SPTabBar: UIView {
         ))
         let measurement = measureContents(width: geometry.viewport.width)
         let contentHeight = measurement?.height ?? appliedContentMeasurement?.height ??
-            SPDefaultTabContentMetrics.height(for: ceil(titleFont.lineHeight))
+            defaultContentLayout.height(for: ceil(titleFont.lineHeight))
         return CGSize(
             width: size.width,
             height: max(
@@ -691,7 +662,11 @@ open class SPTabBar: UIView {
         setNeedsLayout()
     }
 
+    /// nil 清空选择；越界索引忽略且保留当前动画与分页进度。程序化选择不发送点击代理事件。
     open func setSelectedIndex(_ index: Int?, animated: Bool) {
+        if let index, !items.indices.contains(index) {
+            return
+        }
         cancelUserSelection()
         layoutIfNeeded()
         collectionView.layoutIfNeeded()
@@ -745,6 +720,7 @@ open class SPTabBar: UIView {
         // 先应用待完成的属性刷新，避免把旧动画呈现位置与新端点几何一起保存为接管起点。
         layoutIfNeeded()
         collectionView.layoutIfNeeded()
+        let previous = presentationSelectedIndex
         if transition?.from != fromIndex || transition?.to != toIndex {
             // 分页接管尚未完成的标签动画时，保留当前呈现位置，避免突然跳到旧目标。
             transitionOrigin = selectionAnimation == nil ? nil : (
@@ -756,6 +732,9 @@ open class SPTabBar: UIView {
         }
         stopSelectionAnimation()
         transition = (fromIndex, toIndex, min(1, max(0, progress)))
+        if previous != presentationSelectedIndex {
+            updateVisibleCells()
+        }
         updateIndicator()
         let p = min(1, max(0, progress))
         let from = transitionOrigin?.offset ?? centeredOffset(for: fromIndex), to = centeredOffset(for: toIndex)
@@ -881,7 +860,7 @@ open class SPTabBar: UIView {
     }
 
     private var stacked: Bool {
-        switch appearance.itemAppearance.layout {
+        switch defaultContentLayout.imagePlacement {
         case .automatic: return traitCollection.verticalSizeClass != .compact
         case .stacked: return true
         case .inline: return false
@@ -917,19 +896,24 @@ open class SPTabBar: UIView {
             width: ceil(titleSizes.map(\.width).max() ?? 0),
             height: (item.title ?? "").isEmpty ? 0 : ceil(titleSizes.map(\.height).max() ?? 0)
         )
-        let icon: CGFloat = item.image != nil || item.selectedImage != nil || item
-            .landscapeImagePhone != nil ? SPDefaultTabContentMetrics.iconSize : 0
-        let gap: CGFloat = icon > 0 && !(item.title ?? "").isEmpty ? SPDefaultTabContentMetrics.imageTitleSpacing : 0
-        let width = stacked ? max(title.width, icon) : title.width + icon + gap
-        let height = stacked ? title.height + icon + gap : max(title.height, icon)
+        let hasIcon = (item.image != nil || item.selectedImage != nil || item.landscapeImagePhone != nil)
+            && defaultContentLayout.iconSize.width > 0 && defaultContentLayout.iconSize.height > 0
+        let icon = hasIcon ? defaultContentLayout.iconSize : .zero
+        let gap: CGFloat = hasIcon && !(item.title ?? "").isEmpty ? defaultContentLayout.imageTitleSpacing : 0
+        let width = stacked ? max(title.width, icon.width) : title.width + icon.width + gap
+        let height = stacked ? title.height + icon.height + gap : max(title.height, icon.height)
         let badgeSize = SPTabBadgeMetrics.size(
             for: item.badgeValue,
             font: .preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
         )
         // 默认栏高已包含上下留白；大字号角标只补充超出留白的高度，避免顶部裁剪。
-        let badgeOverflow = badgeSize.height - SPDefaultTabContentMetrics.totalVerticalPadding
+        let badgeOverflow = badgeSize
+            .height - (defaultContentLayout.contentInsets.top + defaultContentLayout.contentInsets.bottom)
         return CGSize(
-            width: width + SPTabBadgeMetrics.additionalWidth(for: badgeSize),
+            width: width + SPTabBadgeMetrics.additionalWidth(
+                for: badgeSize,
+                trailingPadding: defaultContentLayout.contentInsets.trailing
+            ),
             height: max(height + max(0, badgeOverflow), badgeOverflow)
         )
     }
@@ -1018,7 +1002,8 @@ open class SPTabBar: UIView {
                 }
                 // 部分系统内容视图重写 fitting，不采用外加的软宽度约束。
                 // 通过普通 Auto Layout 宿主求可行首选宽度，优先级略低于 required，让业务最小宽度优先。
-                let preferredWidth = itemPositioning != .centered && itemPositioning != .leading && width > 0
+                let preferredWidth = (layoutConfiguration.itemSizing == .balanced || layoutConfiguration
+                    .itemSizing == .equal) && width > 0
                     ? min(natural.width, width) : natural.width
                 let constrained = container.systemLayoutSizeFitting(
                     CGSize(width: preferredWidth, height: 0),
@@ -1043,27 +1028,29 @@ open class SPTabBar: UIView {
                 max(
                     minimumItemWidth,
                     result[$0]?.size?
-                        .width ?? (defaultSizes[$0].width + SPDefaultTabContentMetrics.totalHorizontalPadding)
+                        .width ??
+                        (defaultSizes[$0]
+                            .width +
+                            (defaultContentLayout.contentInsets.leading + defaultContentLayout.contentInsets.trailing))
                 )
             }
             let allocated = SPTabBarLayout.resolvedWidths(
                 widths,
                 viewportWidth: width,
                 itemSpacing: itemSpacing,
-                itemPositioning: itemPositioning,
-                minimumItemWidth: minimumItemWidth
+                configuration: layoutConfiguration
             )
             var failed = false
             for index in measuringViews.keys.sorted() {
                 guard let view = measuringViews[index] else {
                     continue
                 }
-                // 系统内容视图可能忽略软宽度；fill 通过普通宿主求解最终宽度对应的高度。
-                let fittingView = itemPositioning == .fill ? (view.superview ?? view) : view
+                // 系统内容视图可能忽略软宽度；有限宽度策略通过普通宿主求解高度。
+                let fittingView = layoutConfiguration.constrainsContentWidth ? (view.superview ?? view) : view
                 let fitted = fittingView.systemLayoutSizeFitting(
                     CGSize(width: allocated[index], height: 0),
-                    // fill 的 Cell 宽度固定；软测量避免与业务 required 最小宽度产生约束冲突。
-                    withHorizontalFittingPriority: itemPositioning == .fill
+                    // 有限宽度策略不能被业务 required 最小宽度撑开；软测量避免产生约束冲突。
+                    withHorizontalFittingPriority: layoutConfiguration.constrainsContentWidth
                         ? UILayoutPriority(UILayoutPriority.required.rawValue - 1) : .required,
                     verticalFittingPriority: .fittingSizeLevel
                 )
@@ -1090,14 +1077,11 @@ open class SPTabBar: UIView {
             delegateIdentity: identity,
             contents: result,
             itemWidths: widths,
-            itemSpacing: itemSpacing,
-            itemPositioning: itemPositioning,
-            minimumItemWidth: minimumItemWidth,
-            insets: contentInsets,
+            layoutConfiguration: layoutConfiguration,
             // 只对默认图文保留原有高度规则；自定义内容不承担容器的最小栏高策略。
             height: result.indices.map {
-                result[$0]?.size?.height ?? SPDefaultTabContentMetrics.height(for: defaultSizes[$0].height)
-            }.max() ?? SPDefaultTabContentMetrics.height(for: ceil(titleFont.lineHeight))
+                result[$0]?.size?.height ?? defaultContentLayout.height(for: defaultSizes[$0].height)
+            }.max() ?? defaultContentLayout.height(for: ceil(titleFont.lineHeight))
         )
         candidateContentMeasurement = measurement
         return measurement
@@ -1122,10 +1106,7 @@ open class SPTabBar: UIView {
         appliedContentMeasurement = measurement
         customContents = measurement.contents
         tabLayout.itemWidths = measurement.itemWidths
-        tabLayout.itemSpacing = measurement.itemSpacing
-        tabLayout.itemPositioning = measurement.itemPositioning
-        tabLayout.minimumItemWidth = measurement.minimumItemWidth
-        tabLayout.contentInsets = measurement.insets
+        tabLayout.configuration = measurement.layoutConfiguration
         customViewsNeedUpdate = true
         return true
     }
@@ -1138,24 +1119,24 @@ open class SPTabBar: UIView {
             SPTabBarLayout.resolvedWidths(
                 value.itemWidths,
                 viewportWidth: value.width,
-                itemSpacing: value.itemSpacing,
-                itemPositioning: value.itemPositioning,
-                minimumItemWidth: value.minimumItemWidth
+                itemSpacing: value.layoutConfiguration.itemSpacing,
+                configuration: value.layoutConfiguration
             )
         }
         func alignmentOffset(_ value: ContentMeasurement, widths: [CGFloat]) -> CGFloat {
             SPTabBarLayout.alignmentOffset(
                 widths,
                 viewportWidth: value.width,
-                itemSpacing: value.itemSpacing,
-                itemPositioning: value.itemPositioning,
+                itemSpacing: value.layoutConfiguration.itemSpacing,
+                alignment: value.layoutConfiguration.alignment,
                 isRightToLeft: value.direction == .rightToLeft
             )
         }
         let previousWidths = widths(previous)
         let currentWidths = widths(current)
-        return previous.insets != current.insets ||
-            (current.itemWidths.count > 1 && previous.itemSpacing != current.itemSpacing) ||
+        return previous.layoutConfiguration.contentInsets != current.layoutConfiguration.contentInsets ||
+            (current.itemWidths.count > 1 && previous.layoutConfiguration.itemSpacing != current.layoutConfiguration
+                .itemSpacing) ||
             previousWidths != currentWidths ||
             alignmentOffset(previous, widths: previousWidths) != alignmentOffset(current, widths: currentWidths) ||
             previous.height != current.height
@@ -1180,7 +1161,7 @@ open class SPTabBar: UIView {
     }
 
     private func configure(_ cell: UICollectionViewCell, item: SPTabBarItem, at index: Int, selected: Bool? = nil) {
-        let isSelected = selected ?? (index == selectedIndex)
+        let isSelected = selected ?? (index == presentationSelectedIndex)
         if let content = customContent(at: index) {
             var state = UICellConfigurationState(traitCollection: traitCollection)
             state.isSelected = isSelected
@@ -1189,6 +1170,7 @@ open class SPTabBar: UIView {
                 content: content.configuration,
                 measuredSize: content.size ?? CGSize(width: 44, height: 44),
                 state: state,
+                isAccessibilitySelected: index == selectedIndex,
                 itemIdentifier: ObjectIdentifier(item),
                 accessibilityIdentifier: "sp.tab.\(index)",
                 accessibilityLabel: content.accessibilityLabel ?? item.accessibilityLabel ?? item.title,
@@ -1210,14 +1192,14 @@ open class SPTabBar: UIView {
         let iconColor = state.iconColor ?? defaultColor
         let titleColor = state.titleColor ?? defaultColor
         var configuration = UIButton.Configuration.plain()
-        if itemPositioning == .fill {
+        if layoutConfiguration.constrainsContentWidth {
             configuration.titleLineBreakMode = .byTruncatingTail
         }
         configuration.contentInsets = NSDirectionalEdgeInsets(
-            top: 0,
-            leading: SPDefaultTabContentMetrics.horizontalPadding,
-            bottom: 0,
-            trailing: SPDefaultTabContentMetrics.horizontalPadding
+            top: defaultContentLayout.contentInsets.top,
+            leading: defaultContentLayout.contentInsets.leading,
+            bottom: defaultContentLayout.contentInsets.bottom,
+            trailing: defaultContentLayout.contentInsets.trailing
         )
         configuration.title = item.title
         let baseImage = traitCollection.verticalSizeClass == .compact ? (item.landscapeImagePhone ?? item.image) : item
@@ -1226,21 +1208,27 @@ open class SPTabBar: UIView {
         let imageInsets = traitCollection.verticalSizeClass == .compact && item
             .landscapeImagePhone != nil && (!isSelected || item.selectedImage == nil) ? item
             .landscapeImagePhoneInsets : item.imageInsets
-        configuration.image = configuration.image.map { image in
+        configuration.image = configuration.image.flatMap { image -> UIImage? in
+            guard defaultContentLayout.iconSize.width > 0, defaultContentLayout.iconSize.height > 0 else {
+                return nil
+            }
             let ratio = min(
-                SPDefaultTabContentMetrics.iconSize / max(1, image.size.width),
-                SPDefaultTabContentMetrics.iconSize / max(1, image.size.height)
+                defaultContentLayout.iconSize.width / max(1, image.size.width),
+                defaultContentLayout.iconSize.height / max(1, image.size.height)
             )
             let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
             // 符号光栅化后不再携带 isSymbolImage；显式保留其默认模板语义。
             let mode: UIImage.RenderingMode = image.isSymbolImage && image
                 .renderingMode == .automatic ? .alwaysTemplate : image.renderingMode
-            return UIGraphicsImageRenderer(size: size)
+            // 逻辑尺寸允许大值，但不能按其直接申请位图；普通图标仍使用屏幕分辨率。
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = min(format.scale, 1024 / max(1, max(size.width, size.height)))
+            return UIGraphicsImageRenderer(size: size, format: format)
                 .image { _ in image.draw(in: CGRect(origin: .zero, size: size).inset(by: imageInsets)) }
                 .withRenderingMode(mode)
         }
         configuration.imagePlacement = stacked ? .top : .leading
-        configuration.imagePadding = SPDefaultTabContentMetrics.imageTitleSpacing
+        configuration.imagePadding = defaultContentLayout.imageTitleSpacing
         configuration.baseForegroundColor = iconColor
         let controlState: UIControl.State = !item.isEnabled ? .disabled : (isSelected ? .selected : .normal)
         let titleAttributes = item.titleTextAttributes(for: controlState) ?? item
@@ -1255,7 +1243,7 @@ open class SPTabBar: UIView {
             }
             return result
         }
-        var traits: UIAccessibilityTraits = isSelected ? [.button, .selected] : .button
+        var traits: UIAccessibilityTraits = index == selectedIndex ? [.button, .selected] : .button
         if !item.isEnabled {
             traits.insert(.notEnabled)
         }
@@ -1443,7 +1431,8 @@ open class SPTabBar: UIView {
             let cell = UICollectionViewCell(frame: CGRect(origin: .zero, size: itemFrame.size))
             contentMeasurementHost.addSubview(cell)
             cell.semanticContentAttribute = tabLayout.isRightToLeft ? .forceRightToLeft : .forceLeftToRight
-            configure(cell, item: items[index], at: index, selected: prefersTitle ? true : nil)
+            // 指示器端点独立于可见项的视觉预览，避免过半切换字体时端点跳变。
+            configure(cell, item: items[index], at: index, selected: prefersTitle || index == selectedIndex)
             cell.layoutIfNeeded()
             let geometry = cell.contentView as? SPTabIndicatorContentGeometry
             let title = prefersTitle ? geometry?.indicatorTitleRect : nil

@@ -1,27 +1,5 @@
 import UIKit
 
-/// 内置图文的测量与按钮配置共用尺寸；不应用于业务自定义内容。
-@MainActor
-internal enum SPDefaultTabContentMetrics {
-    static let horizontalPadding: CGFloat = 16
-    // 上下留白用于建议栏高；按钮仍以零垂直 inset 在最终高度中居中。
-    private static let verticalPadding: CGFloat = 11
-    private static let minimumHeight: CGFloat = 44
-    static let iconSize: CGFloat = 24
-    static let imageTitleSpacing: CGFloat = 4
-    static var totalHorizontalPadding: CGFloat {
-        2 * horizontalPadding
-    }
-
-    static var totalVerticalPadding: CGFloat {
-        2 * verticalPadding
-    }
-
-    static func height(for contentHeight: CGFloat) -> CGFloat {
-        max(minimumHeight, contentHeight + totalVerticalPadding)
-    }
-}
-
 /// 测量与显示共用角标尺寸，包含中文回退字体的实际行高和胶囊内边距。
 @MainActor
 internal enum SPTabBadgeMetrics {
@@ -47,8 +25,8 @@ internal enum SPTabBadgeMetrics {
     }
 
     /// 角标向内容内重叠，先利用按钮尾端留白，再对称扩宽以保持图文居中。
-    static func additionalWidth(for size: CGSize) -> CGFloat {
-        2 * max(0, size.width - contentOverlap - SPDefaultTabContentMetrics.horizontalPadding)
+    static func additionalWidth(for size: CGSize, trailingPadding: CGFloat) -> CGFloat {
+        2 * max(0, size.width - contentOverlap - trailingPadding)
     }
 }
 
@@ -164,6 +142,7 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         }
         customView?.removeFromSuperview()
         customView = nil
+        clipsToBounds = false
         // 配置可能用于新建、复用或脱离 Collection View 的测量视图，不依赖 UIKit 的内部继承链。
         semanticContentAttribute = value.layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
         button.semanticContentAttribute = semanticContentAttribute
@@ -190,6 +169,7 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         guard case let .custom(value) = storedConfiguration else {
             return
         }
+        clipsToBounds = true
         // 清除默认模式的视觉和大内容预览，保留同一个点击／无障碍入口。
         button.configuration = nil
         button.setTitle(nil, for: .normal)
@@ -206,7 +186,7 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         button.accessibilityLabel = value.accessibilityLabel
         button.accessibilityHint = value.accessibilityHint
         button.accessibilityValue = value.accessibilityValue
-        button.accessibilityTraits = value.state.isSelected ? [.button, .selected] : .button
+        button.accessibilityTraits = value.isAccessibilitySelected ? [.button, .selected] : .button
         if value.state.isDisabled {
             button.accessibilityTraits.insert(.notEnabled)
         }
@@ -240,8 +220,22 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         }
         customView?.isUserInteractionEnabled = false
         customView?.accessibilityElementsHidden = true
-        customView?.frame = bounds
+        layoutCustomContent()
         setNeedsLayout()
+    }
+
+    private func layoutCustomContent() {
+        guard case let .custom(value) = storedConfiguration else {
+            return
+        }
+        // 栏高不足时保留测得的内容高度并从顶部裁切，避免强压业务内部 required 约束。
+        // 点击与无障碍入口仍使用外层 Item 的 bounds；宽度继续遵循项宽分配。
+        customView?.frame = CGRect(
+            x: bounds.minX,
+            y: bounds.minY,
+            width: bounds.width,
+            height: max(bounds.height, value.measuredSize.height)
+        )
     }
 
     override func systemLayoutSizeFitting(
@@ -305,7 +299,7 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         super.layoutSubviews()
         button.frame = bounds
         button.layoutIfNeeded()
-        customView?.frame = bounds
+        layoutCustomContent()
         guard case let .standard(value) = storedConfiguration else {
             badge.frame = .zero
             return

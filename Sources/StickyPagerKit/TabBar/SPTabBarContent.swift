@@ -4,7 +4,8 @@ import UIKit
 /// 测量可能使用尚未应用到标签栏的建议宽度，不表示当前显示尺寸已发生变化。
 @MainActor
 public struct SPTabBarContentContext {
-    /// 保证包含当前 traits、选中和禁用状态；回调测量时高亮为 false。
+    /// 保证包含当前 traits、已提交的选中状态和禁用状态；回调测量时高亮为 false。
+    /// 内容配置的 updated(for:) 另接收视觉预览：点击立即预览目标项，分页过半预览目标项，回退或取消时恢复。
     /// 真实按压高亮由配置的 `updated(for:)` 接收，不重新测量尺寸。
     /// 不保证传递 Cell 的其他状态；业务不应依赖焦点、编辑或多选状态。
     public let state: UICellConfigurationState
@@ -29,18 +30,19 @@ public struct SPTabBarContent {
     public var configuration: any UIContentConfiguration
     /// 可选的理想尺寸覆盖；nil（默认）由 UIContentView 的 Auto Layout 自动测量。
     /// 自动测量先求首选宽度，再按实际分配宽度定宽测高。
-    /// centered / leading 使用自然首选宽度；automatic / fill 尝试视口内的首选宽度。
-    /// fill 严格等宽，可小于理想宽度；内容须支持压缩或换行，required 最小宽度不会撑开 Cell。
-    /// 其他模式允许业务 required 最小宽度超出视口并横向滚动。
+    /// content / fixed 使用自然首选宽度；balanced / equal 尝试视口内的首选宽度。
+    /// equal、fixed 和设置上限的 content 可小于理想宽度；内容须支持压缩或换行。
+    /// balanced 与未设置上限的 content 允许 required 最小宽度超出视口并横向滚动。
     /// 内容须适应最终分配宽度；固定根宽度或自身矛盾的 required 约束不受支持。
     /// 内容须具备完整内部约束或固有尺寸；不会假定普通 UIView 自动转调 sizeThatFits(_:)。
     /// 显式尺寸包含业务内边距，并非最终 Cell 尺寸。
     /// 每个分量必须为有限正数且不超过 1,000,000 pt，否则整项回退到默认内容。
-    /// 理想尺寸不包含框架的宽度下限；最终 Cell 宽度受 SPTabBar.minimumItemWidth 和空间分配规则影响。
+    /// 理想尺寸不包含框架的宽度下限；最终 Cell 宽度受 SPTabBar.layoutConfiguration.minimumItemWidth 和空间分配规则影响。
     /// 显式尺寸不限制到视口；自动测量可能压缩可换行内容。内容高度不额外设下限。
-    /// 容器中的实际栏高取内容需求与 SPPageLayout.tabBarHeight 的较大值；配置为 0 时隐藏。
+    /// 容器通过 SPPageLayout.tabBarSizing 选择内容最小高度、固定裁切或隐藏。
     /// 独立使用标签栏时，由宿主根据 sizeThatFits(_:) 的测量结果设置最终高度。
-    /// 所有 Cell 高度等于栏的实际高度；状态相关内容宜返回各状态所需尺寸的最大值。
+    /// 所有 Cell 高度等于扣除外围上下留白后的实际栏高；状态相关内容宜返回各状态所需尺寸的最大值。
+    /// 自定义视图不压缩到测量高度以下；栏高不足时顶部对齐并在 Cell 内裁切，点击区域不扩大。
     public var size: CGSize?
     /// 指示器跟随内容时的区域，使用最终 Cell 的局部坐标，不参与内容测量。
     /// nil 或非法矩形回退到整项；随尺寸变化的复杂区域可使用 indicatorLayoutDelegate 计算。

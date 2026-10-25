@@ -8,6 +8,7 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
     var usesCompactContent = false
     var usesNumberContent = false
     var usesWideContent = false
+    var fixedHeight: CGFloat?
 
     /// 更新业务配置后只刷新一次；切入自定义模式时由属性 setter 完成刷新。
     func showCustomContent(on bar: SPTabBar) {
@@ -24,43 +25,116 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
         at index: Int,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
+        makeContent(
+            on: tabBar,
+            item: item,
+            index: index,
+            traits: context.state.traitCollection,
+            tintColor: context.tintColor,
+            direction: context.layoutDirection,
+            width: context.availableWidth
+        )
+    }
+
+    private func makeContent(
+        on tabBar: SPTabBar,
+        item: SPTabBarItem,
+        index: Int,
+        traits: UITraitCollection,
+        tintColor: UIColor,
+        direction: UIUserInterfaceLayoutDirection,
+        width: CGFloat
+    ) -> SPTabBarContent {
         if usesCompactContent {
             // 内容只有文字与内边距；UILabel 固有尺寸和完整约束负责测高。
             return SPTabBarContent(configuration: DemoCompactConfiguration(
                 title: usesNumberContent ? "\(index + 1)" : (item.title ?? "未命名"),
-                font: UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: context.state.traitCollection),
-                tintColor: context.tintColor,
-                minimumWidth: usesWideContent && index == 0 ? max(480, context.availableWidth + 80) : 0
+                font: UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traits),
+                tintColor: tintColor,
+                minimumWidth: usesWideContent && index == 0 ? max(480, width + 80) : 0
             ))
         }
-        let traits = context.state.traitCollection
         let titleFont = UIFont.preferredFont(forTextStyle: .headline, compatibleWith: traits)
         let subtitleFont = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traits)
         let title = item.title?.isEmpty == false ? item.title! : (item.accessibilityLabel ?? "未命名")
         let subtitle = item.isEnabled ? (item.badgeValue.map { $0.isEmpty ? "有新内容" : "\($0) 条更新" } ?? self.subtitle) : "暂不可用"
-        // fill 的公开分配规则可在配置阶段确定项宽，测量与实际显示使用同一布局。
+        // 固定栏高不足时收起编号和说明，优先保留标题；恢复内容策略后自动回到完整卡片。
+        let fullHeight = max(76, 2 * titleFont.lineHeight + 2 * subtitleFont.lineHeight + 34)
+        let insets = tabBar.layoutConfiguration.contentInsets
+        // 栏高包含外围留白；内容只使用 Item 高度，留白变化时由标签栏重新获取配置。
+        let availableHeight = fixedHeight.map { max(0, $0 - insets.top - insets.bottom) }
+        if let availableHeight, availableHeight < fullHeight {
+            let scale = min(1, max(1, availableHeight - 8) / titleFont.lineHeight)
+            return SPTabBarContent(configuration: DemoCompactConfiguration(
+                title: title,
+                font: titleFont.withSize(titleFont.pointSize * scale),
+                tintColor: tintColor,
+                isCard: true
+            ))
+        }
+        // equal 的公开分配规则可在配置阶段确定项宽，测量与实际显示使用同一布局。
         let count = CGFloat(max(1, tabBar.items.count))
         let equalWidth = max(
-            tabBar.minimumItemWidth,
-            (context.availableWidth - max(0, count - 1) * tabBar.itemSpacing) / count
+            tabBar.layoutConfiguration.minimumItemWidth,
+            (width - max(0, count - 1) * tabBar.layoutConfiguration.itemSpacing) / count
         )
-        let compact = tabBar.itemPositioning == .fill && equalWidth < max(160, titleFont.lineHeight * 6)
+        let compact = tabBar.layoutConfiguration.itemSizing == .equal && equalWidth < max(160, titleFont.lineHeight * 6)
         let configuration = DemoCardConfiguration(
             number: "\(index + 1)",
             title: title,
             subtitle: subtitle,
             titleFont: titleFont,
             subtitleFont: subtitleFont,
-            tintColor: context.tintColor,
-            direction: context.layoutDirection,
+            tintColor: tintColor,
+            direction: direction,
             compact: compact
         )
         // 只提供内容配置；内部完整约束同时用于显示和 systemLayoutSizeFitting 测量。
         return SPTabBarContent(configuration: configuration)
     }
+
+    /// 使用同一内容配置计算可见区域，支持屏幕外端点，不依赖当前 Cell。
+    func indicatorContentFrame(on bar: SPTabBar, context: SPTabBarIndicatorLayoutContext) -> CGRect {
+        let insets = bar.layoutConfiguration.contentInsets
+        let content = makeContent(
+            on: bar,
+            item: context.item,
+            index: context.index,
+            traits: context.traitCollection,
+            tintColor: bar.tintColor,
+            direction: context.layoutDirection,
+            width: max(0, context.viewportFrame.width - insets.leading - insets.trailing)
+        )
+        if content.configuration is DemoCardConfiguration {
+            return context.itemFrame.insetBy(
+                dx: DemoCardConfiguration.horizontalInset,
+                dy: DemoCardConfiguration.verticalInset
+            )
+        }
+        guard let compact = content.configuration as? DemoCompactConfiguration, !compact.isCard else {
+            return context.itemFrame
+        }
+        let text = (compact.title as NSString).size(withAttributes: [.font: compact.font])
+        let width = min(
+            ceil(text.width),
+            max(0, context.itemFrame.width - 2 * DemoCompactConfiguration.horizontalInset)
+        )
+        let height = min(
+            ceil(text.height),
+            max(0, context.itemFrame.height - 2 * DemoCompactConfiguration.verticalInset)
+        )
+        return CGRect(
+            x: context.itemFrame.midX - width / 2,
+            y: context.itemFrame.midY - height / 2,
+            width: width,
+            height: height
+        )
+    }
 }
 
 private struct DemoCardConfiguration: UIContentConfiguration {
+    static let horizontalInset: CGFloat = 4
+    static let verticalInset: CGFloat = 5
     let number: String
     let title: String
     let subtitle: String
@@ -139,14 +213,17 @@ private final class DemoCardContentView: UIView, UIContentView {
             row.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
             card.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: 10)
         ]
+        // 配置可能先于新 Cell frame 生效；内部留白允许暂时压缩，避免宽内容与旧窄 frame 冲突。
+        // 正常分配宽度下仍恢复理想留白，内容测量与最终布局使用同一组约束。
+        rowInsets.forEach { $0.priority = UILayoutPriority(999) }
         NSLayoutConstraint.activate(rowInsets)
         NSLayoutConstraint.activate([
             preferredWidth,
             heightAnchor.constraint(greaterThanOrEqualToConstant: 76),
-            card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            card.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DemoCardConfiguration.horizontalInset),
+            card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DemoCardConfiguration.horizontalInset),
+            card.topAnchor.constraint(equalTo: topAnchor, constant: DemoCardConfiguration.verticalInset),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DemoCardConfiguration.verticalInset),
             row.topAnchor.constraint(greaterThanOrEqualTo: card.topAnchor, constant: 10),
             row.bottomAnchor.constraint(lessThanOrEqualTo: card.bottomAnchor, constant: -10),
             row.centerYAnchor.constraint(equalTo: card.centerYAnchor),
@@ -199,10 +276,13 @@ private final class DemoCardContentView: UIView, UIContentView {
 
 /// 紧凑样式不声明固定高度；容器可把测量结果提升到业务配置的最小栏高。
 private struct DemoCompactConfiguration: UIContentConfiguration {
+    static let horizontalInset: CGFloat = 12
+    static let verticalInset: CGFloat = 2
     let title: String
     let font: UIFont
     let tintColor: UIColor
     var minimumWidth: CGFloat = 0
+    var isCard = false
     var selected = false
     var highlighted = false
     var disabled = false
@@ -244,13 +324,17 @@ private final class DemoCompactContentView: UIView, UIContentView {
         super.init(frame: .zero)
         label.translatesAutoresizingMaskIntoConstraints = false
         label.textAlignment = .center
+        label.accessibilityIdentifier = "demo.compactTabTitle"
         addSubview(label)
         NSLayoutConstraint.activate([
             minimumWidth,
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DemoCompactConfiguration.horizontalInset),
+            label.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -DemoCompactConfiguration.horizontalInset
+            ),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: DemoCompactConfiguration.verticalInset),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DemoCompactConfiguration.verticalInset)
         ])
         apply()
     }
@@ -263,7 +347,13 @@ private final class DemoCompactContentView: UIView, UIContentView {
         minimumWidth.constant = value.minimumWidth
         label.text = value.title
         label.font = value.font
+        label.adjustsFontSizeToFitWidth = value.isCard
+        label.minimumScaleFactor = value.isCard ? 0.5 : 1
         label.textColor = value.disabled ? .tertiaryLabel : (value.selected ? value.tintColor : .label)
-        backgroundColor = value.highlighted ? value.tintColor.withAlphaComponent(0.12) : .clear
+        backgroundColor = value.highlighted ? value.tintColor.withAlphaComponent(0.12) :
+            (value.isCard ? .secondarySystemBackground : .clear)
+        layer.cornerRadius = value.isCard ? 8 : 0
+        layer.borderWidth = value.isCard && value.selected ? 1.5 : 0
+        layer.borderColor = value.tintColor.cgColor
     }
 }

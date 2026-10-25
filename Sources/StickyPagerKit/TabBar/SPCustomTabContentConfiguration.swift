@@ -5,6 +5,7 @@ internal struct SPCustomTabContentConfiguration {
     let content: any UIContentConfiguration
     let measuredSize: CGSize
     let state: UICellConfigurationState
+    let isAccessibilitySelected: Bool
     let itemIdentifier: ObjectIdentifier
     let accessibilityIdentifier: String
     let accessibilityLabel: String?

@@ -2,14 +2,52 @@ import UIKit
 
 @MainActor
 internal final class SPPagingScrollView: UIScrollView, UIGestureRecognizerDelegate {
+    private weak var acceptedPanWindow: UIWindow?
+    private var acceptedPanStart: (point: CGPoint, size: CGSize, offset: CGPoint)?
+
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if gestureRecognizer === panGestureRecognizer {
-            let velocity = panGestureRecognizer.velocity(in: self)
-            guard shouldPage(at: panGestureRecognizer.location(in: self), velocity: velocity) else {
-                return false
-            }
+        guard gestureRecognizer === panGestureRecognizer else {
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
         }
-        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        acceptedPanStart = nil
+        acceptedPanWindow = nil
+        let velocity = panGestureRecognizer.velocity(in: self)
+        guard shouldPage(at: panGestureRecognizer.location(in: self), velocity: velocity),
+              super.gestureRecognizerShouldBegin(gestureRecognizer) else {
+            return false
+        }
+        if let window {
+            acceptedPanWindow = window
+            acceptedPanStart = (panGestureRecognizer.location(in: window), bounds.size, contentOffset)
+        }
+        return true
+    }
+
+    /// UIKit 开始拖动时会清零 translation；恢复方向判定通过后已合并的移动。
+    /// 使用窗口物理坐标，仅补一次，不改变速度、吸附目标或 RTL 的逻辑索引。
+    func preserveAcceptedPanDisplacement() {
+        defer {
+            acceptedPanStart = nil
+            acceptedPanWindow = nil
+        }
+        guard let start = acceptedPanStart, let window, window === acceptedPanWindow,
+              bounds.size == start.size, contentOffset == start.offset,
+              panGestureRecognizer.state == .began || panGestureRecognizer.state == .changed else {
+            return
+        }
+        // 仅处理 UIKit 已清零的起拖坐标；其他时序沿用原生基准。
+        guard abs(panGestureRecognizer.translation(in: self).x) < 0.001 else {
+            return
+        }
+        let acceptedPoint = convert(start.point, from: window)
+        let displacement = panGestureRecognizer.location(in: self).x - acceptedPoint.x
+        guard abs(displacement) > 0.001 else {
+            return
+        }
+        let range = horizontalRange(of: self)
+        let x = min(range.upper, max(range.lower, contentOffset.x - displacement))
+        // 调整滚动起点，不调用会重置速度的 UIPanGestureRecognizer.setTranslation。
+        setContentOffset(CGPoint(x: x, y: contentOffset.y), animated: false)
     }
 
     /// 内部横向列表先等待容器判定；容器仅在内部无法沿拖动方向继续滚动时开始分页。

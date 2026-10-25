@@ -27,6 +27,7 @@ Demo 通过本地 Package 引用根目录库，包含 `StickyPagerDemo`（应用
 ## 修改方式与代码约定
 
 - 开始修改前检查 `git status --short`、相关 diff 和适用的目录规则，保留用户已有修改；不擅自提交或推送。
+- 遇到不熟悉的功能时，先调研 GitHub 上维护活跃、许可证明确的同类开源项目，比较实现思路、依赖和已知问题，优先借鉴成熟设计；引用代码前确认来源可靠、许可证与本项目兼容。
 - 遵循邻近源码：`SP` 类型前缀、类型使用 UpperCamelCase、成员使用 lowerCamelCase、四空格缩进，公开说明使用中文 `///`。
 - 保留公开扩展点的 `open` / `public` 语义；实现细节使用 `internal` / `private`，不要仅为测试扩大公开 API。库测试使用 `@testable import StickyPagerKit`。
 - 保持主 actor 隔离、弱数据源与弱代理关系。新增系统 API 应保留 iOS 15 的可用性边界和旧系统路径，不为消除编译错误直接提高部署目标。

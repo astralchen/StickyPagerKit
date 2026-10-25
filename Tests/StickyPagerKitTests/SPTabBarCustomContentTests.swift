@@ -20,9 +20,9 @@ final class SPTabBarCustomContentTests: XCTestCase {
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 100, width: 320, height: 80))
         // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
-        bar.itemPositioning = .automatic
+        bar.layoutConfiguration.itemSizing = .balanced
         // 此夹具显式使用零留白，隔离 Item 宽度与间距算法；默认留白由附件布局测试覆盖。
-        bar.contentInsets = .zero
+        bar.layoutConfiguration.contentInsets = .zero
         bar.items = [SPTabBarItem(title: "第一项"), SPTabBarItem(title: "第二项")]
         bar.selectedItem = bar.items[0]
         window.rootViewController!.view.addSubview(bar)
@@ -452,6 +452,36 @@ final class SPTabBarCustomContentTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(button(bar).bounds.width, 44)
     }
 
+    func testShortItemClipsMeasuredContentAndPreservesActivationAcrossRestore() {
+        let provider = CustomContentSource()
+        let bar = mount(provider)
+        bar.layoutConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 3, leading: 0, bottom: 5, trailing: 0)
+        let spy = SelectionSpy()
+        bar.delegate = spy
+        for height: CGFloat in [32, 60, 108, 32, 88] {
+            bar.frame.size.height = height
+            bar.layoutIfNeeded()
+            let content = probe(bar)!
+            let container = cell(bar).contentView
+            container.layoutIfNeeded()
+            XCTAssertTrue(container.clipsToBounds)
+            XCTAssertEqual(content.frame.minY, 0)
+            XCTAssertEqual(content.bounds.height, max(80, height - 8))
+            XCTAssertEqual(button(bar).bounds.height, height - 8)
+            XCTAssertEqual(bar.sizeThatFits(bar.bounds.size).height, 88)
+            XCTAssertTrue(button(bar).accessibilityActivate())
+            XCTAssertEqual(bar.selectedIndex, 0)
+            XCTAssertFalse(bar.point(inside: CGPoint(x: 10, y: height + 1), with: nil))
+        }
+        XCTAssertEqual(spy.selected.count, 5)
+        bar.contentStyle = .default
+        XCTAssertNil(probe(bar))
+        XCTAssertFalse(cell(bar).contentView.clipsToBounds, "默认图文恢复原有布局")
+        bar.contentStyle = .custom
+        XCTAssertEqual(probe(bar)?.bounds.height, 80)
+        XCTAssertTrue(cell(bar).contentView.clipsToBounds)
+    }
+
     func testStateHighlightActivationAndDisabledSelectionStayCoordinated() {
         let provider = CustomContentSource()
         let bar = mount(provider)
@@ -480,6 +510,39 @@ final class SPTabBarCustomContentTests: XCTestCase {
         XCTAssertTrue(probe(bar)!.value.selected)
         XCTAssertEqual(spy.selected.count, 1, "程序化选择不发送标签代理事件")
         XCTAssertTrue(collection(bar).touchesShouldCancel(in: button(bar)))
+    }
+
+    func testCustomPresentationPreviewsPagingAndRestoresAfterCancellation() {
+        let provider = CustomContentSource()
+        let bar = mount(provider)
+        let spy = SelectionSpy()
+        bar.delegate = spy
+        for rtl in [false, true] {
+            bar.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            bar.setSelectedIndex(0, animated: false)
+            for progress: CGFloat in [0.2, 0.5, 1, 0.2, 0] {
+                bar.setTransitionProgress(from: 0, to: 1, progress: progress)
+                XCTAssertEqual(probe(bar, 0)!.value.selected, progress < 0.5)
+                XCTAssertEqual(probe(bar, 1)!.value.selected, progress >= 0.5)
+                XCTAssertEqual(bar.selectedIndex, 0)
+                XCTAssertTrue(button(bar, 0).accessibilityTraits.contains(.selected))
+                XCTAssertFalse(button(bar, 1).accessibilityTraits.contains(.selected))
+            }
+            bar.setSelectedIndex(0, animated: false)
+            bar.beginUserSelection(bar.items[1])
+            XCTAssertTrue(probe(bar, 1)!.value.selected)
+            bar.reloadContent()
+            XCTAssertTrue(probe(bar, 1)!.value.selected, "刷新不能丢失点击预览")
+            bar.cancelUserSelection()
+            XCTAssertTrue(probe(bar, 0)!.value.selected)
+            XCTAssertFalse(probe(bar, 1)!.value.selected)
+            bar.setTransitionProgress(from: 0, to: 1, progress: 1)
+            XCTAssertTrue(probe(bar, 1)!.value.selected)
+            bar.synchronizeSelection(bar.items[0], animated: false)
+            XCTAssertTrue(probe(bar, 0)!.value.selected, "取消转场恢复提交项")
+            XCTAssertFalse(probe(bar, 1)!.value.selected)
+        }
+        XCTAssertTrue(spy.selected.isEmpty)
     }
 
     func testAccessibilityAndNestedControlsHaveSingleActivationEntry() {

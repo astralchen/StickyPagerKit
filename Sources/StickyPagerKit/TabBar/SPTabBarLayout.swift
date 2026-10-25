@@ -5,7 +5,7 @@ internal enum SPTabBarGeometryLimits {
     static let maximumMagnitude: CGFloat = 1_000_000
 }
 
-/// 按 itemPositioning 分配宽度；总需求超出视口时横向滚动。
+/// 按独立的项宽策略和整组对齐布局；总需求超出视口时横向滚动。
 @MainActor
 final class SPTabBarLayout: UICollectionViewLayout {
     // 独立布局缺失宽度或收到非有限宽度时的回退值，不受公开最小宽度配置影响。
@@ -19,36 +19,20 @@ final class SPTabBarLayout: UICollectionViewLayout {
         }
     }
 
-    var itemSpacing: CGFloat = 0 {
+    var configuration = SPTabBarLayoutConfiguration() {
         didSet {
-            if oldValue != itemSpacing {
+            if oldValue != configuration {
                 invalidateLayout()
             }
         }
     }
 
-    var itemPositioning: SPTabBar.ItemPositioning = .automatic {
-        didSet {
-            if oldValue != itemPositioning {
-                invalidateLayout()
-            }
-        }
+    private var itemSpacing: CGFloat {
+        configuration.itemSpacing
     }
 
-    var minimumItemWidth: CGFloat = 0 {
-        didSet {
-            if oldValue != minimumItemWidth {
-                invalidateLayout()
-            }
-        }
-    }
-
-    var contentInsets: NSDirectionalEdgeInsets = .zero {
-        didSet {
-            if oldValue != contentInsets {
-                invalidateLayout()
-            }
-        }
+    private var contentInsets: NSDirectionalEdgeInsets {
+        configuration.contentInsets
     }
 
     var isRightToLeft = false {
@@ -79,8 +63,7 @@ final class SPTabBarLayout: UICollectionViewLayout {
             widths,
             viewportWidth: max(0, size.width - contentInsets.leading - contentInsets.trailing),
             itemSpacing: itemSpacing,
-            itemPositioning: itemPositioning,
-            minimumItemWidth: minimumItemWidth
+            configuration: configuration
         )
         let left = isRightToLeft ? contentInsets.trailing : contentInsets.leading
         let right = isRightToLeft ? contentInsets.leading : contentInsets.trailing
@@ -91,7 +74,7 @@ final class SPTabBarLayout: UICollectionViewLayout {
             resolved,
             viewportWidth: max(0, size.width - left - right),
             itemSpacing: itemSpacing,
-            itemPositioning: itemPositioning,
+            alignment: configuration.alignment,
             isRightToLeft: isRightToLeft
         )
         frames = (0 ..< itemCount).map { visualIndex in
@@ -108,19 +91,22 @@ final class SPTabBarLayout: UICollectionViewLayout {
         _ widths: [CGFloat],
         viewportWidth: CGFloat,
         itemSpacing: CGFloat = 0,
-        itemPositioning: SPTabBar.ItemPositioning = .automatic,
-        minimumItemWidth: CGFloat = 0
+        configuration: SPTabBarLayoutConfiguration
     ) -> [CGFloat] {
         guard !widths.isEmpty else {
             return []
         }
         let availableWidth = max(0, viewportWidth - CGFloat(widths.count - 1) * itemSpacing)
-        switch itemPositioning {
-        case .fill:
+        let minimumItemWidth = configuration.minimumItemWidth
+        let widths = widths.map { max(minimumItemWidth, $0) }
+        switch configuration.itemSizing {
+        case .equal:
             return Array(repeating: max(minimumItemWidth, availableWidth / CGFloat(widths.count)), count: widths.count)
-        case .centered, .leading:
-            return widths
-        case .automatic:
+        case .content:
+            return widths.map { min($0, configuration.maximumItemWidth ?? $0) }
+        case let .fixed(width):
+            return Array(repeating: max(minimumItemWidth, width), count: widths.count)
+        case .balanced:
             break
         }
         guard widths.reduce(0, +) < availableWidth else {
@@ -145,20 +131,20 @@ final class SPTabBarLayout: UICollectionViewLayout {
         _ widths: [CGFloat],
         viewportWidth: CGFloat,
         itemSpacing: CGFloat,
-        itemPositioning: SPTabBar.ItemPositioning,
+        alignment: SPTabBarLayoutConfiguration.Alignment,
         isRightToLeft: Bool
     ) -> CGFloat {
         guard !widths.isEmpty else {
             return 0
         }
         let remaining = max(0, viewportWidth - widths.reduce(0, +) - CGFloat(widths.count - 1) * itemSpacing)
-        switch itemPositioning {
-        case .centered:
+        switch alignment {
+        case .center:
             return remaining / 2
         case .leading:
             return isRightToLeft ? remaining : 0
-        case .automatic, .fill:
-            return 0
+        case .trailing:
+            return isRightToLeft ? 0 : remaining
         }
     }
 
