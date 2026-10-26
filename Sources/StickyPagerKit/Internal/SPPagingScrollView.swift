@@ -113,7 +113,10 @@ internal final class SPPageRecord {
     let controller: UIViewController
     let safeArea: SPPageSafeArea
     var binding: SPScrollBinding?
-    weak var explicitScrollView: UIScrollView?
+    var isPreparingBinding = true
+    var isBinding = false
+    var needsBinding = false
+    var scrollViewSelection = SPScrollViewBindingSelection(.automatic)
     var access: UInt = 0
     init(identifier: AnyHashable, controller: UIViewController) {
         self.identifier = identifier

@@ -65,6 +65,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var identifiers: [AnyHashable] = []
     private var items: [SPTabBarItem] = []
     private var positions: [AnyHashable: CGFloat] = [:]
+    // 运行时选择按稳定标识保存，缓存淘汰不恢复自动发现；删除标识才清除。
+    private var scrollViewSelections: [AnyHashable: SPScrollViewBindingSelection] = [:]
     private let headerHost = UIScrollView()
     private var storedHeaderView: UIView?
     private var storedHeaderController: UIViewController?
@@ -374,6 +376,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             removeRecord(id)
         }
         positions = positions.filter { newIDs.contains($0.key) }
+        scrollViewSelections = scrollViewSelections.filter { newIDs.contains($0.key) }
         identifiers = newIDs
         items = newItems
         selectedIndex = next
@@ -430,18 +433,35 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     /// 指定页面内的滚动视图；nil 恢复自动发现。视图必须属于该页面视图树。
     public func setScrollView(_ scrollView: UIScrollView?, forPageAt index: Int) {
-        guard let record = loadPage(index) else {
+        setScrollViewBinding(scrollView.map(SPScrollViewBinding.explicit) ?? .automatic, forPageAt: index)
+    }
+
+    /// 设置页面绑定选择；未加载页面在首次绑定前应用。越界或外部视图请求被忽略。
+    /// 选择按页面标识保留，删除标识时清除。显式列表弱引用失效后不会回退自动发现。
+    public func setScrollViewBinding(_ selection: SPScrollViewBinding, forPageAt index: Int) {
+        guard identifiers.indices.contains(index) else {
             return
         }
-        if let scrollView,
-           !scrollView.isDescendant(of: record.controller.view) && scrollView !== record.controller.view {
+        let wasLoaded = records[identifiers[index]] != nil
+        guard let record = loadPage(index, initialBindingSelection: selection), wasLoaded else {
+            // 新页面已在首次绑定前应用请求；不能再覆盖加载回调中更新的选择。
             return
         }
-        record.explicitScrollView = scrollView
+        if case let .explicit(scroll) = selection,
+           scroll !== record.controller.view, !scroll.isDescendant(of: record.controller.view) {
+            return
+        }
+        let stored = SPScrollViewBindingSelection(selection)
+        scrollViewSelections[record.identifier] = stored
+        record.scrollViewSelection = stored
+        // 即使新旧均没有绑定，改变选择也应废弃原来的正文兜底拖动。
+        if record === currentRecord {
+            stopAnimation()
+        }
         bind(record)
     }
 
-    /// 页面异步创建或替换视图后调用。显式指定仍然有效时优先使用它。
+    /// 页面异步创建或替换视图后调用。不改变绑定选择；显式列表失效时保持未绑定。
     public func rediscoverScrollView(forPageAt index: Int) {
         guard let record = loadPage(index) else {
             return
@@ -577,7 +597,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         delegate?.pageViewController(self, didChangeHeaderState: state, progress: progress)
     }
 
-    @discardableResult private func loadPage(_ index: Int) -> SPPageRecord? {
+    @discardableResult private func loadPage(
+        _ index: Int,
+        initialBindingSelection: SPScrollViewBinding? = nil
+    ) -> SPPageRecord? {
         guard identifiers.indices.contains(index) else {
             return nil
         }
@@ -593,10 +616,43 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         let record = SPPageRecord(identifier: id, controller: controller)
         record.access = accessCounter
         records[id] = record
+        let selectionBeforeLoading = scrollViewSelections[id]
         addChild(controller)
-        pagingView.addSubview(controller.view)
-        layoutPage(record, at: index, layout: effectiveLayout)
+        let root = controller.view!
+        guard records[id] === record, let layoutIndex = identifiers.firstIndex(of: id) else {
+            return nil
+        }
+        // viewDidLoad 等加载回调中的选择更新比外层初始请求更新，不可被覆盖。
+        if let selection = initialBindingSelection, scrollViewSelections[id] === selectionBeforeLoading {
+            if case let .explicit(scroll) = selection,
+               scroll !== controller.view, !scroll.isDescendant(of: controller.view) {
+                // 非页面视图不改变原配置。
+            } else {
+                scrollViewSelections[id] = SPScrollViewBindingSelection(selection)
+            }
+        }
+        pagingView.addSubview(root)
+        layoutPage(record, at: layoutIndex, layout: effectiveLayout)
+        guard records[id] === record else {
+            return nil
+        }
         controller.didMove(toParent: self)
+        // 挂载回调可重排或移除页面：只查询仍有效的记录，并传递当前快照中的索引。
+        guard records[id] === record, let bindingIndex = identifiers.firstIndex(of: id) else {
+            return nil
+        }
+        if let stored = scrollViewSelections[id] {
+            record.scrollViewSelection = stored
+        } else {
+            let proposed = dataSource?
+                .pageViewController(self, scrollViewBindingFor: controller, at: bindingIndex) ?? .automatic
+            // 数据源回调允许业务显式设置选择，回调返回值不能覆盖更新后的运行时意图。
+            record.scrollViewSelection = scrollViewSelections[id] ?? SPScrollViewBindingSelection(proposed)
+        }
+        guard records[id] === record else {
+            return nil
+        }
+        record.isPreparingBinding = false
         bind(record)
         // 首次绑定后同步页面位移和滚动 inset；根视图与标签栏顶部对齐，内容避让标签栏。
         layoutHeader()
@@ -604,25 +660,51 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     private func bind(_ record: SPPageRecord) {
+        // inset 还原和布局可同步回调业务。等待当前解绑完成后再应用最新选择，
+        // 避免新绑定读取旧贡献，或旧操作覆盖回调中设置的选择。
+        record.needsBinding = true
+        guard !record.isPreparingBinding, !record.isBinding else {
+            return
+        }
+        record.isBinding = true
+        defer { record.isBinding = false }
+        while record.needsBinding, records[record.identifier] === record {
+            record.needsBinding = false
+            applyBinding(record)
+        }
+    }
+
+    private func applyBinding(_ record: SPPageRecord) {
         let root = record.controller.view!
-        let explicit = record.explicitScrollView
-        let validExplicit = explicit.flatMap { $0 === root || $0.isDescendant(of: root) ? $0 : nil }
-        let scroll = validExplicit ?? SPScrollViewDiscovery.find(in: root)
+        let scroll: UIScrollView?
+        switch record.scrollViewSelection.mode {
+        case .automatic:
+            scroll = SPScrollViewDiscovery.find(in: root)
+        case .unbound:
+            scroll = nil
+        case .explicit:
+            scroll = record.scrollViewSelection.scrollView.flatMap {
+                $0 === root || $0.isDescendant(of: root) ? $0 : nil
+            }
+        }
         if scroll === record.binding?.scrollView {
             return
         }
         if record === currentRecord {
             stopAnimation()
         }
-        record.binding?.detach()
+        let previous = record.binding
+        record.binding = nil
+        previous?.detach()
+        guard !record.needsBinding, records[record.identifier] === record else {
+            return
+        }
         if positions[record.identifier] == nil, let scroll {
             // 尚未叠加框架滚动 inset：此时归一化位移就是业务正文位置。
             // 已有记录（包括 0）继续按页面标识恢复，不被替换列表的初始值覆盖。
             positions[record.identifier] = max(0, scroll.contentOffset.y + scroll.adjustedContentInset.top)
         }
         record.binding = scroll.map(SPScrollBinding.init)
-        record.binding?.indicatorsHiddenForPaging = isPaging && scrollIndicatorVisibilityPolicy == .hideDuringPaging
-        record.binding?.setRange(effectiveLayout.collapseRange)
         record.binding?.onScrollDisabled = { [weak self, weak record] binding in
             guard let self, let record, record === self.currentRecord, record.binding === binding else {
                 return
@@ -648,6 +730,11 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             }
             self.stopAnimation()
             self.consume(binding)
+        }
+        record.binding?.indicatorsHiddenForPaging = isPaging && scrollIndicatorVisibilityPolicy == .hideDuringPaging
+        record.binding?.setRange(effectiveLayout.collapseRange)
+        guard !record.needsBinding, records[record.identifier] === record else {
+            return
         }
         layoutHeader()
         align(record)
@@ -921,7 +1008,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         if let dragPan, dragPan !== pan {
             return false
         }
-        if gestureRecognizer === plainPagePan && record.binding != nil {
+        if gestureRecognizer === plainPagePan &&
+            (record.binding != nil || record.scrollViewSelection.mode != .automatic) {
             return false
         }
         if record.binding == nil && effectiveLayout.collapseRange <= 0 {

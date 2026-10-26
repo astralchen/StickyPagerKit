@@ -469,6 +469,17 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         }
     }
 
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        scrollViewBindingFor viewController: UIViewController,
+        at index: Int
+    ) -> SPScrollViewBinding {
+        if ProcessInfo.processInfo.arguments.contains("--unbound-list-regression"), pageIDs[index] == "list" {
+            return .unbound
+        }
+        return .automatic
+    }
+
     func pageViewController(_ pageViewController: SPPageViewController, didSelectPageAt index: Int) {
         (view.window as? PagingTraceWindow)?.recordSelection(index)
         updateStatus()

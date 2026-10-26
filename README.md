@@ -131,7 +131,8 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 - `maximumCachedPageCount`：默认 3，最小有效值为 1；转场期间保护当前页、目标页及最多两个可见中间页，允许暂时超过限制。
 - `reloadData()`：同步读取完整快照，稳定标识相同则复用已有控制器。
 - `setScrollView(_:forPageAt:)`：指定页面视图树内的滚动视图；nil 恢复自动发现。
-- `rediscoverScrollView(forPageAt:)`：内容页异步创建或替换滚动视图后调用。
+- `setScrollViewBinding(_:forPageAt:)`：设置 `.automatic`、`.unbound` 或 `.explicit(scrollView)`；未加载页也在首次绑定前应用。
+- `rediscoverScrollView(forPageAt:)`：按已有选择重新检查列表，不取消明确不绑定或显式指定。
 
 ### 标签内容、选择与外观
 
@@ -659,7 +660,34 @@ Demo 的 Header 进度由独立状态保存，不通过无障碍诊断 getter �
 
 检查根视图并递归遍历子视图，排除隐藏、透明、不可交互、禁用滚动的子树；优先具有纵向滚动证据的候选，其次是短列表及空列表，排除明显只横向滚动的视图。同级候选按可见面积和遍历顺序排序。
 
-复杂页面应显式指定一个主要纵向滚动视图，框架不同时协调同页多个独立纵向列表。框架保留业务 `UIScrollViewDelegate` 和原有手势 delegate。没有滚动视图的页面保留共享 Header 状态，并支持在内容区、Header 和标签栏上下拖动以折叠或展开 Header，不额外包装滚动容器。此时纵向位移仅作用于 Header 折叠范围，松手后惯性运动在边界停止；内容区的按钮、输入控件和独立手势区域优先处理自身操作。异步创建滚动视图并重新发现后，自动恢复由列表驱动的联动。
+复杂页面应显式指定一个主要纵向滚动视图，或明确选择不绑定。框架不同时协调同页多个独立纵向列表，保留业务 `UIScrollViewDelegate` 和原有手势 delegate。
+
+| `SPScrollViewBinding` | 行为 |
+| --- | --- |
+| `.automatic` | 默认值，沿用上述自动发现规则。 |
+| `.unbound` | 不发现、不绑定业务列表；重新发现、切页和布局均不自动开启绑定。 |
+| `.explicit(scrollView)` | 仅绑定页面视图树中的指定对象。对象移出视图树或释放后，下一次重新发现保持未绑定，不改选其他列表；原对象重新有效后可再次发现并绑定。 |
+
+数据源可在首次绑定前为新控制器提供选择；方法有默认实现，已有接入无需修改：
+
+```swift
+func pageViewController(
+    _ pageViewController: SPPageViewController,
+    scrollViewBindingFor viewController: UIViewController,
+    at index: Int
+) -> SPScrollViewBinding {
+    // 此页面只使用容器布局和分页，内部列表完全独立滚动。
+    .unbound
+}
+```
+
+运行时使用 `setScrollViewBinding(.unbound, forPageAt: index)` 退出绑定，使用 `.explicit(list)` 指定列表；原有 `setScrollView(list, forPageAt: index)` 等价于显式指定，`setScrollView(nil, forPageAt: index)` 仍恢复自动发现。运行时选择优先于数据源，并按稳定页面标识保留，重排、同标识 reload 和缓存淘汰不会丢失；删除标识后清除。未加载页面也先应用选择再绑定，不会先自动接管列表再解绑。运行时传入页面视图树之外的对象会被忽略。
+
+数据源选择在每次创建页面控制器时查询，同标识 reload 复用控制器时不重查。加载及挂载回调中更新的运行时选择优先于外层初始请求；挂载期间重排页面时，查询使用稳定标识对应的当前索引，已移除的页面不再查询或绑定。没有运行时覆盖时，缓存重建会为新控制器查询选择，适合返回新页面自己的显式列表。框架保存显式对象的弱引用；运行时显式选择在缓存重建后若已失效，保持未绑定，需业务重新指定或通过 nil 恢复自动发现。数据源返回不属于页面的显式对象也不会触发自动发现。异步替换显式列表后，应重新 `setScrollView` 指定新对象；只有自动模式才通过 `rediscoverScrollView` 自动寻找替代列表。
+
+明确不绑定或显式对象失效时，框架不为列表创建绑定，不直接叠加滚动 inset、驱动正文或恢复正文位置；退出已有绑定时移除框架贡献并按原解绑坐标契约保留正文位移。页面根视图布局、附加安全区域及横向分页继续生效，因此 UIKit 仍可能因布局变化调整列表几何。Header／标签栏拖动只折叠或展开 Header，正文区域不启用框架的普通页面兜底拖动，业务列表仍可独立滚动。重新绑定时沿用已有页面位置历史；无历史时采用业务当前正文位置。
+
+自动模式下没有发现滚动视图的普通页面继续保留共享 Header 状态，并支持在内容区、Header 和标签栏上下拖动以折叠或展开 Header，不额外包装滚动容器。此时纵向位移仅作用于 Header 折叠范围，松手后惯性运动在边界停止；内容区的按钮、输入控件和独立手势区域优先处理自身操作。异步创建滚动视图并重新发现后，自动恢复由列表驱动的联动。
 
 ### 下拉刷新
 

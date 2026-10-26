@@ -1,5 +1,42 @@
 # StickyPagerKit 验证记录
 
+验证日期：2026-10-15 至 2026-10-26。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+
+## 2026-10-26：绑定选择提交前的远程整合验证
+
+推送前发现远程 `main` 已新增 `7602c11`、`bd67df4`，将本次绑定选择修改重放至远程最新版本。唯一文本冲突位于本文件，保留双方记录；容器、分页及 Demo 自动合并后重新验证，整合前的结果不作为合并后终态证据。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。库测试使用仓库 UIKit application host 脚本；Demo UI 使用官方 Xcode MCP 的 `StickyPagerDemo` scheme。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [整合后库专项](Results/20261026-binding-selection-integration-focused/summary.json) | **157 通过、0 失败、0 跳过** | 完整容器测试类、`SPPageViewportTests`、`SPPagingScrollViewTests`；四类运行时诊断均为 0。 |
+| [整合后首轮 UI](Results/20261026-binding-selection-integration-ui/summary.json) | **5 项用例失败，另有 1 条 runner 错误** | 均在点击标签前失败；结果包另记录 runner code 75，不省略该错误。截图、日志与结果包保留。 |
+| [修正夹具后 UI](Results/20261026-binding-selection-integration-ui-fixed/summary.json) | **5 通过、0 失败、0 跳过** | 不绑定列表独立滚动及分页、普通页面拖动、默认 Header／列表联动、快速分页选择、状态栏回顶部；四类运行时诊断均为 0，无运行时警告，`sourceChangedSinceRun=[]`。 |
+
+首轮 UI 失败源于远程新增的工具栏遮挡计算与 iOS 27 AX 几何不兼容：标签区域为 `(0, 220, 440, 44)`，浮动工具栏 AX 宿主却为整窗 `(0, 0, 440, 956)`，使可点击高度被裁为 0。单项日志探针复现同一失败并确认该几何，保存在首轮目录的 `toolbar-probe/`；交付前已移除探针。测试辅助方法不再把覆盖整窗的透明工具栏宿主视作实际遮挡，普通工具栏仍按原规则裁切；真实点击、选中及行为断言保持不变，未改框架绑定实现。
+
+库专项之后仅修改 Demo UI 测试辅助方法；该文件是库摘要中唯一的 `sourceChangedSinceRun` 项，不属于库编译目标。框架及库测试源码与执行时一致，最终 UI 对修改后的源码重新执行。7 个相关 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。
+
+本轮未重跑完整库／Demo 套件，未执行 Release、Swift 6.3、iPad、旧版 iOS 或真机验证。远程历史记录中的 iPad 分屏终态偏移、Header 偶发吸顶及完整库 appearance 告警仍按原状态保留，不因本轮专项通过而认定已解决。
+
+## 2026-10-26：绑定选择与首次生效的复查修复
+
+复查发现并修复两类首次加载重入问题：`viewDidLoad` 中更新的运行时选择被外层初始请求覆盖；挂载回调重排／删除页面后，首次数据源查询仍使用旧索引或已移除控制器。初始请求仅在加载期间没有新选择时应用；各挂载阶段校验记录仍有效，查询索引按稳定标识从当前快照获取。保留三态 API、默认发现算法、nil 恢复自动发现以及既有布局、分页和位置恢复规则。README 补充回调契约。
+
+新增 3 项回归：加载回调中的最新选择保留，挂载回调重排后的当前索引，加载／布局／挂载三个阶段删除页面后不再查询或重新挂载。修复前 3 项均失败，保留对应源码差异和测试证据。保留上一轮所有未提交修改。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 Demo scheme 和目标；库测试使用仓库 UIKit application host 脚本，UI 使用官方 MCP。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前基线](Results/20261026-binding-selection-review-baseline/summary.json) | **0 通过、3 失败** | 复现新选择被覆盖、索引仍为 2 而非重排后的 0、已删除页仍收到首次查询。删除用例在修复后扩展为三个生命周期阶段。 |
+| [修复后容器回归](Results/20261026-binding-selection-review-focused/summary.json) | **140 通过、0 失败、0 跳过** | 包含全部绑定选择及容器生命周期用例；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [修复后 UI 回归](Results/20261026-binding-selection-review-ui/summary.json) | **5 通过、0 失败、0 跳过** | 不绑定列表、普通页面拖动、默认 Header／列表联动、分页快速选择、状态栏回顶部；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0，无运行时警告。 |
+
+全部 7 个修改／新增 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261026-binding-selection-review-ui/swiftformat-lint.txt)，`git diff --check` 通过。此次执行受影响的完整容器测试类及 5 项 UI 回归；未重跑全部库／Demo 测试套件，也未执行 Release、Swift 6.3 工具链、iPad、iOS 15 或真机验证。上一轮 283 项完整库结果保留为历史证据，不计为本轮执行。没有提交或推送。
+
+
 ## 2026-10-25：三类问题分开定位与状态查询修正
 
 本轮以 `Results/20261025-three-paths-baseline` 保存的入口源码为基准，保留之前的用户修改和所有历史失败。没有恢复空闲期行几何拦截，没有关闭行高估算，没有放宽 0.5／1 pt 位置容差或 5／6 秒状态等待。
@@ -493,6 +530,28 @@ Demo 的“页面 → 长短标题演示”提供“推荐”“编辑精选与�
 | [命令行 UI](Results/20261024-tab-insets-ui-cli/summary.json) | **3 通过、0 失败、0 跳过** | 标签居中与首尾定位、横向滚动保持页面、按住按钮后的拖动、RTL 分页；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
 
 8 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-tab-insets-library/swiftformat-lint.txt)，`git diff --check` 通过。本轮未执行完整 Demo 测试套件、Release、iPad、旋转、iOS 15 或真机验证。没有提交或推送。
+
+## 2026-10-24：页面滚动绑定选择的职责收敛
+
+新增 `SPScrollViewBinding` 的 `.automatic`、`.unbound` 和 `.explicit` 三种选择，以及数据源首次绑定前的配置入口和运行时设置入口。保留默认自动发现与 `setScrollView(nil, ...)` 恢复自动发现的契约。运行时选择按页面标识保存，缓存淘汰不丢失，删除标识后清除；显式对象使用弱引用，失效后不回退到其他候选。自动发现算法未调整。
+
+明确不绑定或显式对象失效后，不接管业务列表滚动；保留页面布局、安全区域和分页，Header／标签栏仅驱动 Header，正文不启用普通页面兜底拖动。首次布局中的重新发现等待选择确定；解绑及 inset 同步回调中改变选择时串行应用最新请求，避免恢复旧选择、重复叠加贡献或丢失滚动回调。
+
+新增 12 项库测试覆盖根／子列表首次不绑定、未加载页面运行时配置、nil 恢复自动、显式失效与恢复、缓存释放／重建、稳定标识重排和删除、外部对象拒绝，以及首次布局、数据源和 inset 回调重入。新增 Demo 真实触摸测试检查独立列表滚动、Header／标签栏折叠和横向分页。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认 Demo scheme 与目标；库测试通过仓库 UIKit application host 脚本运行，UI 使用官方 MCP。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [首轮聚焦](Results/20261024-binding-selection-focused-retry/summary.json) | **131 通过、3 失败** | 两项释放测试未排空 autorelease pool，一项把 UIKit 布局的 offset 通知计为框架定位；保留当时源码差异和结果。首次沙箱运行未进入测试，CoreSimulator 访问失败日志另保留于 `20261024-binding-selection-focused/host-build.log`，随后获准访问服务完成运行。 |
+| [第二轮聚焦](Results/20261024-binding-selection-final-focused/summary.json) | **135 通过、1 失败** | 释放时机修正及同步回调测试通过；offset 通知断言仍需区分同值通知和横向布局调整。 |
+| [中间完整库](Results/20261024-binding-selection-final-library/summary.json) | **280 通过、1 失败** | 剩余失败来自 UIKit 横向 inset 对 offset.x 的调整；测试最终只检查正文纵向位置变化。此后补充两项回调测试并修复实现，不作为终态验收。 |
+| [聚焦边界](Results/20261024-binding-selection-boundaries/summary.json) | **5 通过、0 失败、0 跳过** | 首次不绑定、首次布局重新发现、加载回调覆盖、inset 重复选择和解绑重入均通过。之后仅修正测试闭包弱引用警告，由最终完整库覆盖。 |
+| [最终完整库](Results/20261024-binding-selection-verified-library/summary.json) | **283 通过、0 失败、0 跳过** | 包含全部 12 项新增回归，`sourceChangedSinceRun=[]`，三类运行时诊断均为 0。 |
+| [最终 UI 回归](Results/20261024-binding-selection-ui/summary.json) | **5 通过、0 失败、0 跳过** | 不绑定列表独立滚动与分页、普通页面拖动、默认 Header／列表联动、分页快速选择、状态栏回顶部均通过；`sourceChangedSinceRun=[]`，三类运行时诊断均为 0，无运行时警告。 |
+
+7 个修改／新增的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261024-binding-selection-ui/swiftformat-lint.txt)，`git diff --check` 通过。保留既有测试中的 iOS 17 trait API 弃用警告；本次新增闭包捕获警告已修正。未执行完整 Demo 测试套件、Release、Swift 6.3 工具链、iPad、iOS 15 或真机验证。没有提交或推送。
+
 
 ## 2026-10-24：内部滚动宿主退出状态栏回顶部
 

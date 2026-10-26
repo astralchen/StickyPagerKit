@@ -8,6 +8,9 @@ final class StickyPagerDemoUITests: XCTestCase {
         UITestOrientation.set(.portrait)
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
+        if name.contains("testUnboundListScrollsIndependentlyAndPreservesPaging") {
+            app.launchArguments.append("--unbound-list-regression")
+        }
         if name.contains("testDisabledListStopsHeaderAndTabDraggingButAllowsPaging") {
             app.launchArguments.append("--disabled-list-regression")
         }
@@ -216,10 +219,16 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     /// 排除窗口外及工具栏遮挡的区域，保证最大字号横屏时仍发送真实标签触摸。
     private func tabTouchViewport(_ tabs: XCUIElement) -> CGRect {
-        var viewport = tabs.frame.intersection(app.windows.firstMatch.frame)
+        let windowFrame = app.windows.firstMatch.frame
+        var viewport = tabs.frame.intersection(windowFrame)
         let toolbar = app.toolbars.firstMatch
-        if toolbar.exists, toolbar.frame.intersects(viewport) {
-            viewport.size.height = max(0, toolbar.frame.minY - viewport.minY)
+        if toolbar.exists {
+            let toolbarFrame = toolbar.frame
+            // iOS 27 的浮动工具栏 AX 宿主可覆盖整窗，透明宿主不能算作实际遮挡。
+            // 此时仍发送真实标签触摸，由调用方的选择／行为断言验证命中结果。
+            if !toolbarFrame.contains(windowFrame), toolbarFrame.intersects(viewport) {
+                viewport.size.height = max(0, toolbarFrame.minY - viewport.minY)
+            }
         }
         return viewport
     }
@@ -1907,6 +1916,32 @@ final class StickyPagerDemoUITests: XCTestCase {
         expect("page=empty")
         XCTAssertTrue(tab.isSelected)
         select(1); expect("page=list")
+    }
+
+    func testUnboundListScrollsIndependentlyAndPreservesPaging() throws {
+        select(1); expect("page=list"); expect("progress=0.00")
+        let table = app.tables["demo.list"]
+        let initial = try XCTUnwrap(indicatorGeometry()["offsetY"])
+        table.swipeUp()
+        expect("progress=0.00")
+        let scrolled = try XCTUnwrap(indicatorGeometry()["offsetY"])
+        XCTAssertGreaterThan(scrolled, initial + 50)
+        // Header 手势只折叠 Header，不继续推进业务正文。
+        collapseHeaderByTouch()
+        expect("progress=1.00")
+        XCTAssertEqual(try XCTUnwrap(indicatorGeometry()["offsetY"]), scrolled, accuracy: 1)
+        table.swipeLeft()
+        expect("page=short")
+        select(1); expect("page=list")
+        XCTAssertEqual(try XCTUnwrap(indicatorGeometry()["offsetY"]), scrolled, accuracy: 1)
+        let tab = app.buttons["sp.tab.1"]
+        let start = tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: 0, dy: app.windows.firstMatch.frame.height * 0.25))
+        )
+        expect("progress=0.00")
+        XCTAssertEqual(try XCTUnwrap(indicatorGeometry()["offsetY"]), scrolled, accuracy: 1)
     }
 
     func testDisabledListStopsHeaderAndTabDraggingButAllowsPaging() throws {

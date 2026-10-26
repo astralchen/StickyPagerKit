@@ -23,7 +23,9 @@ final class StickyPagerKitTests: XCTestCase {
         rootScroll: Bool = false,
         initialPositions: [Int: CGFloat] = [:],
         initialAutomaticInsets: Bool = false,
-        hasHeader: Bool = true
+        hasHeader: Bool = true,
+        bindingSelection: ((UIViewController, Int) -> SPScrollViewBinding)? = nil,
+        preparePage: ((UIViewController) -> Void)? = nil
     ) -> SPPageViewController {
         window?.closeForTesting()
         let source = FixtureSource(ids: ids, plain: plain, contentHeight: height)
@@ -31,6 +33,8 @@ final class StickyPagerKitTests: XCTestCase {
         source.rootScroll = rootScroll
         source.initialPositions = initialPositions
         source.initialAutomaticInsets = initialAutomaticInsets
+        source.bindingSelection = bindingSelection
+        source.preparePage = preparePage
         let pager = SPPageViewController()
         pager.dataSource = source
         if hasHeader {
@@ -56,6 +60,362 @@ final class StickyPagerKitTests: XCTestCase {
         pager.layout.headerHeight = 240 + pager.view.safeAreaInsets.top
         self.window = window; self.source = source; self.pager = pager
         return pager
+    }
+
+    func testInitialUnboundSelectionNeverWritesBusinessScrollInsetsOrOffset() {
+        for rootScroll in [false, true] {
+            var observations: [NSKeyValueObservation] = []
+            var insetWrites = 0
+            var offsetWrites = 0
+            let pager = mount(rootScroll: rootScroll, bindingSelection: { controller, _ in
+                let scroll = (controller as! FixturePage).scroll!
+                scroll.contentInsetAdjustmentBehavior = .never
+                scroll.contentInset = UIEdgeInsets(top: 13, left: 2, bottom: 17, right: 3)
+                scroll.contentOffset.y = 123
+                observations = [
+                    scroll.observe(\.contentInset) { _, _ in MainActor.assumeIsolated { insetWrites += 1 } },
+                    scroll.observe(\.contentOffset, options: [.old, .new]) { _, change in
+                        // UIKit 布局可发送同值通知或调整横向 inset，只统计正文纵向位置变化。
+                        guard change.oldValue?.y != change.newValue?.y else {
+                            return
+                        }
+                        MainActor.assumeIsolated { offsetWrites += 1 }
+                    }
+                ]
+                return .unbound
+            })
+            let page = pager.records[0]!.controller as! FixturePage
+            XCTAssertNil(pager.currentScrollView)
+            XCTAssertEqual(insetWrites, 0)
+            XCTAssertEqual(offsetWrites, 0)
+            XCTAssertEqual(page.scroll!.contentOffset.y, 123)
+            XCTAssertEqual(page.additionalSafeAreaInsets.top, pager.layout.tabBarHeight)
+            pager.rediscoverScrollView(forPageAt: 0)
+            XCTAssertNil(pager.currentScrollView)
+            observations.forEach { $0.invalidate() }
+        }
+    }
+
+    func testRediscoveryDuringInitialLayoutWaitsForDataSourceSelection() {
+        var observation: NSKeyValueObservation?
+        var writes = 0
+        var rediscovered = false
+        let pager = mount(bindingSelection: { _, _ in .unbound }, preparePage: { controller in
+            let page = controller as! FixturePage
+            page.loadViewIfNeeded()
+            page.scroll!.contentInsetAdjustmentBehavior = .never
+            observation = page.scroll!.observe(\.contentInset) { _, _ in
+                MainActor.assumeIsolated { writes += 1 }
+            }
+            page.onLayout = { [weak page] in
+                guard !rediscovered, let pager = page?.parent as? SPPageViewController else {
+                    return
+                }
+                rediscovered = true
+                pager.rediscoverScrollView(forPageAt: 0)
+            }
+        })
+        XCTAssertTrue(rediscovered)
+        XCTAssertNil(pager.currentScrollView)
+        XCTAssertEqual(writes, 0, "布局回调中的重新发现应等待首次绑定选择确定")
+        observation?.invalidate()
+    }
+
+    func testRuntimeUnboundAppliesBeforeFirstBindingAndSurvivesCacheAndReorder() {
+        let pager = mount()
+        var observation: NSKeyValueObservation?
+        var writes = 0
+        var queries = 0
+        source!.preparePage = { controller in
+            controller.loadViewIfNeeded()
+            let scroll = (controller as! FixturePage).scroll!
+            observation = scroll.observe(\.contentInset) { _, _ in MainActor.assumeIsolated { writes += 1 } }
+        }
+        source!.bindingSelection = { _, _ in
+            queries += 1
+            return .automatic
+        }
+        // 页面 2 尚未加载。运行时选择必须覆盖数据源，不能先自动绑定再解绑。
+        pager.setScrollViewBinding(.unbound, forPageAt: 2)
+        XCTAssertNil(pager.records[2]!.binding)
+        XCTAssertEqual((pager.records[2]!.controller as! FixturePage).scroll!.contentInset, .zero)
+        XCTAssertEqual(queries, 0, "运行时覆盖存在时不应查询数据源选择")
+        XCTAssertEqual(writes, 0, "不能先自动绑定再解绑")
+        observation?.invalidate()
+        source!.preparePage = nil
+        pager.maximumCachedPageCount = 1
+        pager.setSelectedIndex(2, animated: false)
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertNil(pager.records[2])
+        source!.ids = [2, 0, 1, 3]
+        pager.reloadData()
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertNil(pager.currentScrollView)
+        pager.rediscoverScrollView(forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+        // 删除标识清除运行时选择；重新加入时采用数据源默认选择。
+        source!.bindingSelection = nil
+        source!.ids = [0, 1, 3]
+        pager.reloadData()
+        source!.ids = [2, 0, 1, 3]
+        pager.reloadData()
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertNotNil(pager.currentScrollView)
+    }
+
+    func testUnboundDetachesAndNilRestoresAutomaticDiscovery() {
+        let pager = mount()
+        let scroll = pager.currentScrollView!
+        let delegate = ScrollDelegate()
+        scroll.delegate = delegate
+        scroll.contentOffset.y = 320 - scroll.adjustedContentInset.top
+        pager.setScrollViewBinding(.unbound, forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+        XCTAssertEqual(scroll.contentInset, .zero)
+        XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 120, accuracy: 0.01)
+        XCTAssertTrue(scroll.delegate === delegate)
+        let offset = scroll.contentOffset
+        let pan = FixturePan()
+        pan.send(to: pager, state: .began)
+        pan.send(to: pager, state: .changed, y: 70)
+        pan.send(to: pager, state: .cancelled)
+        XCTAssertEqual(pager.collapseOffset, 130, accuracy: 0.01)
+        XCTAssertEqual(scroll.contentOffset, offset)
+        pager.setSelectedIndex(1, animated: false)
+        pager.setSelectedIndex(0, animated: false)
+        pager.reloadData()
+        XCTAssertNil(pager.currentScrollView)
+        pager.setScrollView(nil, forPageAt: 0)
+        XCTAssertTrue(pager.currentScrollView === scroll)
+        XCTAssertTrue(scroll.delegate === delegate)
+    }
+
+    func testInitialExplicitSelectionSkipsOtherCandidateAndInvalidationDoesNotFallback() {
+        var explicit: UIScrollView!
+        var automatic: UIScrollView!
+        var writes = 0
+        var observation: NSKeyValueObservation?
+        let pager = mount(bindingSelection: { controller, _ in
+            automatic = (controller as! FixturePage).scroll!
+            observation = automatic.observe(\.contentInset) { _, _ in MainActor.assumeIsolated { writes += 1 } }
+            explicit = UIScrollView(frame: CGRect(x: 0, y: 0, width: 80, height: 80))
+            controller.view.addSubview(explicit)
+            return .explicit(explicit)
+        })
+        XCTAssertTrue(pager.currentScrollView === explicit)
+        XCTAssertEqual(writes, 0, "不能先绑定排名更高的自动候选")
+        explicit.removeFromSuperview()
+        pager.rediscoverScrollView(forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+        XCTAssertEqual(explicit.contentInset, .zero)
+        pager.rediscoverScrollView(forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+        XCTAssertEqual(writes, 0)
+        // 有效性恢复后仍可绑定原对象；选择不会丢失。
+        pager.records[0]!.controller.view.addSubview(explicit)
+        pager.rediscoverScrollView(forPageAt: 0)
+        XCTAssertTrue(pager.currentScrollView === explicit)
+        observation?.invalidate()
+    }
+
+    func testExpiredExplicitRuntimeChoiceSurvivesCacheWithoutRetainingScrollView() {
+        weak var oldScroll: UIScrollView?
+        autoreleasepool {
+            let pager = mount()
+            oldScroll = pager.currentScrollView
+            pager.setScrollView(oldScroll, forPageAt: 0)
+            pager.maximumCachedPageCount = 1
+            pager.setSelectedIndex(1, animated: false)
+            XCTAssertNil(pager.records[0])
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertNil(oldScroll, "运行时显式选择不得强持有被淘汰页面的列表")
+        let pager = pager!
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertNil(pager.currentScrollView)
+        pager.rediscoverScrollView(forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+        pager.setScrollView(nil, forPageAt: 0)
+        XCTAssertNotNil(pager.currentScrollView)
+    }
+
+    func testDataSourceExplicitChoiceIsQueriedForRecreatedController() {
+        var queries = 0
+        weak var oldScroll: UIScrollView?
+        autoreleasepool {
+            let pager = mount(bindingSelection: { controller, _ in
+                queries += 1
+                return .explicit((controller as! FixturePage).scroll!)
+            })
+            oldScroll = pager.currentScrollView
+            pager.maximumCachedPageCount = 1
+            pager.setSelectedIndex(1, animated: false)
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertNil(oldScroll)
+        let pager = pager!
+        pager.setSelectedIndex(0, animated: false)
+        XCTAssertEqual(queries, 3)
+        XCTAssertTrue(pager.currentScrollView === (pager.records[0]!.controller as! FixturePage).scroll)
+    }
+
+    func testBindingChoiceChangedDuringDetachUsesLatestChoiceAfterRestoration() {
+        let pager = mount()
+        let scroll = InsetCallbackScrollView(frame: pager.records[0]!.controller.view.bounds)
+        scroll.contentSize.height = 1800
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.contentInset.top = 13
+        pager.records[0]!.controller.view.addSubview(scroll)
+        pager.setScrollView(scroll, forPageAt: 0)
+        var callbackCount = 0
+        scroll.onContentInsetChange = { [weak pager, weak scroll] in
+            guard callbackCount == 0, let pager, let scroll else {
+                return
+            }
+            callbackCount += 1
+            pager.setScrollView(scroll, forPageAt: 0)
+        }
+        pager.setScrollViewBinding(.unbound, forPageAt: 0)
+        XCTAssertEqual(callbackCount, 1)
+        XCTAssertTrue(pager.currentScrollView === scroll)
+        scroll.onContentInsetChange = nil
+        // 再次退出后业务基准应恢复，证明重入没有把旧贡献记成业务 inset。
+        pager.setScrollViewBinding(.unbound, forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+        XCTAssertEqual(scroll.contentInset.top, 13, accuracy: 0.01)
+    }
+
+    func testRuntimeSelectionInsideDataSourceCallbackTakesPrecedence() {
+        let pager = mount(bindingSelection: { controller, index in
+            let pager = controller.parent as! SPPageViewController
+            pager.setScrollViewBinding(.unbound, forPageAt: index)
+            return .automatic
+        })
+        XCTAssertNil(pager.currentScrollView)
+        pager.rediscoverScrollView(forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+    }
+
+    func testInitialRuntimeRequestDoesNotOverwriteChoiceFromLayoutCallback() {
+        let pager = mount()
+        source!.preparePage = { [weak pager] controller in
+            let page = controller as! FixturePage
+            page.onLayout = { [weak page, weak pager] in
+                guard let page, page.parent != nil else {
+                    return
+                }
+                page.onLayout = nil
+                pager?.setScrollViewBinding(.unbound, forPageAt: 2)
+            }
+        }
+        pager.setScrollViewBinding(.automatic, forPageAt: 2)
+        XCTAssertNil(pager.records[2]!.binding)
+        XCTAssertEqual(pager.records[2]!.scrollViewSelection.mode, .unbound)
+    }
+
+    func testInitialRequestPreservesNewChoiceFromViewDidLoad() {
+        let pager = mount()
+        source!.preparePage = { [weak pager] controller in
+            (controller as! FixturePage).onLoad = { [weak pager] in
+                pager?.setScrollViewBinding(.unbound, forPageAt: 2)
+            }
+        }
+        pager.setScrollViewBinding(.automatic, forPageAt: 2)
+        XCTAssertEqual(pager.records[2]!.scrollViewSelection.mode, .unbound)
+        XCTAssertNil(pager.records[2]!.binding)
+        pager.rediscoverScrollView(forPageAt: 2)
+        XCTAssertNil(pager.records[2]!.binding)
+    }
+
+    func testFirstBindingQueryUsesCurrentIndexAfterMountCallbackReordersPages() {
+        let pager = mount()
+        let source = source!
+        var queriedIndices: [Int] = []
+        source.bindingSelection = { [weak source] _, index in
+            queriedIndices.append(index)
+            return source?.ids[index] == 2 ? .unbound : .automatic
+        }
+        source.preparePage = { [weak pager, weak source] controller in
+            (controller as! FixturePage).onMount = { [weak pager, weak source] in
+                source?.ids = [2, 0, 1, 3]
+                pager?.reloadData()
+            }
+        }
+        pager.rediscoverScrollView(forPageAt: 2)
+        XCTAssertEqual(queriedIndices, [0])
+        XCTAssertNil(pager.records[2]!.binding)
+        XCTAssertEqual(pager.records[2]!.scrollViewSelection.mode, .unbound)
+    }
+
+    func testRemovedPageDoesNotReceiveFirstBindingQueryAfterMountCallback() {
+        for phase in 0 ..< 3 {
+            let pager = mount()
+            let source = source!
+            var queries = 0
+            weak var removedPage: UIViewController?
+            source.bindingSelection = { _, _ in
+                queries += 1
+                return .automatic
+            }
+            source.preparePage = { [weak pager, weak source] controller in
+                removedPage = controller
+                var removed = false
+                let remove: () -> Void = { [weak pager, weak source] in
+                    guard !removed else {
+                        return
+                    }
+                    removed = true
+                    source?.ids = [0]
+                    pager?.reloadData()
+                }
+                let page = controller as! FixturePage
+                switch phase {
+                case 0: page.onLoad = remove
+                case 1: page.onLayout = remove
+                default: page.onMount = remove
+                }
+            }
+            pager.rediscoverScrollView(forPageAt: 2)
+            XCTAssertEqual(queries, 0)
+            XCTAssertNil(pager.records[2])
+            XCTAssertNil(removedPage?.parent)
+            XCTAssertNil(removedPage?.view.superview)
+        }
+    }
+
+    func testRepeatedSelectionDuringInitialInsetWriteKeepsScrollCallbacks() {
+        let pager = mount()
+        let scroll = InsetCallbackScrollView(frame: pager.records[0]!.controller.view.bounds)
+        scroll.contentSize.height = 1800
+        scroll.contentInsetAdjustmentBehavior = .never
+        pager.records[0]!.controller.view.addSubview(scroll)
+        var repeated = false
+        scroll.onContentInsetChange = { [weak pager, weak scroll] in
+            guard !repeated, let pager, let scroll else {
+                return
+            }
+            repeated = true
+            pager.setScrollView(scroll, forPageAt: 0)
+        }
+        pager.setScrollView(scroll, forPageAt: 0)
+        XCTAssertTrue(repeated)
+        scroll.onContentInsetChange = nil
+        scroll.contentOffset.y = 80 - scroll.adjustedContentInset.top
+        XCTAssertEqual(pager.collapseOffset, 80, accuracy: 0.01)
+    }
+
+    func testInvalidExplicitSelectionDoesNotEnableDiscovery() {
+        let foreign = UIScrollView()
+        let pager = mount(bindingSelection: { _, _ in .explicit(foreign) })
+        XCTAssertNil(pager.currentScrollView)
+        pager.rediscoverScrollView(forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+        pager.setScrollViewBinding(.unbound, forPageAt: 0)
+        pager.setScrollView(foreign, forPageAt: 0)
+        XCTAssertEqual(pager.records[0]!.scrollViewSelection.mode, .unbound)
+        pager.setScrollViewBinding(.automatic, forPageAt: -1)
+        pager.setScrollViewBinding(.automatic, forPageAt: 99)
+        XCTAssertNil(pager.currentScrollView)
     }
 
     func testInternalHostsPreserveBusinessScrollToTopThroughPagingAndDetach() {
@@ -3078,6 +3438,16 @@ final class StickyPagerKitTests: XCTestCase {
 
 @MainActor
 private final class FixtureSource: SPPageViewControllerDataSource {
+    var bindingSelection: ((UIViewController, Int) -> SPScrollViewBinding)?
+    var preparePage: ((UIViewController) -> Void)?
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        scrollViewBindingFor viewController: UIViewController,
+        at index: Int
+    ) -> SPScrollViewBinding {
+        bindingSelection?(viewController, index) ?? .automatic
+    }
+
     var initialPositions: [Int: CGFloat] = [:]
     var initialAutomaticInsets = false
     var mixedLayout: Bool?
@@ -3123,6 +3493,7 @@ private final class FixtureSource: SPPageViewControllerDataSource {
             scroll.contentInset = UIEdgeInsets(top: 13, left: 0, bottom: 17, right: 0)
             scroll.contentOffset.y = position - scroll.adjustedContentInset.top
         }
+        preparePage?(page)
         return page
     }
 }
@@ -3173,6 +3544,21 @@ private final class FixturePage: UIViewController {
     var scroll: UIScrollView?
     var appearCount = 0, disappearCount = 0
     var onDisappear: (() -> Void)?
+    var onLayout: (() -> Void)?
+    var onLoad: (() -> Void)?
+    var onMount: (() -> Void)?
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        if parent != nil {
+            onMount?()
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        onLayout?()
+    }
+
     init(height: CGFloat, plain: Bool = false) {
         self.height = height; self.plain = plain; super.init(
             nibName: nil,
@@ -3192,6 +3578,7 @@ private final class FixturePage: UIViewController {
             scroll.contentSize = CGSize(width: 1, height: height)
             view.addSubview(scroll); self.scroll = scroll
         }
+        onLoad?()
     }
 
     override func viewDidAppear(_ animated: Bool) {
