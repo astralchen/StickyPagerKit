@@ -948,9 +948,19 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         let position = min(CGFloat(identifiers.count - 1), max(0, logicalPosition()))
         // 手势或相邻切页期间按需准备可见页；非相邻选择直接定位，不进入此路径。
         // 只保留当前、目标及最多两个可见页。
-        for index in Set([Int(floor(position)), Int(ceil(position))]) {
+        let visibleIndices = Set([Int(floor(position)), Int(ceil(position))])
+        for index in visibleIndices {
             if records[identifiers[index]] == nil {
                 loadPage(index)
+            }
+        }
+        // 页面加载可能更新标签内容；准备完成后只测量一次，两张可见页共用当前布局。
+        let pageLayout = effectiveLayout
+        for index in visibleIndices {
+            // 页面横向进入视口时，UIKit 才会更新其自动安全区域 inset。
+            // 同步撤销离屏时的标签栏补偿，避免首次切页期间重复避让、结束时正文上跳。
+            if let record = records[identifiers[index]] {
+                layoutPage(record, at: index, layout: pageLayout)
             }
         }
         evictPages()

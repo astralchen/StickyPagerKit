@@ -7,6 +7,28 @@ import StickyPagerKit
 @Suite(.serialized)
 @MainActor
 struct StickyPagerDemoTests {
+    @Test func firstListSelectionKeepsCellsAlignedDuringAnimation() async throws {
+        let pager = DemoPager()
+        let navigation = UINavigationController(rootViewController: pager)
+        try await withWindow(root: navigation) { window in
+            pager.setSelectedIndex(1, animated: true)
+            let page = try #require(pager.children.compactMap { $0 as? DemoList }.first)
+            let table = try #require(page.tableView)
+            var gaps: [CGFloat] = []
+            for _ in 0 ..< 35 {
+                try await Task.sleep(nanoseconds: 16_000_000)
+                let frame = table.convert(table.rectForRow(at: IndexPath(row: 0, section: 0)), to: window)
+                let tabFrame = pager.tabBar.convert(pager.tabBar.bounds, to: window)
+                if frame.maxX > window.bounds.minX, frame.minX < window.bounds.maxX {
+                    gaps.append(frame.minY - tabFrame.maxY)
+                }
+            }
+            #expect(pager.selectedIndex == 1)
+            #expect(gaps.count > 5)
+            #expect(gaps.allSatisfy { abs($0) < 1 }, "首行在横向进入期间应始终贴齐标签栏底边：\(gaps)")
+        }
+    }
+
     @Test func minimalDataSourceCreatesIndependentPages() throws {
         let integration = MinimalIntegration()
         let pager = SPPageViewController()

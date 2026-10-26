@@ -1263,6 +1263,20 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
     }
 
+    func testFirstListTabSelectionKeepsTopAligned() {
+        for index in [1, 0, 1, 2] {
+            select(index)
+            expect("progress=0.00")
+            guard index != 0 else {
+                continue
+            }
+            let table = app.tables["demo.list"]
+            XCTAssertTrue(table.waitForExistence(timeout: 5))
+            XCTAssertEqual(table.cells.firstMatch.frame.minY, app.buttons["sp.tab.\(index)"].frame.maxY, accuracy: 1)
+            XCTAssertEqual(contentPosition(), 0, accuracy: 1)
+        }
+    }
+
     func testHeaderStartsAtScreenTopAndPageContentMeetsTabBar() {
         let header = app.otherElements["demo.headerView"]
         let tab = app.buttons["sp.tab.0"]

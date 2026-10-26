@@ -2,6 +2,54 @@
 
 验证日期：2026-10-15 至 2026-10-26。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-26：分页回调共享标签栏高度测量
+
+在保留首次列表上跳修复的基础上，分页回调先准备所有可见页，再计算一次 `effectiveLayout`，供本次回调中的可见页共用。每张可见页仍执行 `layoutPage`，随横向可见性更新安全区域和 inset；不跨回调缓存高度。页面加载可能修改标签内容，因此共享测量安排在加载之后。公开 API、业务滚动位置和 inset 归属不变。
+
+新增测量次数回归，在真实 UIWindow 中覆盖 LTR／RTL、左右附件按钮、内容高度／固定高度及标签内边距变化。两页同时可见的稳定分页阶段，内容高度每次回调测量一次，固定高度不测量；两页安全区域均保持当前标签栏高度。
+
+环境：Xcode 27.1 / Swift 6.4，iPhone 18 Pro Max / iOS 27.0 Simulator。功能回归使用 Debug；独立性能夹具使用 Release、`ENABLE_TESTABILITY=YES`。性能基线保留了可见页 inset 修复，仅在两张可见页中分别计算高度；前后源码快照唯一差异为 `SPPageViewController.swift`，夹具相同。
+
+性能采样预热后，在已缓存的两页、0.4 页宽偏移下直接调用分页回调 1,000 次。以下为布局稳定时的回调中位耗时，完整均值、P95、P99、主动标记布局失效场景及调用计数见 [前后对比](Results/20261026-shared-height-performance/comparison.json)。
+
+| 场景 | 优化前 | 优化后 | 中位耗时减少 |
+| --- | --- | --- | --- |
+| 普通列表 | 17.58 μs | 17.58 μs | 基本持平 |
+| 嵌套列表 | 19.46 μs | 17.04 μs | 12.4% |
+| 普通页面（100 个标签） | 14.46 μs | 13.58 μs | 6.1% |
+| 标签栏左右附件按钮 | 399.71 μs | 199.08 μs | 50.2% |
+
+所有场景的高度测量均从 2,000 次降为 1,000 次。两张可见页各自仍有 1,000 次 frame 设置；布局稳定时实际 `layoutSubviews` 和 inset 写入均为 0。主动让两页布局失效时，各页布局次数仍为 1,000 次，附件场景中位耗时从 422.17 μs 降为 251.75 μs。以上是模拟器单次回调的微基准，不代表整帧耗时、FPS 或真机性能；小幅耗时差异可能包含机器噪声，确定性改善是重复高度测量减半。
+
+| 运行 | 结果 | 范围 |
+| --- | --- | --- |
+| [聚焦回归](Results/20261026-shared-height-focused/summary.json) | **2 通过、0 失败** | 新增共享测量回归，以及首次切页的 18 种组合（LTR／RTL × 0／2／80 行 × 展开／半折叠／吸顶）。 |
+| [相关库终态](Results/20261026-shared-height-library-final/summary.json) | **167 通过、0 失败、0 跳过** | 完整容器测试类、窗口布局和分页仲裁；源码一致，四类运行时诊断均为 0，无结果包运行时警告。 |
+| [Demo 终态](Results/20261026-shared-height-demo-final/summary.json) | **4 通过、0 失败、0 跳过** | 官方 Xcode MCP 执行 1 项真实 Demo 动画采样及 3 项 UI 回归：首次点击／往返、快速分页、嵌套横向 Section 边界手势。源码一致，四类运行时诊断均为 0，无结果包运行时警告。 |
+| [Release 性能前后对比](Results/20261026-shared-height-performance/comparison.json) | **前后各 1 通过、0 失败** | 4 种页面／标签栏场景 × 布局稳定／主动失效，分别采样 1,000 次。 |
+
+优化后的首次性能运行阻塞于 CoreSimulator 启动测试宿主，未开始采样；中断后恢复该模拟器并成功重跑。[受阻日志与进程采样](Results/20261026-shared-height-performance/runs/after-launch-blocked/)独立保留。基线摘要中的源码变化仅为预期的容器优化，优化后摘要无源码变化；保存了两版容器、性能夹具、源码哈希与结果包。
+
+首次切页的 18 种库组合及真实 Demo 动画采样均未再出现此前 44 pt 重复避让／结束时上跳；此结论限于上述环境与覆盖场景。4 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261026-shared-height-demo-final/swiftformat-lint.txt)，`git diff --check` 通过。未执行完整库／Demo 套件、完整 Release 功能回归、真机 FPS／整帧性能、Swift 6.3、实际 iPad 或旧版 iOS 验证。保留本次会话已有修改，没有提交或推送。
+
+## 2026-10-26：首次点击列表时的 cell 上跳
+
+用户录屏中的首次「网格 → 列表」切换在真实 Demo 窗口中复现：动画期间首行与标签栏底边相距 44 pt，结束后恢复为 0；同期 `adjustedContentInset.top` 从 88 pt 变为 44 pt。离屏页面的自动安全区域尚未生效，框架先补足标签栏遮挡；页面横向进入视口后 UIKit 再加入自动 inset，但旧补偿直到转场结束才重新结算，造成重复避让与末尾上跳。单纯延后处理 inset 观察通知、在 appearance 开始后立即布局，均未解决问题。
+
+修复在分页滚动回调中对当前可见页执行既有 `layoutPage` 几何事务，随横向可见区域更新安全区域与框架 inset 贡献。保留业务滚动位置、自动行高、原生 appearance 和公开 API。新增 Demo 实际列表逐帧检查、库的 18 种组合回归（LTR／RTL × 0／2／80 行 × 展开／半折叠／吸顶），以及真实标签点击和往返切页的 UI 回归。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。Demo 使用官方 Xcode MCP；库测试使用仓库脚本配置 UIKit application host。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前 Demo 基线](Results/20261026-first-list-mcp-baseline/result.txt) | **0 通过、1 失败** | 动画中的 15 个采样帧出现 44 pt 空白；保留日志、测试 patch 与结果包。 |
+| [相关库终态](Results/20261026-first-list-library-final/summary.json) | **166 通过、0 失败、0 跳过** | 完整 `StickyPagerKitTests`、`SPPageViewportTests`、`SPPagingScrollViewTests`；包括新增 18 种组合。`sourceChangedSinceRun=[]`，四类运行时诊断均为 0，无运行时警告。 |
+| [Demo 终态](Results/20261026-first-list-demo-final/summary.json) | **7 通过、0 失败、0 跳过** | 1 项逐帧回归；6 项 UI 覆盖首次标签点击、往返切页、Header 拖动、快速分页、刷新、嵌套横向 Section 双边界与位置恢复。`sourceChangedSinceRun=[]`，四类运行时诊断均为 0，无运行时警告。 |
+
+中间记录保留：[inset 通知尝试](Results/20261026-first-list-fix-probe/result.txt)、[appearance 布局尝试](Results/20261026-first-list-appearance-probe/xcodebuild.log)均失败；[可见页更新后的首轮回归](Results/20261026-first-list-animation-passed/result.txt)通过。官方 MCP 首次测试返回较慢时启动了重复命令行基线，收到官方结果后将其主动中断，目录 `20261026-first-list-baseline` 不计为测试通过。库聚焦首轮在编译前修正了测试中的私有属性访问，其源码快照标记有变化；以上 166 项终态重新执行并核对了最终源码。
+
+4 个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261026-first-list-demo-final/swiftformat-lint.txt)，`git diff --check` 通过。未执行完整库／Demo 套件、Release、Swift 6.3、实际 iPad、旧版 iOS 或真机验证；库中的多尺寸窗口回归不等同于实际 iPad 验证。没有提交或推送。
+
 ## 2026-10-26：解绑恢复复查与前置通知修复
 
 复查发现一类遗漏：恢复 setter 的 KVO `.prior` 回调中对同一 inset 的业务修改，会被外层框架 setter 的旧参数覆盖。初始新增回归在 `contentInset`／`verticalScrollIndicatorInsets`、显式／释放解绑四种组合中，均复现 bottom 41 最终变回 19。补充回归还检查恢复前置回调中重新绑定同一列表，以及显隐前置回调中的同轴／跨轴同值赋值。

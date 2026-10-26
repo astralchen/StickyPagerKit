@@ -4,6 +4,111 @@ import UIKit
 
 @MainActor
 final class SPPageViewportTests: XCTestCase {
+    func testPagingSharesTabHeightMeasurementAcrossVisiblePages() {
+        for rtl in [false, true] {
+            let window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 440, height: 956))
+            let pager = SPPageViewController()
+            let source = ViewportTableSource()
+            let bar = ViewportMeasuringTabBar()
+            for leading in [false, true] {
+                let button = UIButton(type: .system)
+                var configuration = UIButton.Configuration.filled()
+                configuration.title = leading ? "筛选" : "菜单"
+                button.configuration = configuration
+                if leading {
+                    bar.leadingAccessoryView = button
+                } else {
+                    bar.trailingAccessoryView = button
+                }
+            }
+            pager.tabBar = bar
+            window.rootViewController = pager
+            window.showForTesting()
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.dataSource = source
+            pager.headerView = UIView()
+            pager.layout = SPPageLayout(headerHeight: 220)
+            pager.reloadData()
+            pager.setSelectedIndex(1, animated: false)
+            pager.setSelectedIndex(0, animated: false)
+            for sizing: SPTabBarSizing in [.content(minimum: 44), .fixed(60)] {
+                pager.layout.tabBarSizing = sizing
+                for top: CGFloat in [0, 12] {
+                    bar.layoutConfiguration.contentInsets.top = top
+                    pager.view.layoutIfNeeded()
+                    // 两页同时可见，排除首次创建页面的测量，检查稳定分页阶段的成本。
+                    pager.pagingView.contentOffset.x = pager.pagingView.bounds.width * 0.4
+                    for _ in 0 ..< 3 {
+                        bar.measurementCount = 0
+                        pager.scrollViewDidScroll(pager.pagingView)
+                        XCTAssertEqual(bar.measurementCount, sizing == .fixed(60) ? 0 : 1)
+                    }
+                    for page in source.pages {
+                        XCTAssertEqual(page.additionalSafeAreaInsets.top, bar.bounds.height, accuracy: 0.01)
+                    }
+                }
+            }
+            window.closeForTesting()
+        }
+    }
+
+    func testFirstTableSelectionPreservesPositionDuringAnimation() {
+        for rtl in [false, true] {
+            for count in [0, 2, 80] {
+                for progress: CGFloat in [0, 0.5, 1] {
+                    let window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 440, height: 956))
+                    let pager = SPPageViewController()
+                    let source = ViewportTableSource(rowCount: count)
+                    window.rootViewController = UINavigationController(rootViewController: pager)
+                    window.showForTesting()
+                    pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+                    pager.dataSource = source
+                    pager.headerView = UIView()
+                    pager.layout = SPPageLayout(headerHeight: 220)
+                    pager.reloadData()
+                    window.layoutIfNeeded()
+                    let collapse = max(0, 220 - pager.view.safeAreaInsets.top) * progress
+                    let current = pager.currentScrollView!
+                    current.contentOffset.y = collapse - current.adjustedContentInset.top
+                    pager.setSelectedIndex(1, animated: true)
+                    let binding = pager.records[1]!.binding!
+                    let table = source.pages[1].tableView!
+                    var gaps: [CGFloat] = []
+                    var visibleSamples = 0
+                    for _ in 0 ..< 35 {
+                        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
+                        let viewport = table.convert(table.bounds, to: window)
+                        if viewport.maxX > window.bounds.minX, viewport.minX < window.bounds.maxX {
+                            visibleSamples += 1
+                            XCTAssertEqual(binding.position, collapse, accuracy: 1)
+                            XCTAssertEqual(
+                                table.adjustedContentInset.top,
+                                collapse + pager.tabBar.bounds.height,
+                                accuracy: 1
+                            )
+                            if count > 0 {
+                                let frame = table.convert(
+                                    table.rectForRow(at: IndexPath(row: 0, section: 0)),
+                                    to: window
+                                )
+                                let tabFrame = pager.tabBar.convert(pager.tabBar.bounds, to: window)
+                                gaps.append(frame.minY - tabFrame.maxY)
+                            }
+                        }
+                    }
+                    XCTAssertEqual(pager.selectedIndex, 1)
+                    XCTAssertGreaterThan(visibleSamples, 5)
+                    XCTAssertTrue(
+                        gaps.allSatisfy { abs($0) < 1 },
+                        "首次切页的首行间距（RTL=\(rtl)，行数=\(count)，折叠=\(progress)）：\(gaps)"
+                    )
+                    window.closeForTesting()
+                    window.rootViewController = nil
+                }
+            }
+        }
+    }
+
     func testSelfSizingRootTablePreservesPositionThroughSplitTraits() {
         verifySelfSizingRootTable(resizeWindow: false)
     }
@@ -502,6 +607,16 @@ final class SPPageViewportTests: XCTestCase {
             window.closeForTesting()
             window.rootViewController = nil
         }
+    }
+}
+
+@MainActor
+private final class ViewportMeasuringTabBar: SPTabBar {
+    var measurementCount = 0
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        measurementCount += 1
+        return super.sizeThatFits(size)
     }
 }
 
