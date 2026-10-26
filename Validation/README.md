@@ -2,6 +2,49 @@
 
 验证日期：2026-10-15 至 2026-10-26。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-26：解绑恢复复查与前置通知修复
+
+复查发现一类遗漏：恢复 setter 的 KVO `.prior` 回调中对同一 inset 的业务修改，会被外层框架 setter 的旧参数覆盖。初始新增回归在 `contentInset`／`verticalScrollIndicatorInsets`、显式／释放解绑四种组合中，均复现 bottom 41 最终变回 19。补充回归还检查恢复前置回调中重新绑定同一列表，以及显隐前置回调中的同轴／跨轴同值赋值。
+
+独立解绑收尾对象现跟踪两种 inset 的前置与后置通知，区分框架恢复请求和嵌套业务赋值；只在收到新业务设置时继续恢复，不为强求属性逐值相等而反复写入。真实通知日志显示业务 prior 回调可先于临时观察者执行，嵌套 setter 与外层 setter 在该观察者处可能呈现同一通知深度，且外层 `oldValue` 已包含嵌套赋值。因此结合当前框架写入目标判断通知，不用旧值匹配框架请求。没有改变正文坐标换算、布局事务、后台位置记录或其他交互开关，公开 API 不变。
+
+所有中间失败保留，未放宽断言：
+
+- [前置通知基线](Results/20261026-detach-review-prior-baseline/summary.json)：0 通过、1 失败，含 4 个失败断言；保存复查入口实现与新增测试 patch。
+- [首轮构建](Results/20261026-detach-review-focused/summary.json)：新增重绑定测试直接捕获容器，被 Swift 6 隔离检查拒绝，未执行测试；改为主 actor 隔离的 Sendable 回调，未改变库隔离声明。
+- [仅深度判断的回归](Results/20261026-detach-review-final-library/summary.json)：162 通过、2 失败，前置 inset 与重绑定用例仍失败；该目录名称不代表交付终态。
+- [写入新旧值匹配专项](Results/20261026-detach-review-prior-fixed/summary.json)：1 通过、2 失败，显隐用例通过，inset 与重绑定仍失败。
+- [真实通知探针](Results/20261026-detach-review-prior-probe/summary.json)：0 通过、1 失败，日志确认嵌套赋值改变外层通知的 oldValue；保存探针源码，交付前已移除。
+- [修正后专项](Results/20261026-detach-review-prior-green/summary.json)：3 通过、0 失败，包含上述全部新增用例。
+
+终态环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。库测试通过独立 UIKit application host 脚本执行，Demo UI 使用官方 Xcode MCP。
+
+| 终态运行 | 结果 | 范围 |
+| --- | --- | --- |
+| [库回归](Results/20261026-detach-review-terminal-library/summary.json) | **165 通过、0 失败、0 跳过** | 完整容器测试类、窗口布局、分页仲裁；包括原有负位移、释放解绑、默认显隐和绑定切换回归。 |
+| [UI 回归](Results/20261026-detach-review-ui/summary.json) | **4 通过、0 失败、0 跳过** | 页面重排／删除／清空、异步列表替换、不绑定列表独立滚动与分页、可选分页指示器隐藏。 |
+
+两次终态结果均 `sourceChangedSinceRun=[]`，四类运行时诊断为 0，无结果包运行时警告。新增 3 项复查测试，保留此前 5 项新增测试。相关 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261026-detach-review-ui/swiftformat-lint.txt)，`git diff --check` 通过，README 已补充前置通知契约。未执行完整库／Demo 套件、Release、Swift 6.3、iPad、旧版 iOS 或真机验证；以前独立记录的系统容器问题仍保留原状态。没有提交或推送。
+
+## 2026-10-26：解绑恢复中的业务设置保护
+
+仅收敛解绑边界：外部 `contentInset`／`verticalScrollIndicatorInsets` setter 尚在同步回调中时，按方向捕获最新业务基准，解绑不再从已经替换为业务基准的分量重复扣减贡献。解绑停止原观察与滚动协调后，使用独立的短生命周期恢复对象捕获跨属性 inset 更新及指示器显隐意图；支持同轴／跨轴、同值赋值、同步重入及释放绑定时的自动解绑，恢复完成后撤销临时观察。没有扩大公开 API。
+
+保留带符号的正文坐标换算、横向 offset、必要布局与分页协调。新业务设置保护限定为 inset 和指示器显隐；同步回调内的主动定位语义、后台页位置记录及其他交互开关均未调整，未加入 offset 来源推断。
+
+新增 5 项测试，覆盖短内容 top／bottom 贡献、嵌套方向赋值、恢复期间跨属性更新、显式／释放解绑、显隐同值与跨轴更新、外部显隐 setter 内解绑，以及业务 KVO 观察者在绑定前／后注册。所有几何用例挂载真实 UIWindow。最初 3 项先在旧实现运行，全部失败：top 23 被错误恢复为 −177，bottom 31 被错误恢复为 −379，指示器新基准和跨轴显隐意图丢失；保存原实现、测试差异和结果，不以修复后通过覆盖失败证据。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPhone 18 Pro Max / iOS 27.0 Simulator。官方 Xcode MCP 确认工程、scheme 与目标；库测试使用独立 UIKit application host 脚本，Demo UI 使用官方 MCP。
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| [修复前基线](Results/20261026-detach-restoration-baseline/summary.json) | **0 通过、3 失败** | 3 项用例共 8 个失败断言；原框架文件与新增测试 patch 已保存。 |
+| [首轮容器回归](Results/20261026-detach-restoration-focused/summary.json) | **146 通过、0 失败、0 跳过** | 首批 3 项新回归及完整容器测试类；此后仅补充 2 项通知时序测试，源码差异如实保留。 |
+| [最终库专项](Results/20261026-detach-restoration-final-library/summary.json) | **162 通过、0 失败、0 跳过** | 完整容器测试类、窗口布局及分页仲裁；包含全部 5 项新回归，`sourceChangedSinceRun=[]`。 |
+| [最终 UI 回归](Results/20261026-detach-restoration-ui/summary.json) | **4 通过、0 失败、0 跳过** | 页面重排／删除／清空、异步发现与替换、不绑定列表独立滚动和分页、可选分页指示器隐藏；`sourceChangedSinceRun=[]`。 |
+
+最终库与 UI 的四类运行时诊断均为 0，无结果包运行时警告；两个修改的 Swift 文件通过 SwiftFormat 0.64.0 [lint](Results/20261026-detach-restoration-ui/swiftformat-lint.txt)，`git diff --check` 通过。未重跑完整库／Demo 套件，未执行 Release、Swift 6.3、iPad、旧版 iOS 或真机验证；此前独立记录的系统容器问题不据此标为解决。没有提交或推送。
+
 ## 2026-10-26：绑定选择提交前的远程整合验证
 
 推送前发现远程 `main` 已新增 `7602c11`、`bd67df4`，将本次绑定选择修改重放至远程最新版本。唯一文本冲突位于本文件，保留双方记录；容器、分页及 Demo 自动合并后重新验证，整合前的结果不作为合并后终态证据。

@@ -1972,6 +1972,371 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 150, accuracy: 0.01)
     }
 
+    func testDetachInsideExternalInsetSetterPreservesLatestBusinessDirections() {
+        for indicator in [false, true] {
+            for topChanged in [false, true] {
+                let pager = mount(plain: [0])
+                let root = pager.records[0]!.controller.view!
+                let scroll = InsetCallbackScrollView(frame: root.bounds)
+                scroll.contentInsetAdjustmentBehavior = .never
+                scroll.automaticallyAdjustsScrollIndicatorInsets = false
+                scroll.contentSize.height = 100
+                let base = UIEdgeInsets(top: 13, left: 3, bottom: 19, right: 5)
+                scroll.contentInset = base
+                scroll.verticalScrollIndicatorInsets = base
+                root.addSubview(scroll)
+                let binding = SPScrollBinding(scrollView: scroll)
+                binding.setRange(200)
+                binding.setPosition(-40)
+                var expected = base
+                if topChanged {
+                    expected.top = 23
+                } else {
+                    expected.bottom = 31
+                }
+                var didDetach = false
+                let callback = {
+                    guard !didDetach else {
+                        return
+                    }
+                    didDetach = true
+                    // 外层 setter 尚未完成，再修改另一方向，然后退出绑定。
+                    if indicator {
+                        scroll.verticalScrollIndicatorInsets.left = 9
+                    } else {
+                        scroll.contentInset.left = 9
+                    }
+                    binding.detach()
+                }
+                if indicator {
+                    scroll.onIndicatorInsetChange = callback
+                } else {
+                    scroll.onContentInsetChange = callback
+                }
+                if indicator {
+                    if topChanged {
+                        scroll.verticalScrollIndicatorInsets.top = 23
+                    } else {
+                        scroll.verticalScrollIndicatorInsets.bottom = 31
+                    }
+                } else {
+                    if topChanged {
+                        scroll.contentInset.top = 23
+                    } else {
+                        scroll.contentInset.bottom = 31
+                    }
+                }
+                scroll.onContentInsetChange = nil
+                scroll.onIndicatorInsetChange = nil
+                expected.left = 9
+                XCTAssertTrue(didDetach)
+                XCTAssertEqual(indicator ? scroll.verticalScrollIndicatorInsets : scroll.contentInset, expected)
+                XCTAssertEqual(indicator ? scroll.contentInset : scroll.verticalScrollIndicatorInsets, base)
+            }
+        }
+    }
+
+    func testDetachRestorationPreservesCrossPropertyInsetWritesIncludingRelease() {
+        for release in [false, true] {
+            let pager = mount(plain: [0])
+            let root = pager.records[0]!.controller.view!
+            let scroll = InsetCallbackScrollView(frame: root.bounds)
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.automaticallyAdjustsScrollIndicatorInsets = false
+            scroll.contentSize.height = 1800
+            let base = UIEdgeInsets(top: 13, left: 3, bottom: 19, right: 5)
+            scroll.contentInset = base
+            scroll.verticalScrollIndicatorInsets = base
+            root.addSubview(scroll)
+            var binding: SPScrollBinding? = SPScrollBinding(scrollView: scroll)
+            binding?.setRange(200)
+            binding?.setPosition(-40)
+            scroll.onContentInsetChange = { [weak scroll] in
+                guard let scroll else {
+                    return
+                }
+                scroll.onContentInsetChange = nil
+                scroll.contentInset.bottom = 41
+                // 指示器还未恢复：仅修改 bottom，top 仍应移除框架贡献。
+                scroll.verticalScrollIndicatorInsets.bottom = 31
+            }
+            var indicatorCallbackCount = 0
+            scroll.onIndicatorInsetChange = { [weak scroll] in
+                indicatorCallbackCount += 1
+                guard let scroll, indicatorCallbackCount == 2 else {
+                    return
+                }
+                scroll.onIndicatorInsetChange = nil
+                scroll.verticalScrollIndicatorInsets.right = 11
+                scroll.contentInset.left = 7
+            }
+            if release {
+                binding = nil
+            } else {
+                binding?.detach()
+            }
+            XCTAssertEqual(scroll.contentInset, UIEdgeInsets(top: 13, left: 7, bottom: 41, right: 5))
+            XCTAssertEqual(scroll.verticalScrollIndicatorInsets, UIEdgeInsets(top: 13, left: 3, bottom: 31, right: 11))
+            XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, -40, accuracy: 0.01)
+            let offset = scroll.contentOffset
+            binding?.detach()
+            XCTAssertEqual(scroll.contentOffset, offset)
+        }
+    }
+
+    func testDetachRestorationPreservesIndicatorPreferencesIncludingRelease() {
+        for release in [false, true] {
+            for writesVertical in [false, true] {
+                let pager = mount(plain: [0])
+                let root = pager.records[0]!.controller.view!
+                let scroll = IndicatorWriteTrackingScrollView(frame: root.bounds)
+                root.addSubview(scroll)
+                var binding: SPScrollBinding? = SPScrollBinding(scrollView: scroll)
+                binding?.indicatorsHiddenForPaging = true
+                scroll.onVisibilityChange = { [weak scroll] in
+                    guard let scroll, scroll.showsVerticalScrollIndicator else {
+                        return
+                    }
+                    scroll.onVisibilityChange = nil
+                    if writesVertical {
+                        scroll.showsVerticalScrollIndicator = false
+                    } else {
+                        scroll.showsHorizontalScrollIndicator = false
+                    }
+                }
+                if release {
+                    binding = nil
+                } else {
+                    binding?.detach()
+                }
+                XCTAssertEqual(scroll.showsVerticalScrollIndicator, !writesVertical)
+                XCTAssertEqual(scroll.showsHorizontalScrollIndicator, writesVertical)
+                // 收尾后不留下观察者，业务再改配置不被旧绑定处理。
+                scroll.showsVerticalScrollIndicator = true
+                scroll.showsHorizontalScrollIndicator = true
+                XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+                XCTAssertTrue(scroll.showsHorizontalScrollIndicator)
+            }
+        }
+    }
+
+    func testDetachInsideExternalVisibilitySetterPreservesSameValueIntent() {
+        for vertical in [false, true] {
+            let pager = mount(plain: [0])
+            let root = pager.records[0]!.controller.view!
+            let scroll = IndicatorWriteTrackingScrollView(frame: root.bounds)
+            root.addSubview(scroll)
+            let binding = SPScrollBinding(scrollView: scroll)
+            binding.indicatorsHiddenForPaging = true
+            scroll.onVisibilityChange = { [weak scroll] in
+                scroll?.onVisibilityChange = nil
+                binding.detach()
+            }
+            // 实际值已经被临时隐藏为 false，但业务这次赋值应改变待恢复意图。
+            if vertical {
+                scroll.showsVerticalScrollIndicator = false
+            } else {
+                scroll.showsHorizontalScrollIndicator = false
+            }
+            XCTAssertEqual(scroll.showsVerticalScrollIndicator, !vertical)
+            XCTAssertEqual(scroll.showsHorizontalScrollIndicator, vertical)
+        }
+    }
+
+    func testDetachRestorationPreservesKVOWritesInEitherRegistrationOrder() {
+        for observeFirst in [false, true] {
+            for release in [false, true] {
+                let pager = mount(plain: [0])
+                let root = pager.records[0]!.controller.view!
+                let scroll = UIScrollView(frame: root.bounds)
+                scroll.contentInsetAdjustmentBehavior = .never
+                scroll.automaticallyAdjustsScrollIndicatorInsets = false
+                scroll.contentSize.height = 1800
+                let base = UIEdgeInsets(top: 13, left: 3, bottom: 19, right: 5)
+                scroll.contentInset = base
+                scroll.verticalScrollIndicatorInsets = base
+                root.addSubview(scroll)
+                var armed = false
+                var insetWritten = false
+                var visibilityWritten = false
+                let observe = {
+                    [
+                        scroll.observe(\.contentInset, options: [.new]) { scroll, _ in
+                            MainActor.assumeIsolated {
+                                guard armed, !insetWritten else {
+                                    return
+                                }
+                                insetWritten = true
+                                scroll.verticalScrollIndicatorInsets.bottom = 31
+                            }
+                        },
+                        scroll.observe(\.showsVerticalScrollIndicator, options: [.new]) { scroll, _ in
+                            MainActor.assumeIsolated {
+                                guard armed, !visibilityWritten, scroll.showsVerticalScrollIndicator else {
+                                    return
+                                }
+                                visibilityWritten = true
+                                scroll.showsHorizontalScrollIndicator = false
+                            }
+                        },
+                    ]
+                }
+                var observations: [NSKeyValueObservation] = observeFirst ? observe() : []
+                var binding: SPScrollBinding? = SPScrollBinding(scrollView: scroll)
+                binding?.setRange(200)
+                binding?.setPosition(-40)
+                binding?.indicatorsHiddenForPaging = true
+                if !observeFirst {
+                    observations = observe()
+                }
+                armed = true
+                if release {
+                    binding = nil
+                } else {
+                    binding?.detach()
+                }
+                XCTAssertTrue(insetWritten)
+                XCTAssertTrue(visibilityWritten)
+                XCTAssertEqual(scroll.contentInset, base)
+                XCTAssertEqual(
+                    scroll.verticalScrollIndicatorInsets,
+                    UIEdgeInsets(top: 13, left: 3, bottom: 31, right: 5)
+                )
+                XCTAssertTrue(scroll.showsVerticalScrollIndicator)
+                XCTAssertFalse(scroll.showsHorizontalScrollIndicator)
+                XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, -40, accuracy: 0.01)
+                observations.forEach { $0.invalidate() }
+            }
+        }
+    }
+
+    func testDetachRestorationPreservesInsetWritesFromPriorNotifications() {
+        for indicator in [false, true] {
+            for release in [false, true] {
+                let pager = mount(plain: [0])
+                let root = pager.records[0]!.controller.view!
+                let scroll = UIScrollView(frame: root.bounds)
+                scroll.contentInsetAdjustmentBehavior = .never
+                scroll.automaticallyAdjustsScrollIndicatorInsets = false
+                scroll.contentSize.height = 1800
+                let base = UIEdgeInsets(top: 13, left: 3, bottom: 19, right: 5)
+                scroll.contentInset = base
+                scroll.verticalScrollIndicatorInsets = base
+                root.addSubview(scroll)
+                var binding: SPScrollBinding? = SPScrollBinding(scrollView: scroll)
+                binding?.setRange(200)
+                binding?.setPosition(-40)
+                var didWrite = false
+                let keyPath = indicator ? \UIScrollView.verticalScrollIndicatorInsets : \UIScrollView.contentInset
+                let observation = scroll.observe(keyPath, options: [.prior, .new]) { scroll, change in
+                    MainActor.assumeIsolated {
+                        guard change.isPrior, !didWrite else {
+                            return
+                        }
+                        didWrite = true
+                        // 框架恢复 setter 尚未真正赋值；业务的新基准不能被其旧参数覆盖。
+                        if indicator {
+                            scroll.verticalScrollIndicatorInsets.bottom = 41
+                        } else {
+                            scroll.contentInset.bottom = 41
+                        }
+                    }
+                }
+                if release {
+                    binding = nil
+                } else {
+                    binding?.detach()
+                }
+                observation.invalidate()
+                XCTAssertTrue(didWrite)
+                var expected = base
+                expected.bottom = 41
+                XCTAssertEqual(scroll[keyPath: keyPath], expected)
+                XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, -40, accuracy: 0.01)
+            }
+        }
+    }
+
+    func testDetachPriorCallbackRebindingUsesLatestRestoredBusinessInsets() {
+        let pager = mount(plain: [0])
+        let root = pager.records[0]!.controller.view!
+        let scroll = UIScrollView(frame: root.bounds)
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.automaticallyAdjustsScrollIndicatorInsets = false
+        scroll.contentSize.height = 1800
+        let base = UIEdgeInsets(top: 13, left: 3, bottom: 19, right: 5)
+        scroll.contentInset = base
+        scroll.verticalScrollIndicatorInsets = base
+        root.addSubview(scroll)
+        pager.setScrollView(scroll, forPageAt: 0)
+        pager.view.layoutIfNeeded()
+        var didRebind = false
+        let rebind: @MainActor @Sendable () -> Void = { [weak pager, weak scroll] in
+            guard let pager, let scroll else {
+                return
+            }
+            pager.setScrollView(scroll, forPageAt: 0)
+        }
+        let observation = scroll.observe(\.contentInset, options: [.prior]) { scroll, change in
+            MainActor.assumeIsolated {
+                guard change.isPrior, !didRebind else {
+                    return
+                }
+                didRebind = true
+                scroll.contentInset.bottom = 41
+                scroll.verticalScrollIndicatorInsets.bottom = 31
+                rebind()
+            }
+        }
+        pager.setScrollViewBinding(.unbound, forPageAt: 0)
+        observation.invalidate()
+        XCTAssertTrue(didRebind)
+        XCTAssertTrue(pager.currentScrollView === scroll)
+        XCTAssertEqual(scroll.contentInset.bottom, 41)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, 31)
+        // 新绑定只在旧恢复完成后生效；再次退出应移除所有贡献且保留新基准。
+        pager.setScrollViewBinding(.unbound, forPageAt: 0)
+        XCTAssertNil(pager.currentScrollView)
+        XCTAssertEqual(scroll.contentInset, UIEdgeInsets(top: 13, left: 3, bottom: 41, right: 5))
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets, UIEdgeInsets(top: 13, left: 3, bottom: 31, right: 5))
+    }
+
+    func testDetachRestorationPreservesVisibilityWritesFromPriorNotifications() {
+        for release in [false, true] {
+            for sameAxis in [false, true] {
+                let pager = mount(plain: [0])
+                let root = pager.records[0]!.controller.view!
+                let scroll = UIScrollView(frame: root.bounds)
+                root.addSubview(scroll)
+                var binding: SPScrollBinding? = SPScrollBinding(scrollView: scroll)
+                binding?.indicatorsHiddenForPaging = true
+                var didWrite = false
+                let observation = scroll.observe(\.showsVerticalScrollIndicator, options: [.prior]) { scroll, change in
+                    MainActor.assumeIsolated {
+                        guard change.isPrior, !didWrite else {
+                            return
+                        }
+                        didWrite = true
+                        if sameAxis {
+                            scroll.showsVerticalScrollIndicator = false
+                        } else {
+                            scroll.showsHorizontalScrollIndicator = false
+                        }
+                    }
+                }
+                if release {
+                    binding = nil
+                } else {
+                    binding?.detach()
+                }
+                observation.invalidate()
+                XCTAssertTrue(didWrite)
+                XCTAssertEqual(scroll.showsVerticalScrollIndicator, !sameAxis)
+                XCTAssertEqual(scroll.showsHorizontalScrollIndicator, sameAxis)
+            }
+        }
+    }
+
     func testDetachNegativePositionWithAutomaticInsetsKeepsBusinessCoordinates() {
         let pager = mount(inNavigation: true)
         let scroll = pager.currentScrollView!

@@ -196,6 +196,34 @@ internal final class SPScrollBinding {
         guard !detached else {
             return
         }
+        // 外部 setter 的后置通知可能尚未送达；变化方向已经是业务基准，
+        // 不能再从该值扣除旧贡献，未变化方向则沿用已保存的基准。
+        if contentInsetObservation.externalDepth > 0 {
+            baseInset = Self.updatedBase(
+                baseInset,
+                from: contentInsetObservation.externalStart,
+                to: scrollView.contentInset
+            )
+        }
+        if indicatorInsetObservation.externalDepth > 0 {
+            baseIndicatorInset = Self.updatedBase(
+                baseIndicatorInset,
+                from: indicatorInsetObservation.externalStart,
+                to: scrollView.verticalScrollIndicatorInsets
+            )
+        }
+        if hiddenIndicatorPreferences != nil {
+            for axis in [IndicatorAxis.vertical, .horizontal] {
+                let depth = indicatorNotificationDepth[axis, default: 0]
+                guard depth > 0, internalIndicatorWriteDepth[axis] != depth else {
+                    continue
+                }
+                switch axis {
+                case .vertical: hiddenIndicatorPreferences?.vertical = scrollView.showsVerticalScrollIndicator
+                case .horizontal: hiddenIndicatorPreferences?.horizontal = scrollView.showsHorizontalScrollIndicator
+                }
+            }
+        }
         detached = true
         observations.forEach { $0.invalidate() }
         observations.removeAll()
@@ -203,22 +231,211 @@ internal final class SPScrollBinding {
         onScrollDisabled = nil
         let oldPosition = position
         let contentPosition = oldPosition - SPScrollGeometry.collapse(oldPosition, range: range)
-        var restored = scrollView.contentInset
-        restored.top -= topContribution
-        restored.bottom -= bottomContribution
-        if scrollView.contentInset != restored {
-            scrollView.contentInset = restored
-        }
-        if scrollView
-            .verticalScrollIndicatorInsets !=
-            baseIndicatorInset {
-            scrollView.verticalScrollIndicatorInsets = baseIndicatorInset
-        }
+        // 独立收尾对象也适用于 deinit，此时原观察者的 weak self 已不可用。
+        let restoration = DetachRestoration(
+            scrollView: scrollView,
+            indicatorInset: baseIndicatorInset,
+            preferences: hiddenIndicatorPreferences
+        )
+        hiddenIndicatorPreferences = nil
         indicatorVisibilityGeneration &+= 1
-        updateIndicatorVisibility()
+        restoration.restore(contentInset: baseInset)
         let desired = contentPosition - scrollView.adjustedContentInset.top
         if abs(scrollView.contentOffset.y - desired) > 0.001 {
             scrollView.contentOffset.y = desired
+        }
+    }
+
+    /// 仅在解绑恢复期间捕获新设置，不再叠加贡献或触发容器协调。
+    @MainActor private final class DetachRestoration {
+        let scrollView: UIScrollView
+        var contentInset: UIEdgeInsets = .zero
+        var indicatorInset: UIEdgeInsets
+        var preferences: (vertical: Bool, horizontal: Bool)?
+        var observations: [NSKeyValueObservation] = []
+        var depths: [IndicatorAxis: Int] = [:]
+        var internalDepths: [IndicatorAxis: Int] = [:]
+        var generation: UInt = 0
+        private let contentObservation = InsetObservation()
+        private let indicatorObservation = InsetObservation()
+        private var insetWrites: [InsetKind: UIEdgeInsets] = [:]
+        private var visibilityWrites: [IndicatorAxis: Bool] = [:]
+
+        init(scrollView: UIScrollView, indicatorInset: UIEdgeInsets, preferences: (vertical: Bool, horizontal: Bool)?) {
+            self.scrollView = scrollView
+            self.indicatorInset = indicatorInset
+            self.preferences = preferences
+        }
+
+        func restore(contentInset: UIEdgeInsets) {
+            self.contentInset = contentInset
+            defer {
+                observations.forEach { $0.invalidate() }
+                observations.removeAll()
+            }
+            // 恢复 setter 的前置通知也可嵌套业务赋值；跟踪两种 inset 的通知层级，
+            // 忽略框架旧参数的写入，保留嵌套业务基准，必要时在 setter 返回后重新恢复。
+            for kind in [InsetKind.content, .indicator] {
+                let keyPath = kind == .content ? \UIScrollView.contentInset : \UIScrollView
+                    .verticalScrollIndicatorInsets
+                observations.append(scrollView.observe(keyPath, options: [
+                    .prior,
+                    .old,
+                    .new
+                ]) { [weak self] _, change in
+                    MainActor.assumeIsolated { self?.insetChanged(kind, change: change) }
+                })
+            }
+            if preferences != nil {
+                for axis in [IndicatorAxis.vertical, .horizontal] {
+                    let keyPath = axis == .vertical ? \UIScrollView.showsVerticalScrollIndicator
+                        : \UIScrollView.showsHorizontalScrollIndicator
+                    observations.append(scrollView.observe(keyPath, options: [
+                        .prior,
+                        .old,
+                        .new
+                    ]) { [weak self] _, change in
+                        MainActor.assumeIsolated { self?.visibilityChanged(axis, change: change) }
+                    })
+                }
+            }
+            while true {
+                let restorationGeneration = generation
+                writeInset(self.contentInset, kind: .content)
+                writeInset(indicatorInset, kind: .indicator)
+                while let preferences {
+                    let currentGeneration = generation
+                    writeVisibility(preferences.vertical, axis: .vertical)
+                    guard currentGeneration == generation else {
+                        continue
+                    }
+                    writeVisibility(preferences.horizontal, axis: .horizontal)
+                    guard currentGeneration == generation else {
+                        continue
+                    }
+                    break
+                }
+                // 只有新业务赋值才继续收尾，不为强求属性逐值相等而重复写入。
+                if restorationGeneration == generation {
+                    break
+                }
+            }
+        }
+
+        private func insetChanged(_ kind: InsetKind, change: NSKeyValueObservedChange<UIEdgeInsets>) {
+            let observation = kind == .content ? contentObservation : indicatorObservation
+            if change.isPrior {
+                observation.depth += 1
+                guard observation.depth != observation.internalDepth else {
+                    return
+                }
+                if observation.externalDepth == 0 {
+                    observation.externalStart = change.oldValue
+                }
+                observation.externalDepth += 1
+                return
+            }
+            defer { observation.depth -= 1 }
+            guard observation.depth != observation.internalDepth else {
+                // 业务 prior 观察者可能先于本观察者收到外层通知，嵌套 setter 此时
+                // 也呈现为第一层。只有与框架本次写入目标一致才忽略该通知；old 会受先行嵌套赋值影响。
+                if let write = insetWrites[kind],
+                   change.newValue != write {
+                    captureInset(kind, from: change.oldValue)
+                    return
+                }
+                observation.internalDepth = nil
+                return
+            }
+            observation.externalDepth -= 1
+            guard observation.externalDepth == 0 else {
+                return
+            }
+            captureInset(kind, from: observation.externalStart)
+            observation.externalStart = nil
+        }
+
+        private func captureInset(_ kind: InsetKind, from oldValue: UIEdgeInsets?) {
+            switch kind {
+            case .content:
+                contentInset = SPScrollBinding.updatedBase(
+                    contentInset,
+                    from: oldValue,
+                    to: scrollView.contentInset
+                )
+            case .indicator:
+                indicatorInset = SPScrollBinding.updatedBase(
+                    indicatorInset,
+                    from: oldValue,
+                    to: scrollView.verticalScrollIndicatorInsets
+                )
+            }
+            generation &+= 1
+        }
+
+        private func writeInset(_ inset: UIEdgeInsets, kind: InsetKind) {
+            let current = kind == .content ? scrollView.contentInset : scrollView.verticalScrollIndicatorInsets
+            guard current != inset else {
+                return
+            }
+            let observation = kind == .content ? contentObservation : indicatorObservation
+            let previous = observation.internalDepth
+            insetWrites[kind] = inset
+            observation.internalDepth = observation.depth + 1
+            defer {
+                observation.internalDepth = previous
+                insetWrites[kind] = nil
+            }
+            switch kind {
+            case .content: scrollView.contentInset = inset
+            case .indicator: scrollView.verticalScrollIndicatorInsets = inset
+            }
+        }
+
+        private func visibilityChanged(_ axis: IndicatorAxis, change: NSKeyValueObservedChange<Bool>) {
+            if change.isPrior {
+                depths[axis, default: 0] += 1
+                return
+            }
+            let depth = depths[axis, default: 0]
+            defer { depths[axis] = depth - 1 }
+            if internalDepths[axis] == depth {
+                if let write = visibilityWrites[axis],
+                   change.newValue != write {
+                    captureVisibility(axis)
+                    return
+                }
+                internalDepths[axis] = nil
+                return
+            }
+            captureVisibility(axis)
+        }
+
+        private func captureVisibility(_ axis: IndicatorAxis) {
+            switch axis {
+            case .vertical: preferences?.vertical = scrollView.showsVerticalScrollIndicator
+            case .horizontal: preferences?.horizontal = scrollView.showsHorizontalScrollIndicator
+            }
+            generation &+= 1
+        }
+
+        private func writeVisibility(_ value: Bool, axis: IndicatorAxis) {
+            let current = axis == .vertical ? scrollView.showsVerticalScrollIndicator : scrollView
+                .showsHorizontalScrollIndicator
+            guard current != value else {
+                return
+            }
+            let previous = internalDepths[axis]
+            visibilityWrites[axis] = value
+            internalDepths[axis] = depths[axis, default: 0] + 1
+            defer {
+                internalDepths[axis] = previous
+                visibilityWrites[axis] = nil
+            }
+            switch axis {
+            case .vertical: scrollView.showsVerticalScrollIndicator = value
+            case .horizontal: scrollView.showsHorizontalScrollIndicator = value
+            }
         }
     }
 
