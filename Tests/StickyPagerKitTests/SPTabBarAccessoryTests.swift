@@ -12,10 +12,14 @@ final class SPTabBarAccessoryTests: XCTestCase {
         window = nil
     }
 
-    private func mount(count: Int = 8, rtl: Bool = false) -> (SPTabBar, UICollectionView) {
+    private func mount(
+        count: Int = 8,
+        rtl: Bool = false,
+        controller: UIViewController? = nil
+    ) -> (SPTabBar, UICollectionView) {
         window?.closeForTesting()
         window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
-        window.rootViewController = UIViewController()
+        window.rootViewController = controller ?? UIViewController()
         window.showForTesting()
         let bar = SPTabBar(frame: CGRect(x: 0, y: 120, width: 400, height: 60))
         // 此夹具显式验证 automatic 分配；频道型默认组合由专门用例覆盖。
@@ -383,6 +387,31 @@ final class SPTabBarAccessoryTests: XCTestCase {
         XCTAssertEqual(list.contentOffset.x, list.contentSize.width - list.bounds.width, accuracy: 0.01)
     }
 
+    func testAccessoryMeasurementWindowCompletesAppearanceAndReleasesRoot() {
+        for rtl in [false, true] {
+            var events: [String] = []
+            weak var releasedRoot: UIViewController?
+            autoreleasepool {
+                let controller = AccessoryLifecycleController()
+                controller.onEvent = { events.append($0) }
+                releasedRoot = controller
+                let (bar, _) = mount(rtl: rtl, controller: controller)
+                bar.trailingAccessoryView = fixed(60, 50)
+                bar.layoutIfNeeded()
+                bar.setSelectedIndex(7, animated: true)
+                bar.advanceSelectionAnimation(to: 0.3)
+                for width: CGFloat in [40, 900, 180, 400] {
+                    _ = bar.sizeThatFits(CGSize(width: width, height: 0))
+                }
+                // 在选择动画尚未结束时关闭真实窗口，验证 appearance 收尾及释放。
+                window.closeForTesting()
+                XCTAssertEqual(events, ["willAppear", "didAppear", "willDisappear", "didDisappear"])
+                window = nil
+            }
+            XCTAssertNil(releasedRoot)
+        }
+    }
+
     func testZeroAndOversizedAccessoriesRecoverWithoutLosingBusinessConstraints() {
         let (bar, list) = mount()
         let accessory = UIView()
@@ -470,5 +499,30 @@ final class SPTabBarAccessoryTests: XCTestCase {
             XCTAssertEqual(colors.first!.alpha, firstAlpha, accuracy: 0.01)
             XCTAssertEqual(colors.last!.alpha, lastAlpha, accuracy: 0.01)
         }
+    }
+}
+
+@MainActor
+private final class AccessoryLifecycleController: UIViewController {
+    var onEvent: ((String) -> Void)?
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        onEvent?("willAppear")
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        onEvent?("didAppear")
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        onEvent?("willDisappear")
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        onEvent?("didDisappear")
     }
 }

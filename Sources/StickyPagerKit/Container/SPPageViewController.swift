@@ -74,8 +74,60 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private var isVisible = false
     private var parentAppearance: [UIViewController] = []
     private var parentIsAppearing: Bool?
-    private var transitionTarget: Int?
-    private var transitionAppearance = false
+    /// 转场保存实际记录，避免回调重排快照后按旧索引结束另一页的 appearance。
+    private final class PageTransition {
+        let generation: UInt
+        let outgoing: SPPageRecord?
+        let incoming: SPPageRecord
+        var outgoingBegan = false
+        var incomingBegan = false
+        init(generation: UInt, outgoing: SPPageRecord?, incoming: SPPageRecord) {
+            self.generation = generation
+            self.outgoing = outgoing
+            self.incoming = incoming
+        }
+    }
+
+    private var transition: PageTransition?
+    private var transitionTarget: Int? {
+        transition.flatMap { identifiers.firstIndex(of: $0.incoming.identifier) }
+    }
+
+    private var snapshotGeneration: UInt = 0
+    private var selectionGeneration: UInt = 0
+    private var interactionGeneration: UInt = 0
+    private var loadingIdentifiers: Set<AnyHashable> = []
+    private var finishingIdentifiers: Set<AnyHashable> = []
+    private var operationDepth = 0
+    private var appearanceDepth = 0
+    private var isDrainingRequests = false
+    private var pendingRequests: [() -> Void] = []
+
+    private func endOperation() {
+        operationDepth -= 1
+        drainRequests()
+    }
+
+    private func drainRequests() {
+        guard operationDepth == 0, appearanceDepth == 0, !isReloading,
+              loadingIdentifiers.isEmpty, !isDrainingRequests else {
+            return
+        }
+        isDrainingRequests = true
+        defer { isDrainingRequests = false }
+        while !pendingRequests.isEmpty {
+            let request = pendingRequests.removeFirst()
+            request()
+        }
+    }
+
+    private func withAppearanceUpdates(_ updates: () -> Void) {
+        operationDepth += 1
+        appearanceDepth += 1
+        defer { appearanceDepth -= 1; endOperation() }
+        updates()
+    }
+
     // 横向手势开始即保护纵向历史，覆盖候选页尚未建立及取消回原页的阶段。
     private var isPaging = false {
         didSet {
@@ -187,6 +239,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
 
     open override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        operationDepth += 1
+        defer { endOperation() }
         if let gesture = navigationController?.interactivePopGestureRecognizer, gesture !== returnGesture {
             pagingView.panGestureRecognizer.require(toFail: gesture)
             headerPan.require(toFail: gesture)
@@ -197,28 +251,34 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         endParentAppearance()
         parentIsAppearing = true
         parentAppearance = [storedHeaderController, currentRecord?.controller].compactMap { $0 }
-        parentAppearance.forEach { $0.beginAppearanceTransition(true, animated: animated) }
+        withAppearanceUpdates { parentAppearance.forEach { $0.beginAppearanceTransition(true, animated: animated) } }
     }
 
     open override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        operationDepth += 1
+        defer { endOperation() }
         endParentAppearance()
         isVisible = true
     }
 
     open override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        operationDepth += 1
+        defer { endOperation() }
         cancelPaging()
         stopAnimation()
         isVisible = false
         endParentAppearance()
         parentIsAppearing = false
         parentAppearance = [storedHeaderController, currentRecord?.controller].compactMap { $0 }
-        parentAppearance.forEach { $0.beginAppearanceTransition(false, animated: animated) }
+        withAppearanceUpdates { parentAppearance.forEach { $0.beginAppearanceTransition(false, animated: animated) } }
     }
 
     open override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        operationDepth += 1
+        defer { endOperation() }
         endParentAppearance()
     }
 
@@ -288,6 +348,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             previousSize = pageFrame.size
             previousTabBarHeight = l.tabBarHeight
         }
+        let wasSuppressing = suppressPaging
         suppressPaging = true
         pagingView.frame = pageFrame
         pagingView.contentSize = CGSize(width: pageFrame.width * CGFloat(identifiers.count), height: pageFrame.height)
@@ -312,7 +373,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
                 align(record)
             }
         }
-        suppressPaging = false
+        suppressPaging = wasSuppressing
         if rangeChanged {
             publishHeader()
         } else {
@@ -344,7 +405,8 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             return
         }
         isReloading = true
-        defer { isReloading = false }
+        operationDepth += 1
+        defer { isReloading = false; endOperation() }
         loadViewIfNeeded()
         let count = max(0, dataSource?.numberOfPages(in: self) ?? 0)
         var newIDs: [AnyHashable] = [], newItems: [SPTabBarItem] = []
@@ -363,7 +425,29 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             NSLog("StickyPagerKit: reloadData 拒绝重复页面标识")
             return
         }
-        cancelPaging()
+        // 只有完整且合法的快照才使旧选择失效；拒绝更新不触碰已有转场。
+        snapshotGeneration &+= 1
+        selectionGeneration &+= 1
+        let generation = snapshotGeneration
+        if appearanceDepth > 0 {
+            pendingRequests.append { [weak self] in
+                self?.applySnapshot(newIDs, items: newItems, generation: generation)
+            }
+        } else {
+            applySnapshot(newIDs, items: newItems, generation: generation)
+        }
+    }
+
+    private func applySnapshot(_ newIDs: [AnyHashable], items newItems: [SPTabBarItem], generation: UInt) {
+        guard generation == snapshotGeneration else {
+            return
+        }
+        operationDepth += 1
+        // 应用快照期间的选择在完整状态建立后执行；沿用嵌套 reload 忽略的既有约定。
+        let wasReloading = isReloading
+        isReloading = true
+        defer { isReloading = wasReloading; endOperation() }
+        cancelPaging(invalidatingRequest: false)
         stopAnimation()
         let oldIndex = selectedIndex
         let oldID = oldIndex.flatMap { identifiers.indices.contains($0) ? identifiers[$0] : nil }
@@ -388,7 +472,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
                 appear(record.controller, true)
             }
         }
-        storedTabBar.setSelectedItem(next.map { items[$0] }, animated: false)
+        storedTabBar.setSelectedItem(
+            selectedIndex.flatMap { items.indices.contains($0) ? items[$0] : nil },
+            animated: false
+        )
         view.setNeedsLayout()
         view.layoutIfNeeded()
         evictPages()
@@ -406,27 +493,62 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         guard identifiers.indices.contains(index) else {
             return
         }
+        let id = identifiers[index]
+        selectionGeneration &+= 1
+        let generation = selectionGeneration
+        if appearanceDepth > 0 || isReloading || loadingIdentifiers.contains(id) {
+            pendingRequests.append { [weak self] in
+                self?.performSelection(id, animated: animated, userItem: userItem, generation: generation)
+            }
+            return
+        }
+        performSelection(id, animated: animated, userItem: userItem, generation: generation)
+    }
+
+    private func performSelection(_ id: AnyHashable, animated: Bool, userItem: SPTabBarItem?, generation: UInt) {
+        guard generation == selectionGeneration, identifiers.contains(id) else {
+            return
+        }
+        operationDepth += 1
+        defer { endOperation() }
         loadViewIfNeeded()
-        cancelPaging()
+        cancelPaging(invalidatingRequest: false)
+        guard generation == selectionGeneration, let index = identifiers.firstIndex(of: id) else {
+            return
+        }
         if let userItem {
             storedTabBar.beginUserSelection(userItem)
         }
+        guard generation == selectionGeneration else {
+            return
+        }
         guard index != selectedIndex else {
-            storedTabBar.completeUserSelection()
+            withAppearanceUpdates { storedTabBar.completeUserSelection() }
             return
         }
         stopAnimation()
         view.layoutIfNeeded()
+        guard generation == selectionGeneration, let index = identifiers.firstIndex(of: id) else {
+            return
+        }
         let isAdjacent = selectedIndex.map { abs(index - $0) == 1 } ?? false
         let animatePage = animated && isVisible && isAdjacent && pagingView.bounds.width > 0
         beginTransition(to: index, animated: animatePage)
+        guard generation == selectionGeneration, transition?.incoming.identifier == id,
+              let index = identifiers.firstIndex(of: id) else {
+            return
+        }
         let point = CGPoint(x: physicalIndex(index) * pagingView.bounds.width, y: 0)
         if animatePage {
             pagingView.setContentOffset(point, animated: true)
         } else {
+            let wasSuppressing = suppressPaging
             suppressPaging = true
             pagingView.setContentOffset(point, animated: false)
-            suppressPaging = false
+            suppressPaging = wasSuppressing
+            guard generation == selectionGeneration else {
+                return
+            }
             finishTransition(commit: true, animated: animated && isVisible)
         }
     }
@@ -609,15 +731,41 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         if let record = records[id] {
             record.access = accessCounter; return record
         }
-        guard let controller = dataSource?.pageViewController(self, viewControllerAt: index),
-              controller.parent == nil else {
+        guard loadingIdentifiers.insert(id).inserted else {
             return nil
+        }
+        operationDepth += 1
+        defer { loadingIdentifiers.remove(id); endOperation() }
+        guard let controller = dataSource?.pageViewController(self, viewControllerAt: index),
+              controller.parent == nil, identifiers.contains(id) else {
+            return nil
+        }
+        if let existing = records[id] {
+            return existing
         }
         let record = SPPageRecord(identifier: id, controller: controller)
         record.access = accessCounter
         records[id] = record
         let selectionBeforeLoading = scrollViewSelections[id]
+        var mounted = false
+        defer {
+            if !mounted {
+                if records[id] === record {
+                    removeRecord(id)
+                } else if controller.parent === self,
+                          !records.values.contains(where: { $0.controller === controller }) {
+                    // addChild 的 willMove 回调可能先删除记录，随后 UIKit 才完成 parent 写入。
+                    controller.willMove(toParent: nil)
+                    controller.viewIfLoaded?.removeFromSuperview()
+                    controller.removeFromParent()
+                    record.safeArea.detach()
+                }
+            }
+        }
         addChild(controller)
+        guard records[id] === record, identifiers.contains(id), controller.parent === self else {
+            return nil
+        }
         let root = controller.view!
         guard records[id] === record, let layoutIndex = identifiers.firstIndex(of: id) else {
             return nil
@@ -656,6 +804,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         bind(record)
         // 首次绑定后同步页面位移和滚动 inset；根视图与标签栏顶部对齐，内容避让标签栏。
         layoutHeader()
+        guard records[id] === record, identifiers.contains(id) else {
+            return nil
+        }
+        mounted = true
         return record
     }
 
@@ -729,7 +881,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
                 return
             }
             self.stopAnimation()
-            self.consume(binding)
+            self.consume(binding, for: record)
         }
         record.binding?.indicatorsHiddenForPaging = isPaging && scrollIndicatorVisibilityPolicy == .hideDuringPaging
         record.binding?.setRange(effectiveLayout.collapseRange)
@@ -753,13 +905,14 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         binding.setPosition(min(binding.maximumPosition, position))
     }
 
-    private func consume(_ binding: SPScrollBinding) {
+    private func consume(_ binding: SPScrollBinding, for record: SPPageRecord) {
+        guard record === currentRecord, record.binding === binding,
+              records[record.identifier] === record else {
+            return
+        }
         let range = effectiveLayout.collapseRange
         collapseOffset = SPScrollGeometry.collapse(binding.position, range: range)
-        if let id = currentRecord?
-            .identifier {
-            positions[id] = SPScrollGeometry.content(binding.position, range: range)
-        }
+        positions[record.identifier] = SPScrollGeometry.content(binding.position, range: range)
         publishHeader()
     }
 
@@ -787,7 +940,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             protectedIndices += [Int(floor(position)), Int(ceil(position))]
         }
         let protected = protectedIndices.filter { identifiers.indices.contains($0) }.map { identifiers[$0] }
-        let candidates = records.values.filter { !protected.contains($0.identifier) }.sorted { $0.access < $1.access }
+        let candidates = records.values.filter {
+            !protected.contains($0.identifier) && !loadingIdentifiers.contains($0.identifier)
+                && !finishingIdentifiers.contains($0.identifier)
+        }.sorted { $0.access < $1.access }
         for record in candidates where records.count > capacity {
             removeRecord(record.identifier)
         }
@@ -813,27 +969,31 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     private func endParentAppearance() {
-        parentAppearance.forEach { $0.endAppearanceTransition() }
+        let controllers = parentAppearance
         parentAppearance.removeAll()
         parentIsAppearing = nil
+        withAppearanceUpdates { controllers.forEach { $0.endAppearanceTransition() } }
     }
 
     private func appear(_ controller: UIViewController, _ appearing: Bool) {
-        if let index = parentAppearance.firstIndex(where: { $0 === controller }) {
-            parentAppearance.remove(at: index)
-            controller.endAppearanceTransition()
-            if !appearing && parentIsAppearing == true {
-                controller.beginAppearanceTransition(false, animated: false)
+        withAppearanceUpdates {
+            if let index = parentAppearance.firstIndex(where: { $0 === controller }) {
+                parentAppearance.remove(at: index)
+                let wasAppearing = parentIsAppearing == true
                 controller.endAppearanceTransition()
+                if !appearing && wasAppearing {
+                    controller.beginAppearanceTransition(false, animated: false)
+                    controller.endAppearanceTransition()
+                }
+                return
             }
-            return
-        }
-        if isVisible {
-            controller.beginAppearanceTransition(appearing, animated: false)
-            controller.endAppearanceTransition()
-        } else if appearing && parentIsAppearing == true {
-            controller.beginAppearanceTransition(true, animated: false)
-            parentAppearance.append(controller)
+            if isVisible {
+                controller.beginAppearanceTransition(appearing, animated: false)
+                controller.endAppearanceTransition()
+            } else if appearing && parentIsAppearing == true {
+                parentAppearance.append(controller)
+                controller.beginAppearanceTransition(true, animated: false)
+            }
         }
     }
 
@@ -841,27 +1001,46 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         guard index != selectedIndex, identifiers.indices.contains(index) else {
             return
         }
-        if transitionTarget == index {
+        let id = identifiers[index]
+        if transition?.incoming.identifier == id {
             return
         }
-        if transitionTarget != nil {
+        operationDepth += 1
+        defer { endOperation() }
+        let generation = selectionGeneration
+        if transition != nil {
             finishTransition(commit: false, continuingPaging: true)
         }
-        guard let incoming = loadPage(index) else {
+        guard generation == selectionGeneration, let currentIndex = identifiers.firstIndex(of: id),
+              let incoming = loadPage(currentIndex), generation == selectionGeneration,
+              records[id] === incoming else {
             return
         }
         beginPaging()
+        guard generation == selectionGeneration, records[id] === incoming else {
+            return
+        }
         align(incoming)
-        transitionTarget = index
-        transitionAppearance = isVisible
-        if transitionAppearance {
-            currentRecord?.controller.beginAppearanceTransition(false, animated: animated)
-            incoming.controller.beginAppearanceTransition(true, animated: animated)
+        guard generation == selectionGeneration, records[id] === incoming else {
+            return
+        }
+        let context = PageTransition(generation: generation, outgoing: currentRecord, incoming: incoming)
+        transition = context
+        withAppearanceUpdates {
+            if isVisible {
+                context.outgoingBegan = context.outgoing != nil
+                context.outgoing?.controller.beginAppearanceTransition(false, animated: animated)
+                context.incomingBegan = true
+                incoming.controller.beginAppearanceTransition(true, animated: animated)
+            }
+            if generation != selectionGeneration, transition === context {
+                finishTransition(commit: false)
+            }
         }
     }
 
     private func finishTransition(commit: Bool, animated: Bool = true, continuingPaging: Bool = false) {
-        guard let target = transitionTarget else {
+        guard let context = transition else {
             if !continuingPaging {
                 if isPaging {
                     align(currentRecord)
@@ -870,57 +1049,90 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             }
             return
         }
-        let old = currentRecord?.controller
-        let incoming = records[identifiers[target]]?.controller
-        if transitionAppearance {
-            old?.endAppearanceTransition()
-            incoming?.endAppearanceTransition()
-            if !commit {
-                old?.beginAppearanceTransition(true, animated: false); old?.endAppearanceTransition()
-                incoming?.beginAppearanceTransition(false, animated: false); incoming?.endAppearanceTransition()
+        operationDepth += 1
+        defer { endOperation() }
+        // 先移走活动上下文，再调用 UIKit；回调不能递归结束同一转场。
+        transition = nil
+        let previousFinishing = finishingIdentifiers
+        finishingIdentifiers.formUnion([context.outgoing?.identifier, context.incoming.identifier].compactMap { $0 })
+        defer { finishingIdentifiers = previousFinishing; evictPages() }
+        withAppearanceUpdates {
+            let hadAppearance = context.outgoingBegan || context.incomingBegan
+            if context.outgoingBegan {
+                context.outgoingBegan = false
+                context.outgoing?.controller.endAppearanceTransition()
             }
-        }
-        if commit && !transitionAppearance && parentIsAppearing == true {
-            if let old {
-                appear(old, false)
+            if context.incomingBegan {
+                context.incomingBegan = false
+                context.incoming.controller.endAppearanceTransition()
             }
-            if let incoming {
-                appear(incoming, true)
+            let canCommit = commit && context.generation == selectionGeneration
+                && records[context.incoming.identifier] === context.incoming
+                && identifiers.contains(context.incoming.identifier)
+            if !canCommit, hadAppearance {
+                context.outgoing?.controller.beginAppearanceTransition(true, animated: false)
+                context.outgoing?.controller.endAppearanceTransition()
+                context.incoming.controller.beginAppearanceTransition(false, animated: false)
+                context.incoming.controller.endAppearanceTransition()
             }
-        }
-        transitionTarget = nil
-        transitionAppearance = false
-        if commit {
-            selectedIndex = target
-            align(currentRecord)
-        } else if !continuingPaging {
-            // 自适应列表会在横向移出视口时修正 offset；取消后恢复拖动前保存的正文位置。
-            align(currentRecord)
-        }
-        storedTabBar.synchronizeSelection(selectedIndex.map { items[$0] }, animated: commit && animated)
-        evictPages()
-        // 中途改变候选页仍属于同一次分页，保持隐藏；结束后按业务偏好恢复。
-        if !continuingPaging {
-            isPaging = false
-        }
-        if commit {
-            storedTabBar.completeUserSelection()
-            delegate?.pageViewController(self, didSelectPageAt: target)
-        } else {
-            storedTabBar.cancelUserSelection()
+            if canCommit && !hadAppearance && parentIsAppearing == true {
+                if let old = context.outgoing {
+                    appear(old.controller, false)
+                }
+                if context.generation == selectionGeneration {
+                    appear(context.incoming.controller, true)
+                }
+                if context.generation != selectionGeneration {
+                    // 父级仍在出现时，撤销候选页并恢复旧页的待完成 appearance。
+                    // 后续请求必须从完整的旧状态接管，不能留下两张待出现页面。
+                    if parentAppearance.contains(where: { $0 === context.incoming.controller }) {
+                        appear(context.incoming.controller, false)
+                    }
+                    if let old = context.outgoing {
+                        appear(old.controller, true)
+                    }
+                }
+            }
+            let didCommit = canCommit && context.generation == selectionGeneration
+            if didCommit {
+                selectedIndex = identifiers.firstIndex(of: context.incoming.identifier)
+                align(currentRecord)
+            } else if !continuingPaging {
+                align(currentRecord)
+            }
+            storedTabBar.synchronizeSelection(
+                selectedIndex.flatMap { items.indices.contains($0) ? items[$0] : nil },
+                animated: didCommit && animated
+            )
+            if !continuingPaging {
+                isPaging = false
+            }
+            if didCommit, let target = selectedIndex {
+                // 已提交事件在队列中的下一次选择之前发送，保持提交顺序。
+                storedTabBar.completeUserSelection()
+                delegate?.pageViewController(self, didSelectPageAt: target)
+            } else {
+                storedTabBar.cancelUserSelection()
+            }
         }
     }
 
-    private func cancelPaging() {
+    private func cancelPaging(invalidatingRequest: Bool = true) {
+        if invalidatingRequest {
+            selectionGeneration &+= 1
+        }
+        operationDepth += 1
+        defer { endOperation() }
         storedTabBar.cancelUserSelection()
         guard isViewLoaded else {
             return
         }
+        let wasSuppressing = suppressPaging
         suppressPaging = true
+        defer { suppressPaging = wasSuppressing }
         pagingView.setContentOffset(pagingView.contentOffset, animated: false)
         finishTransition(commit: false)
         alignPaging()
-        suppressPaging = false
     }
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -945,6 +1157,10 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         guard !suppressPaging, let selectedIndex, !identifiers.isEmpty else {
             return
         }
+        operationDepth += 1
+        defer { endOperation() }
+        let snapshot = snapshotGeneration
+        let selection = selectionGeneration
         let position = min(CGFloat(identifiers.count - 1), max(0, logicalPosition()))
         // 手势或相邻切页期间按需准备可见页；非相邻选择直接定位，不进入此路径。
         // 只保留当前、目标及最多两个可见页。
@@ -952,6 +1168,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         for index in visibleIndices {
             if records[identifiers[index]] == nil {
                 loadPage(index)
+                guard snapshot == snapshotGeneration, selection == selectionGeneration else {
+                    return
+                }
             }
         }
         // 页面加载可能更新标签内容；准备完成后只测量一次，两张可见页共用当前布局。
@@ -961,14 +1180,23 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             // 同步撤销离屏时的标签栏补偿，避免首次切页期间重复避让、结束时正文上跳。
             if let record = records[identifiers[index]] {
                 layoutPage(record, at: index, layout: pageLayout)
+                guard snapshot == snapshotGeneration, selection == selectionGeneration else {
+                    return
+                }
             }
         }
         evictPages()
+        guard snapshot == snapshotGeneration, selection == selectionGeneration else {
+            return
+        }
         let delta = position - CGFloat(selectedIndex)
         if abs(delta) > 0.001 {
             let target = delta > 0 ? Int(ceil(position)) : Int(floor(position))
             if pagingView.isDragging || pagingView.isDecelerating {
                 beginTransition(to: target)
+                guard snapshot == snapshotGeneration, selection == selectionGeneration else {
+                    return
+                }
             }
             let end = transitionTarget ?? target
             let denominator = abs(CGFloat(end - selectedIndex))
@@ -998,13 +1226,16 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     private func settlePaging() {
+        operationDepth += 1
+        defer { endOperation() }
         let index = Int(logicalPosition().rounded())
         if index == selectedIndex {
             finishTransition(commit: false)
         } else {
             beginTransition(to: index); finishTransition(commit: true)
         }
-        suppressPaging = true; alignPaging(); suppressPaging = false
+        let wasSuppressing = suppressPaging
+        suppressPaging = true; alignPaging(); suppressPaging = wasSuppressing
     }
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -1092,8 +1323,13 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             dragStart = bound + translation
             if let binding {
                 // 框架拖动仅协调合法范围，列表原生回弹由业务配置和 UIKit 管理。
+                let generation = interactionGeneration
                 binding.setPosition(bound)
-                consume(binding)
+                guard generation == interactionGeneration, dragPan === pan,
+                      dragRecord === record, dragBinding === binding else {
+                    return
+                }
+                consume(binding, for: record)
             } else {
                 // 普通页面只消耗 Header 范围，不生成内容位移或越界回弹。
                 collapseOffset = bound
@@ -1123,6 +1359,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     private func stopAnimation() {
+        interactionGeneration &+= 1
         displayLink?.invalidate(); displayLink = nil
         dragRecord = nil; dragBinding = nil; dragPan = nil
     }
@@ -1149,8 +1386,16 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         }
         animationVelocity *= pow(binding.scrollView.decelerationRate.rawValue, dt * 1000)
         let position = min(max(0, binding.position + animationVelocity * dt), binding.maximumPosition)
+        let generation = interactionGeneration
         binding.setPosition(position)
-        consume(binding)
+        guard generation == interactionGeneration, displayLink === link,
+              record === currentRecord, record.binding === binding else {
+            return
+        }
+        consume(binding, for: record)
+        guard generation == interactionGeneration, displayLink === link else {
+            return
+        }
         // 到达边界即停止，不为业务列表制造越界位移或弹簧回弹。
         if abs(animationVelocity) < 2 || position <= 0 || position >= binding.maximumPosition {
             stopAnimation()

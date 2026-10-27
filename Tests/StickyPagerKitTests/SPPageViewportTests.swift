@@ -237,6 +237,10 @@ final class SPPageViewportTests: XCTestCase {
                 table.contentOffset.y = 546 + max(0, 220 - pager.view.safeAreaInsets.top) - table.adjustedContentInset
                     .top
                 table.layoutIfNeeded()
+                // 首次原生行高结算可在事务前补偿 offset；先完成结算，再建立明确的业务定位。
+                // 事务保护应恢复这里的起点，不能把此前的原生补偿误判为事务内回写。
+                table.contentOffset.y = 546 + pager.collapseOffset - table.adjustedContentInset.top
+                XCTAssertEqual(binding.position - pager.collapseOffset, 546, accuracy: 0.5, "尺寸事务前置位置")
                 let coordinator = SizeTransitionCoordinator()
                 pager.viewWillTransition(to: CGSize(width: 511, height: 900), with: coordinator)
                 window.frame.size = CGSize(width: 511, height: 900)
@@ -245,7 +249,9 @@ final class SPPageViewportTests: XCTestCase {
                 pager.view.layoutIfNeeded()
                 // 新契约只保护框架收尾事务内的回写；事务外相同几何由业务测试验证。
                 let deferred = table as! DeferredOffsetTableView
+                var correctionCount = 0
                 deferred.onNextLayout = {
+                    correctionCount += 1
                     let cells = table.visibleCells
                     XCTAssertFalse(cells.isEmpty)
                     for cell in cells {
@@ -256,6 +262,7 @@ final class SPPageViewportTests: XCTestCase {
                 }
                 table.setNeedsLayout()
                 coordinator.finish()
+                XCTAssertEqual(correctionCount, 1, "收尾必须实际执行注入的行高结算")
                 XCTAssertEqual(binding.position - pager.collapseOffset, 546, accuracy: 0.5)
                 pager.setSelectedIndex(1, animated: false)
                 pager.setSelectedIndex(0, animated: false)

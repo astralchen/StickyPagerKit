@@ -71,6 +71,7 @@ final class PagingTraceWindow: UIWindow {
     }
 
     override func sendEvent(_ event: UIEvent) {
+        let receivedTime = CACurrentMediaTime()
         if event.type == .scroll {
             pointerScrollEvents += 1
             lastPointerScrollTimestamp = event.timestamp
@@ -99,7 +100,9 @@ final class PagingTraceWindow: UIWindow {
             previousVertical = sourceScroll.map { $0.contentOffset.y + $0.adjustedContentInset.top } ?? 0
             hitView = touch?.view.map { String(describing: type(of: $0)) } ?? "nil"
         }
+        let nativeStartTime = CACurrentMediaTime()
         super.sendEvent(event)
+        let handledTime = CACurrentMediaTime()
         guard let touch, let paging = pagingView(in: self), samples.count < 256 else {
             return
         }
@@ -109,6 +112,12 @@ final class PagingTraceWindow: UIWindow {
         samples.append([
             "time": touch.timestamp,
             "deliveryTime": CACurrentMediaTime(),
+            // 同一单调时钟：区分到达窗口前的延迟与 sendEvent 内的同步处理耗时。
+            // 合并触摸只保留本批最后时间，不能据此推算所有被合并事件的等待时间。
+            "receivedTime": receivedTime,
+            "deliveryDelay": max(0, receivedTime - touch.timestamp),
+            "handlingDuration": handledTime - receivedTime,
+            "nativeHandlingDuration": handledTime - nativeStartTime,
             "previousX": touch.previousLocation(in: self).x,
             "coalescedCount": Double(event.coalescedTouches(for: touch)?.count ?? 0),
             "phase": Double(touch.phase.rawValue),
@@ -145,6 +154,8 @@ final class PagingTraceWindow: UIWindow {
             stalledSequence = sequence
             Thread.sleep(forTimeInterval: 0.3)
         }
+        // 包含诊断夹具注入的停顿；结束事件的日志序列化和文件保存不计入此值。
+        samples[samples.count - 1]["handlingDuration"] = CACurrentMediaTime() - receivedTime
         if touch.phase == .ended || touch.phase == .cancelled {
             NSLog("PAGING_EVENT %@", pagingTrace)
             let url = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -194,6 +205,8 @@ final class PagingTraceWindow: UIWindow {
             "beganSamples": samples.filter { $0["pan"] == 1 },
             "firstMoved": samples.first { $0["phase"] == 1 } ?? [:],
             "maxTouchGap": zip(samples, samples.dropFirst()).map { ($1["time"] ?? 0) - ($0["time"] ?? 0) }.max() ?? 0,
+            "slowestDelivery": samples.max { ($0["deliveryDelay"] ?? 0) < ($1["deliveryDelay"] ?? 0) } ?? [:],
+            "slowestHandling": samples.max { ($0["handlingDuration"] ?? 0) < ($1["handlingDuration"] ?? 0) } ?? [:],
 
             "minOffset": samples.compactMap { $0["offset"] }.min() ?? paging.contentOffset.x,
             "maxOffset": samples.compactMap { $0["offset"] }.max() ?? paging.contentOffset.x,

@@ -2,6 +2,87 @@
 
 验证日期：2026-10-15 至 2026-10-26。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
+## 2026-10-26：视口测试前置位置与独立生命周期诊断
+
+在保留同步重入修复及其已有工作区修改的基础上，复核请求队列、appearance 收尾和失效记录清理，未确认需要追加的框架修改。本轮定位先前 iPad 全量库中 `testEstimatedRowCompensationInsideViewportTransactionDoesNotBecomeSavedPosition` 的 10.5 pt 偏差，并补充独立标签栏生命周期与真实输入诊断。验证时尚未提交或推送。
+
+临时诊断只加在目标测试中，框架实现未改。[原始诊断失败](Results/viewport-probe-ipad-r1-20261026/summary.json) 在 LTR／RTL、注入 −10.5／+17 的四个组合中均显示：
+
+| 时点 | 正文位置 | offset / 内容高度 |
+| --- | --- | --- |
+| 初次业务定位之后 | 546 | offset 502，contentSize.height 6520.5 |
+| 事务开始前的 `table.layoutIfNeeded()` 之后 | 535.5 | offset 491.5，contentSize.height 6510；此时尚未调用 `viewWillTransition` |
+| 收尾事务内注入 −10.5／+17 之后 | 525／552.5 | 注入确实执行 |
+| 收尾完成 | 535.5 | 正确恢复事务起点，随后切页也恢复该位置 |
+
+因此，受控用例中的偏差源自事务前的原生行高估算结算，随后由正常 offset 观察路径保存；不是收尾事务把注入补偿错误保存。原用例却直接断言最初的 546，没有检查事务起点。修正夹具在初次原生布局完成后重新执行明确的业务定位，并新增事务前正文位置必须为 546 的断言；原有收尾、切页恢复及业务定位断言均保留。另断言注入回调执行恰好一次，避免用例在没有触发行高结算时误通过。没有特判 10.5 pt、关闭行高估算或修改框架滚动所有权。临时日志已移除，诊断源码另存于原失败目录。
+
+新增独立标签栏窗口用例：在选择动画中途测量多个候选宽度后关闭真实 UIWindow，LTR／RTL 均检查 `willAppear → didAppear → willDisappear → didDisappear` 精确顺序及根控制器释放。原用例和新增用例各重复 3 次均通过，未复现前序偶发 appearance 诊断；不能据此声称其完整成因已找到。
+
+Demo 的 `PagingTraceWindow` 仅在既有诊断路径增加单调时钟字段：`receivedTime`、`deliveryDelay`、`handlingDuration`、`nativeHandlingDuration`，并输出最慢交付／处理样本。处理耗时包含已有夹具注入的停顿，不含结束事件的日志序列化和文件保存。合并事件时间戳代表本批最后触摸，不能推算所有合并事件的等待时间；这些数据只能区分到达窗口前与同步处理阶段，不能单凭它们归因到具体线程栈或库函数。没有接管业务 delegate 或手势。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug，iPad Pro 13-inch (M5) (16GB) 与 iPhone 18 Pro，均为 iOS 27.0 Simulator。库验证使用仓库 UIKit application host；Demo 验证使用 Apple 官方 Xcode MCP。
+
+| 运行 | 结果 | 源码与边界 |
+| --- | --- | --- |
+| [原始诊断](Results/viewport-probe-ipad-r1-20261026/summary.json) | 0 通过、1 失败 | 临时诊断版本，四个组合均证实偏差在事务前出现；诊断源码和失败保留。 |
+| [iPad 视口聚焦](Results/viewport-focused-ipad-r2-20261026/summary.json) | 15 通过、0 失败 | 14 项视口与原标签栏用例；随后增加诊断和生命周期测试，属中间版本。 |
+| [生命周期重复验证](Results/accessory-lifecycle-focus-r3-20261026/summary.json) | 2 项各执行 3 次，6 次均通过 | xcresult 汇总按 2 个唯一测试计数；随后微调 Demo 诊断耗时边界，属中间版本。 |
+| [最终 iPad 全量库](Results/viewport-library-ipad-final-r4-20261026/summary.json) | **360 通过、0 失败、0 跳过** | 当前源码一致，包含此前 14 项重入回归及新增生命周期用例。 |
+| [最终 iPhone 聚焦](Results/viewport-focused-iphone-final-r4-20261026/summary.json) | **16 通过、0 失败、0 跳过** | 当前源码一致，覆盖全部视口测试及两项独立标签栏边界。 |
+| [真实触摸诊断](Results/viewport-input-diagnostics-ui-r4-20261026/summary.json) | **2 通过、0 失败、0 跳过** | 普通横向 Section 双边界及已有受控停顿 Header 用例，原行为断言未改。 |
+
+真实输入的 [时间字段分析](Results/viewport-input-diagnostics-ui-r4-20261026/event-timing-analysis.json) 显示：普通横向路径收集到的 27 份去重轨迹中，最大交付延迟约 26.7 ms，最大处理耗时约 118.5 ms（该样本原生处理约 118.5 ms），本次没有复现此前的长停顿及内部不滚动失败。受控 0.3 秒停顿样本的总处理耗时约 311.7 ms，原生处理仅约 3.2 ms，确认新字段能区分这条已知注入路径。没有获取故障现场线程栈，不能据此确认此前偶发停顿的完整来源或把正常路径的单次耗时归因到具体库函数。
+
+终态库与 UI 的四类脚本诊断均为 0；结果包运行时警告为空。iPad 全量原始日志另有 42 条 `Ignoring attempt to add focus items in already-visited container`，本轮开始前的 iPad 全量日志也有 55 条同类信息；这是未归因的 UIKit focus 诊断，不以脚本四类计数为 0 宣称日志完全干净。前序 appearance 诊断在本轮聚焦、重复及全量执行中均未复现。
+
+相关 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过。本轮没有追加修改 `SPPageViewController` 或其他框架实现，没有新增依赖或公开接口；既有重入修复保留。没有新增 Release、旧版 iOS、真机、完整 Demo UI 或性能压力验证；iPhone 本轮执行聚焦库测试，没有重跑完整库套件。Xcode 运行目标在验证后恢复为原目标。
+
+本节只解决上述受控测试的错误前置状态，不将历史真实分屏／连续窗口缩放中的同数值偏移一并判为已修复；原始失败证据和未覆盖边界继续保留。
+
+## 2026-10-26：容器同步重入与状态失效修复
+
+本节保留重入修复及续验阶段的记录，“当前源码一致”均指该阶段结束时的源码。后续测试夹具与 Demo 诊断变更及最终源码对应结果见上一节；本节的 359 项 iPhone 全量结果不作为后续全部源码已验证的证据。
+
+修复页面创建／挂载回调改变快照后沿用旧索引、appearance 收尾回调覆盖新选择、Header 拖动／惯性 offset 回调污染新页位置，以及数据源返回后遗留已删除页面四类问题。转场保存稳定标识及实际记录，使用快照／选择／交互版本验证回调后的所有权；appearance 配对期间的新请求在同步安全点处理，已提交事件保持顺序。页面创建保护防止同标识递归创建，失败路径撤销自身 containment。公开 API、主 actor 隔离、弱代理和 iOS 15 部署目标不变。
+
+新增 `SPPageReentrancyTests` 的 14 项回归，使用真实 UIWindow，覆盖 LTR／RTL、缓存容量 1、目标重排／缩减／删除／空快照、可见页加载、拒绝重复快照、数据源递归请求、子页和父级 appearance 重入、取消、已提交事件顺序、后续动画，以及拖动／惯性中的切页、替换和解绑。直接驱动的 pan／分页状态只用于验证同步调用边界，不作为真实触摸证据。
+
+环境：Xcode 27.1 / Swift 6.4 / Debug；iPhone 18 Pro、iPhone 18 Pro Max 和 iPad Pro 13-inch (M5) (16GB)，均为 iOS 27.0 Simulator。库测试通过仓库脚本的 UIKit application host 执行；Demo 使用 Apple 官方 Xcode MCP。未将根目录库测试加入 Demo 工程或 scheme。
+
+| 运行 | 结果 | 源码与范围 |
+| --- | --- | --- |
+| [首轮聚焦](Results/reentrancy-focus-r1-20261026/summary.json) | 11 通过、0 失败 | 中间版本，后续补充收尾保护与测试，非最终源码证据。 |
+| [中间 iPhone 全量库](Results/reentrancy-library-iphone-r2-20261026/summary.json) | 358 通过、0 失败 | 中间版本，随后补充父级出现期间的候选页回滚。 |
+| [最终 iPad 重入聚焦](Results/reentrancy-focus-ipad-r3-20261026/summary.json) | **14 通过、0 失败、0 跳过** | 当前源码一致，四类运行时诊断均为 0。 |
+| [最终 iPhone 全量库](Results/reentrancy-library-iphone-final-20261026/summary.json) | **359 通过、0 失败、0 跳过** | iPhone 18 Pro Max；当前源码一致，四类运行时诊断均为 0。 |
+| [当前 iPad 全量库](Results/reentrancy-library-ipad-r3-20261026/summary.json) | **358 通过、1 失败、0 跳过** | 当前源码一致；另有 1 条 appearance 诊断，不能记为整组验收通过。 |
+| [修改前 iPad 对照](Results/reentrancy-baseline-ipad-cached-20261026/summary.json) | **1 通过、1 失败** | 从修改前提交 `e2692e586930d1500d0e91d1f2a3ea7a09876d9c` 导出独立源码，同设备执行；基线源码一致。 |
+| [Demo 生命周期与真实 UI 首轮](Results/reentrancy-demo-iphone-r3-20261026/summary.json) | **14 通过、3 失败、0 跳过** | iPhone 18 Pro；5 项 Demo 单元测试全部通过，12 项真实 UI 中 9 通过、3 失败。源码一致、四类运行时诊断为 0；原始官方 MCP 结果、日志和 xcresult 均保留。 |
+| [iPad 真实分页取消与系统容器首轮](Results/reentrancy-demo-ipad-r3-20261026/summary.json) | **2 通过、2 失败、0 跳过** | 当前源码一致，四类运行时诊断为 0。RTL 原生取消及 RTL 旋转／系统标签恢复通过；LTR 两项失败，详见下文。 |
+| [iPhone 失败 UI 复跑](Results/reentrancy-demo-iphone-retry-r4-20261026/summary.json) | **2 通过、1 失败、0 跳过** | RTL Section 和 Header 展开通过；横向 Section 本次在首次内部拖动后偏移仍为 0，属于新的行为断言失败，不与首轮 Accessibility 超时合并归因。 |
+| [iPad LTR 两项复跑](Results/reentrancy-demo-ipad-retry-r4-20261026/summary.json) | **2 通过、0 失败、0 跳过** | 原生取消及旋转／系统标签恢复均通过；源码与原断言未改。 |
+| [横向 Section 修改前对照](Results/reentrancy-baseline-compositional-r4-20261026/summary.json) | **1 通过、0 失败** | 修改前提交的独立源码、同一 iPhone、同一原始用例；基线源码一致。 |
+| [横向 Section 当前源码单项对照](Results/reentrancy-compositional-current-r5-20261026/summary.json) | **1 通过、0 失败** | 同一 iPhone 上完整双 Section／双边界用例通过；未改源码、输入距离或断言。 |
+
+iPad 的失败为 `SPPageViewportTests/testEstimatedRowCompensationInsideViewportTransactionDoesNotBecomeSavedPosition`，在第 259／262 行得到正文位置 535.5，而断言为 546 ± 0.5。修改前源码在同一模拟器复现相同 10.5 pt 差异，确认该失败在本次修改前已存在；没有放宽断言或扩大本轮修复范围。原始失败与基线证据分别保留，基线来源见 [baseline-origin.json](Results/reentrancy-baseline-ipad-cached-20261026/baseline-origin.json)。首次对照因依赖远程获取停滞而中断，日志保留于 [初次对照目录](Results/reentrancy-baseline-ipad-20261026/)，随后使用锁定版本的本地依赖缓存完成对照。
+
+iPad 全量日志在 `SPTabBarAccessoryTests/testCandidateMeasurementsPreserveSelectionAnimationAndAccessoryConstraints` 中记录 1 条针对普通 `UIViewController` 的 appearance 不平衡诊断，该用例使用独立标签栏窗口，没有实例化容器。修改前的该单项对照通过且未复现诊断；目前不能确认该偶发诊断的完整成因，也不删除或忽略它。新增重入聚焦和最终 iPhone 全量日志没有该诊断。
+
+Demo 的 5 项单元测试覆盖最小接入、页面独立创建、首次动画布局、选择／导航 appearance 和控制器树释放。通过的真实 UI 覆盖快速连续选择、RTL 分页、嵌套 Section 起始边界交接与往返位置恢复、LTR／RTL 合并事件下的短拖动，以及旋转和系统标签切换。失败分别为 `testHorizontalSectionsAndBothBoundaries` 的 Accessibility `kAXErrorIPCTimeout`、`testSectionEdgesRTL` 等待目标页面超时，以及 `testExpandedPartialPinnedAndLastRow` 未达到 `progress=0.00`。后两项尚未归因，不能认定为环境失败或本次改动已引入的回归；保留失败，不放宽断言。
+
+用户要求继续后，3 项 iPhone 失败用例保持源码、设备与断言不变单独复跑，RTL Section 和 Header 展开通过；横向 Section 在第 212 行得到内部位置 0，未满足大于 40 的断言。完整 [触摸轨迹](Results/reentrancy-demo-iphone-retry-r4-20261026/first-inner-pan.json) 显示外层分页识别器按预期失败且未横移；内层识别器进入 `.began` 后，后续移动合并为一批 68 个事件，再直接结束，未记录 `.changed`，内部 offset 始终为 16。[轨迹摘要](Results/reentrancy-demo-iphone-retry-r4-20261026/gesture-triage.json) 只解释本次路径为何未产生预期滚动，不能据此确认事件停顿来源。随后在独立的修改前源码和当前源码上分别运行同一完整用例，两者均通过；因此不能将中间失败判定为本次重入修复导致的稳定回归，也不将偶发输入停顿宣称为已修复。对照基线使用仓库脚本固定独立源码／产物路径，未替换当前工作区；来源见 [baseline-origin.json](Results/reentrancy-baseline-compositional-r4-20261026/baseline-origin.json)。
+
+iPad 的 `testSystemSplitWindowsRTLCancelledNativePaging` 通过，实际轨迹包含一次 `.cancelled`，选择事件为空，offset 和正文位置恢复。LTR 对应用例失败在拖动后等待 `page=list`：轨迹最大位移为 `588 - 375 = 213 pt`，低于 `PagingTraceWindow` 夹具 `375 × 0.6 = 225 pt` 的取消触发门槛，`cancelledOffsets=[]`，随后正常松手提交页面 2。这条路径未达到真实取消前提，不能作为 LTR 取消恢复已验证或已失败的证据。另一失败为 `SystemContainerTests/testPagingRotationAndSystemTabRestore` 第 285 行：旋转后拖动的正文位置保持 1182.5，未超过期望下限 1192.5；日志同时有远程无障碍层级获取异常及大量合并触摸事件，但不足以确认根因，仍保留为待定位失败。RTL 对应系统容器用例通过。
+
+iPad 的上述 LTR 两项随后在未改源码和断言的情况下复跑通过。此次原生取消真实位移为 `601 - 375 = 226 pt`，超过 225 pt 门槛，记录一次取消、最终 offset 恢复 375、选择事件为空，见 [取消轨迹摘要](Results/reentrancy-demo-ipad-retry-r4-20261026/paging-triage.json)。因此 LTR／RTL 均有实际触摸取消通过证据；首轮未达到取消前提与旋转后滚动失败仍独立保留，不因复跑通过删除。
+
+前序 iPhone 复跑及摘要请求曾因自动权限审核超时而未执行，相关记录保留；用户要求继续后已完成这些操作。iPad 复跑摘要首次提权请求也遇到审核超时，沙箱内尝试明确被 `xcresulttool` 的 `TestReport` 缓存写权限阻止，随后允许的一次提权重试成功。权限超时未给出安全拒绝理由，不作为测试失败统计。续验没有新增框架或测试源码修改；没有放宽断言、重置模拟器或用直接设置手势状态替代真实触摸。仅修改的 2 个 Swift 文件通过锁定 SwiftFormat 0.64.0 lint，`git diff --check` 通过；构建阶段未产生额外源码 diff。
+
+上述续验均已完成正式 xcresult 摘要，`sourceChangedSinceRun=[]`、四类运行时诊断均为 0，结果包没有运行时警告；基线摘要按其独立源码目录核对。当前源码与此前 359 项 iPhone 全量库运行的哈希仍一致，未把旧实现结果当作修复版通过证据。各失败 UI 用例均取得后续通过结果，但不是一次全量套件全绿；原始失败、基线及复跑分别保留，见 [续验汇总](Results/reentrancy-compositional-current-r5-20261026/followup-rollup.json)。Xcode 已恢复原运行目标 `iPhone 13`。
+
+Demo 构建保留了当前 SDK 测试框架最低 iOS 17 与测试 target iOS 15 部署目标之间的链接警告，没有提高框架部署目标。未执行 Release、Swift 6.3、iOS 15 实际运行、真机、VoiceOver 或性能压力验证；刷新与连续窗口缩放的独立疑点不据本轮结果宣称已修复。没有提交或推送。
+
 ## 2026-10-26：分页回调共享标签栏高度测量
 
 在保留首次列表上跳修复的基础上，分页回调先准备所有可见页，再计算一次 `effectiveLayout`，供本次回调中的可见页共用。每张可见页仍执行 `layoutPage`，随横向可见性更新安全区域和 inset；不跨回调缓存高度。页面加载可能修改标签内容，因此共享测量安排在加载之后。公开 API、业务滚动位置和 inset 归属不变。
