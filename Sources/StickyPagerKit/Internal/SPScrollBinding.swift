@@ -8,6 +8,24 @@ internal final class SPScrollBinding {
     var onScrollDisabled: (@MainActor (SPScrollBinding) -> Void)?
     private var observations: [NSKeyValueObservation] = []
     private var updating = false
+    private struct Coordinates: Equatable {
+        let offset: CGFloat
+        let adjustedTop: CGFloat
+        let contentTop: CGFloat
+        let safeTop: CGFloat
+        let size: CGSize
+        let adjustmentBehavior: UIScrollView.ContentInsetAdjustmentBehavior
+    }
+
+    private var coordinates: Coordinates?
+    private struct InsetRetraction {
+        let generation: UInt
+        let position: CGFloat
+        let coordinates: Coordinates
+    }
+
+    private var retractionGeneration: UInt = 0
+    private var pendingRetraction: InsetRetraction?
     private enum InsetKind { case content, indicator }
     private final class InsetObservation {
         var depth = 0
@@ -82,12 +100,25 @@ internal final class SPScrollBinding {
         self.scrollView = scrollView
         baseInset = scrollView.contentInset
         baseIndicatorInset = scrollView.verticalScrollIndicatorInsets
+        rememberCoordinates()
         observations = [
             scrollView.observe(\.contentOffset, options: [.old, .new]) { [weak self] _, change in
                 MainActor.assumeIsolated {
                     guard let self, !self.updating, !self.changingExternalInset, !self.detached else {
                         return
                     }
+                    if let pending = self.pendingRetraction {
+                        if self.currentCoordinates == pending.coordinates {
+                            return
+                        }
+                        self.pendingRetraction = nil
+                    }
+                    // 等原生 setter 完成后再补偿，避免同步回写被 UIKit 随后的旧 offset 覆盖。
+                    if let position = self.positionBeforeInsetRetraction {
+                        self.deferInsetRetraction(preserving: position)
+                        return
+                    }
+                    self.rememberCoordinates()
                     self.updateIndicators()
                     // 布局回写仍需刷新指示器，但相同偏移或浮点尾差不能接管 Header 拖动。
                     guard let old = change.oldValue, let new = change.newValue, abs(new.y - old.y) > 0.001 else {
@@ -141,8 +172,10 @@ internal final class SPScrollBinding {
     isolated deinit { detach() }
 
     func setRange(_ newRange: CGFloat) {
+        let position = positionBeforePendingRetraction
+        pendingRetraction = nil
         range = max(0, newRange)
-        updateGeometry()
+        updateGeometry(preserving: position)
     }
 
     /// 将页面尺寸与折叠 inset 作为一次几何更新，避免 UIKit 的中间偏移反向驱动 Header。
@@ -156,7 +189,8 @@ internal final class SPScrollBinding {
         guard !updating, !changingExternalInset, !detached else {
             return
         }
-        let oldPosition = position
+        let oldPosition = positionBeforePendingRetraction ?? positionBeforeInsetRetraction ?? position
+        pendingRetraction = nil
         updating = true
         range = max(0, newRange)
         pageDisplacement = max(0, range - collapse)
@@ -171,6 +205,8 @@ internal final class SPScrollBinding {
         guard !detached else {
             return
         }
+        pendingRetraction = nil
+        defer { rememberCoordinates() }
         let y = position - scrollView.adjustedContentInset.top
         guard abs(y - scrollView.contentOffset.y) > 0.001 else {
             return
@@ -185,6 +221,8 @@ internal final class SPScrollBinding {
         guard !detached, scrollView.isDecelerating else {
             return
         }
+        pendingRetraction = nil
+        defer { rememberCoordinates() }
         // 仅交接正在进行的原生减速；静止或业务程序化动画不发送额外的停止定位。
         updating = true
         scrollView.setContentOffset(scrollView.contentOffset, animated: false)
@@ -196,6 +234,8 @@ internal final class SPScrollBinding {
         guard !detached else {
             return
         }
+        let pendingPosition = positionBeforePendingRetraction
+        pendingRetraction = nil
         // 外部 setter 的后置通知可能尚未送达；变化方向已经是业务基准，
         // 不能再从该值扣除旧贡献，未变化方向则沿用已保存的基准。
         if contentInsetObservation.externalDepth > 0 {
@@ -229,7 +269,7 @@ internal final class SPScrollBinding {
         observations.removeAll()
         onScroll = nil
         onScrollDisabled = nil
-        let oldPosition = position
+        let oldPosition = pendingPosition ?? position
         let contentPosition = oldPosition - SPScrollGeometry.collapse(oldPosition, range: range)
         // 独立收尾对象也适用于 deinit，此时原观察者的 weak self 已不可用。
         let restoration = DetachRestoration(
@@ -529,10 +569,81 @@ internal final class SPScrollBinding {
         )
     }
 
+    /// 仅补偿没有伴随原生 offset 移动的顶部 inset 收回。
+    /// 负向／零位置仍由 UIKit 回收刷新占位；业务 inset、Safe Area 和视口变化沿用布局事务。
+    private var positionBeforeInsetRetraction: CGFloat? {
+        guard let old = coordinates,
+              abs(scrollView.contentOffset.y - old.offset) < 0.001,
+              abs(scrollView.contentInset.top - old.contentTop) < 0.001,
+              abs(scrollView.safeAreaInsets.top - old.safeTop) < 0.001,
+              scrollView.bounds.size == old.size,
+              scrollView.contentInsetAdjustmentBehavior == old.adjustmentBehavior,
+              scrollView.adjustedContentInset.top < old.adjustedTop - 0.001,
+              old.offset + old.adjustedTop > 0.001 else {
+            return nil
+        }
+        return old.offset + old.adjustedTop
+    }
+
+    private var positionBeforePendingRetraction: CGFloat? {
+        guard let pending = pendingRetraction, currentCoordinates == pending.coordinates else {
+            return nil
+        }
+        return pending.position
+    }
+
+    private var currentCoordinates: Coordinates {
+        Coordinates(
+            offset: scrollView.contentOffset.y,
+            adjustedTop: scrollView.adjustedContentInset.top,
+            contentTop: scrollView.contentInset.top,
+            safeTop: scrollView.safeAreaInsets.top,
+            size: scrollView.bounds.size,
+            adjustmentBehavior: scrollView.contentInsetAdjustmentBehavior
+        )
+    }
+
+    private func rememberCoordinates() {
+        coordinates = currentCoordinates
+    }
+
+    /// UIKit 在刷新结束的同步栈中仍可能重写 offset；只在该栈退出且没有新意图时收回占位。
+    private func deferInsetRetraction(preserving position: CGFloat) {
+        retractionGeneration &+= 1
+        let pending = InsetRetraction(
+            generation: retractionGeneration,
+            position: position,
+            coordinates: currentCoordinates
+        )
+        pendingRetraction = pending
+        rememberCoordinates()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.detached, self.pendingRetraction?.generation == pending.generation else {
+                return
+            }
+            self.pendingRetraction = nil
+            guard self.currentCoordinates == pending.coordinates else {
+                return
+            }
+            self.updateGeometry(preserving: pending.position)
+        }
+    }
+
     private func updateGeometry(preserving savedPosition: CGFloat? = nil) {
         guard !updating, !changingExternalInset, !detached else {
             return
         }
+        if let pending = pendingRetraction {
+            if savedPosition == nil, currentCoordinates == pending.coordinates {
+                return
+            }
+            pendingRetraction = nil
+        }
+        if savedPosition == nil, let position = positionBeforeInsetRetraction {
+            deferInsetRetraction(preserving: position)
+            return
+        }
+        defer { rememberCoordinates() }
         updating = true
         let oldPosition = savedPosition ?? position
         let adjustment = scrollView.adjustedContentInset.top - scrollView.contentInset.top

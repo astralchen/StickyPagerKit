@@ -4,6 +4,97 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-10-27：刷新修复提交前复核
+
+复核本轮全部 7 个变更文件（含 3 个新增 Swift 文件），覆盖绑定补偿及取消路径、容器消费调用链、真实 `UIWindow` 库夹具、真实触摸过程采样与短列表断言。未发现需要追加修改的遗漏；本次不改框架或测试代码，没有重新构建或运行测试。
+
+重新计算运行快照的源码哈希：175 项库回归对应的框架、库测试、UIKit 宿主及脚本一致，差异仍仅为已说明的 3 个 Demo／UI 文件；R3 差异仍仅为调整短列表分支的 UI 测试文件；R4 全量快照与当前源码一致。复核 31 个本轮修复与前期调查的本地证据链接，均存在；原始失败、阶段摘要、未覆盖范围以及短列表位置调整疑点均保留，未将分批通过改写成整批通过。
+
+SwiftFormat 0.64.0 lint 与 `git diff --check` 通过。工程文件与提交前 HEAD 完全一致，两处 `DEVELOPMENT_TEAM` 仍为空。本次提交包含实现、回归测试、README 行为说明及本验证记录；忽略目录中的原始证据继续保留在本地，不强制加入 Git。按用户要求使用中文提交信息，不推送。
+
+## 2026-10-27：UIRefreshControl inset 收回与 Header 同步修复
+
+基于 `be9d1219ede8ae0b3ea02ecf9584431cd6a72f1b` 及下节已确认的复现路径实施；开始时已有的独立调查记录与所有失败证据均保留。实现仅修改 `SPScrollBinding` 的内部几何协调，Demo 增加显式 `--refresh-regression` 开关下的采样夹具，公开 API、业务 delegate 和签名配置保持不变。
+
+绑定记录上一次 offset、adjusted top、业务 content top、Safe Area、视口尺寸与 inset adjustment behavior。在这些坐标没有其他变化、顶部 adjusted inset 单独收回且旧归一化位置为正时，保留原归一化位置。补偿安排在原生同步 setter 返回后的主队列安全点，使用版本及当前几何检查；同值重复通知不会重复消费，新定位、布局事务和解绑会收尾或取消旧请求。解绑也使用待恢复的正文位置，弱引用回调不会延长绑定生命周期。零位置与原生下拉越界继续交给 UIKit，已由 UIKit 移动 offset 的路径不会重复补偿。
+
+**先验证失败，再验证修复：** 原实现新增库回归 3 通过 / 3 失败；真实触摸回归失败，刷新结束后归一化位置从 104 降为 44 pt，留下 60 pt 占位，拖动期间 Header 最大反向位移为 55.3333 pt。第一次同步补偿方案虽然通过 6 项聚焦库测试及后来 173 项相关库测试，真实 UI 的 LTR / RTL 仍失败。额外轨迹显示同步补偿先把 offset 从 -104 写到 -44，随后 UIKit 同一 setter 又写回 -104，下一次消费把 Header 从 104 折叠量降到 44；因此最终改为等待同步栈退出，并补充原生重复写入、新定位优先、同步解绑和异步收尾前解绑回归。
+
+阶段失败证据保留在 [原实现库测试](Results/refresh-fix-red-20261027/summary.json)、[原实现真实触摸](Results/refresh-fix-20261027/ui-red.json)、[同步方案真实触摸](Results/refresh-fix-20261027/ui-attempt1.json)、[原生重复写入轨迹](Results/refresh-fix-20261027/binding-retraction.txt)。两次诊断 UI 失败分别见 [第一次](Results/refresh-fix-20261027/ui-retraction-trace.json)、[第二次](Results/refresh-fix-20261027/ui-retraction-file-trace.json)，不以阶段库测试通过覆盖这些失败。
+
+短列表第一轮过程断言另有量测错误：[矩阵失败](Results/refresh-fix-20261027/ui-final-matrix-attempt1.json) 报告 13 pt 反向移动，但它用刷新结束时的标签栏坐标 116 pt 与很久以后拖动的坐标比较。[逐帧诊断](Results/refresh-fix-20261027/short-trace-metrics.json) 记录真实 pan 开始时约 145.3333 pt，拖动显示帧为 129 pt，方向实际向上；刷新收尾时的位置、Header 和空白断言均正常。最终过程测量从真实 pan 开始跟踪最小标签栏坐标，同时以触摸前采集的坐标检查首个显示帧，防止漏掉早于 pan began 回调的 offset 更新。触摸前的位置变化单独记录，未通过放宽 1 pt 容差或禁用原生回弹消除失败；原失败及诊断结果均保留。
+
+在[后续短列表指标](Results/refresh-fix-20261027/ui-matrix-r2-metrics.json) 中，刷新收尾位置为 104 pt，触摸开始前位置为 72 pt，同时标签栏下移 32 pt，Header 折叠量也是 72 pt，二者保持一致。这不是本轮确认的“Header 保持 104、归一化位置掉至 44”的失步路径；本轮没有对这段触摸前调整作独立根因结论，也不宣称刷新后的任意延迟位置调整均已消除。
+
+另一次矩阵运行中，RTL、短列表及普通刷新通过，LTR 在等待刷新结束时因为受控切页期间列表暂时离开无障碍树而触发 `XCTUnwrap`；[3 通过 / 1 失败记录](Results/refresh-fix-20261027/ui-matrix-r2.json) 保留。等待阶段改为对暂不可读的快照返回“尚未就绪”，刷新完成后的正式断言仍严格校验数值，没有跳过失败条件。
+
+最后一轮完整 UI 矩阵的长列表 LTR、RTL 与普通刷新均通过，短列表失败于“刷新后位置必须保持 104 pt”的断言，见 [R3 原始结果](Results/refresh-fix-ui-r3-20261027/summary.json)。[实际指标](Results/refresh-fix-20261027/ui-matrix-r3-metrics.json) 为位置 40.3333 pt、标签栏下移 63.6667 pt、残留空白约 0，且拖动反向位移为 0；Header 与正文等量联动，UIKit 已实际移动 offset，超出了 inset-only 补偿的前提。最终仅调整 `index == 2` 的短列表期望：在该折叠区间内断言 `afterEndPosition + afterEndHeaderDelta == beforeEndPosition`，仍检查残留空白及真实拖动过程；长列表的位置保持与 Header 零位移断言未改变。原先 Header 不动而 position 降 60 pt 的缺陷不能通过新的联动断言。这一调整遵守原生滚动所有权，没有为使短列表固定在 104 pt 而扩大框架干预范围；原失败保留，短列表单独重跑。
+
+使用 Xcode 27.1 / Swift 6.4、Debug、iOS 27.0。Demo UI 通过 Apple 官方 Xcode MCP `RunSomeTests` 执行。官方当前 Demo Test Plan 不包含根目录库测试；库回归回退到 `Scripts/validate.sh` 的 `UIKitTestHost` application-host 路径，未把裸 Package 无宿主结果当作验收，也没有修改 Demo target 或 scheme。
+
+| 终态验证 | 范围与结果 |
+| --- | --- |
+| 新增聚焦库回归 | [10/10 通过](Results/refresh-fix-deferred-focus-20261027/summary.json)。真实 `UIWindow`，覆盖正向位置、同值重复通知、原生越界、UIKit 已补偿、几何通知先到、后台页 LTR / RTL、同步及异步解绑、新定位使旧补偿失效。 |
+| 相关库回归 | iPad Pro 13-inch (M5) (16GB) Simulator，`SPRefreshInsetTests` 10 + `StickyPagerKitTests` 151 + `SPPageViewportTests` 14，共 [175/175 通过](Results/refresh-fix-final-r2-related-20261027/summary.json)，其中已包含上述 10 项。四类运行时诊断均为 0。 |
+| 长列表及普通刷新 UI | iPhone 18 Pro Simulator，R3 的 LTR、RTL 与 `testRefreshFromExpandedHeader` 三项通过；R3 整批仍如实记录为 3 通过 / 1 失败，失败的短列表由下行单独重跑。 |
+| 短列表 UI | 同一 iPhone Simulator，[R4 1/1 通过](Results/refresh-fix-ui-short-r4-20261027/summary.json)，最终源码快照 `sourceChangedSinceRun: []`。R3 后仅改短列表断言分支，框架、Demo 与长列表执行路径未改变；R3 摘要保留 UI 测试文件这项源码差异，未伪装成同一批 4/4 通过。 |
+
+最终有效 UI 指标如下；长列表来自 [R3](Results/refresh-fix-20261027/ui-matrix-r3-metrics.json)，短列表来自 [R4](Results/refresh-fix-20261027/ui-short-final-r4-metrics.json)。单位为 pt，短列表允许原生 offset 实际移动，检查其与 Header 等量联动。
+
+| 场景 | 刷新前 → 收尾后归一化位置 | 收尾 Header 下移 | 残留空白 | 实际拖动显示帧 | 拖动内最大反向位移 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 长列表 LTR | 104 → 104 | 0 | 0 | 28 | 0 |
+| 长列表 RTL | 104 → 104 | 0 | 0 | 31 | 0 |
+| 短列表 | 104 → 43 | 61 | 0 | 13 | 0 |
+
+库运行后继续完善了 Demo 采样与 UI 断言，因此全量 `sourceChangedSinceRun` 明确保留 `AppDelegate.swift`、`RefreshRegressionProbe.swift`、`RefreshGestureTests.swift` 三项差异；框架、库测试、Package、UIKit 宿主及验证脚本没有变化，见[库输入一致性](Results/refresh-fix-20261027/library-source-consistency.json)。这些 Demo 文件不参与上述库宿主编译，另以最终 UI 构建与运行验证。没有把早期同步方案的通过结果充作最终实现证明。
+
+UI 回归的原生下拉刷新与刷新后的向上拖动由真实 XCTest 触摸触发，使用原有 pan 的只读 target 及 `CADisplayLink` 记录 `.changed` 期间的显示帧，并断言实际采到帧；中间切页与网格吸顶由明确测试开关下的定时调用构造，不代表刷新中纯手势分页已验证。普通 Demo 保持原来的 0.5 秒刷新流程，只有显式回归开关使用 5 秒刷新及上述采样。
+
+库测试及终态 UI 日志的 observation feedback loop、appearance 配对、内容视图替换和约束冲突四类诊断均为 0。UI 日志存在 XCTest 等待动画空闲超时后继续执行的提示，因此这些运行不用于性能或流畅度验收。源码摘要、原始控制台、阶段探针、数值指标及 `xcresult` 均在本地忽略目录保留；[本轮汇总](Results/refresh-fix-20261027/final-summary.json) 记录有效覆盖和各次运行的源码边界。
+
+只对本轮相关 Swift 文件使用锁定 SwiftFormat 0.64.0，最终 lint 与 `git diff --check` 通过；构建阶段自动格式化未产生额外文件 diff。两处 `DEVELOPMENT_TEAM` 保持为空，工程配置与 HEAD 相同，Xcode 已恢复 `StickyPagerDemo` scheme / iPhone 13 运行目标。本轮没有提交或推送。
+
+未覆盖：真机、Release、iOS 15／其他旧系统、iPad 真实 UI 触摸、空列表、刷新中纯手势分页与取消、完整库／Demo 回归、性能采样，以及上述短列表触摸前原生位置调整的独立根因调查。容器内 LTR / RTL 和后台页恢复的受控状态测试不能替代这些真实触摸场景。
+
+下节“独立调查（未修复）”描述的是修复前的历史阶段，其源码恢复结论与未覆盖范围不代表本节状态。
+
+## 2026-10-27：UIRefreshControl 刷新位置异常独立调查（未修复）
+
+本轮从干净的 `be9d1219ede8ae0b3ea02ecf9584431cd6a72f1b` 工作区开始，先复现与收集证据，未修改框架实现、工程或签名配置。使用 Apple 官方 Xcode MCP 的 `GetTestList` / `RunSomeTests`，目标为 `StickyPagerDemo` scheme、Debug、iPhone 18 Pro Simulator / iOS 27.0，Xcode 27.1。结束后恢复原 `StickyPagerDemo` scheme / iPhone 13 运行目标。
+
+**已确认：刷新结束后的 inset-only 变化未同步到 Header 状态，下一次向上滚动可反向展开 Header。** 复现路径为：在 Demo 长列表真实下拉触发 `.valueChanged`；刷新期间切到网格并吸顶，再返回仍在刷新的列表；刷新结束后再次向上滚动。由于 XCTest 的空闲等待会跨过刷新过程，本轮将诊断刷新时间延长到 5 秒，并由应用内定时任务调用 `setSelectedIndex` 和网格 offset 设置来构造中间状态。下拉刷新及最后一轮恢复滚动是真实 XCTest 触摸；中间切页与网格吸顶是受控调用，没有将其表述为完整手势分页已验证。
+
+本设备配置的折叠范围是 104 pt、标签栏高 44 pt。关键轨迹如下；所有位置均为 pt，Header 折叠量由本轮 220 pt Header 高度减标签栏顶部得到：
+
+| 时刻 | offset.y | adjustedInset.top | 归一化位置 | Header 折叠量 | 标签栏顶部 | 正文首行顶部 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 刷新中返回列表 | -104 | 208 | 104 | 104 | 116 | 220 |
+| `endRefreshing()` 后 | -104 | 148 | 44 | 104 | 116 | 220 |
+| 受控向上移动 1 pt 后 | -44 | 89 | 45 | 45 | 175 | 219 |
+
+UIKit 收回 60 pt 的刷新 inset，但 offset 没变；框架保存的 Header 折叠量仍为 104，而绑定的归一化位置已变为 44。正文与标签栏底部之间遗留 60 pt 占位，第二轮在无后续位移时约一分钟后仍存在。随后仅增加 1 pt offset，就使标签栏向下移动 59 pt；正文首行只按预期向上移动 1 pt。跳过 Demo `reloadData()` 的对照同样失败；将列表设为 `.unbound` 的对照中，UIKit 正常收起占位，后续 1 pt 位移没有改变 Header。
+
+最后一轮改用真实向上拖动，过程轨迹记录标签栏从 116 下移至 173.3333，反向移动 **57.3333 pt**，随后继续滚动又回到吸顶。该 UI 用例只检查拖动后的终态，所以端点断言通过；不能由此推定中途行为正常。[过程轨迹审计](Results/refresh-investigation-20261027/real-drag-audit.json) 按拖动期间的最大反向位移判定失败；[审计脚本](Results/refresh-investigation-20261027/audit_real_drag.py) 退出码为 1。原始轨迹、拖动前截图及完整结果包见 [r4](Results/refresh-investigation-20261027/r4/)。截图中的“已刷新 0 次”来自本轮特意跳过 `reloadData()` 的现有 cell，实际刷新已由 `.valueChanged` 和 `isRefreshing` 时间线确认，不能用 cell 文案判断刷新未触发。
+
+**根因证据：** `endRefreshing()` 的同步调用栈经过 UIKit `_removeRefreshInset` → `_notifyAdjustedContentInsetDidChange` → 诊断子类的 `adjustedContentInsetDidChange()`；此时 offset KVO 的 old/new 均为 -104。独立的 `adjustedContentInset` KVO 在该轮没有收到通知，而公共 `adjustedContentInsetDidChange()` 回调有记录。这里只报告此环境中的实测结果，不推断所有 iOS 版本的通知实现。Apple 的公开变化通知见 [UIScrollView 文档](https://developer.apple.com/documentation/uikit/uiscrollview/adjustedcontentinsetdidchange()) 和 [delegate 文档](https://developer.apple.com/documentation/uikit/uiscrollviewdelegate/scrollviewdidchangeadjustedcontentinset(_:))。
+
+源码对应 `SPScrollBinding.swift:93–96` 的相同 offset 过滤、`:132–133` 的 adjusted inset KVO，以及 `:532–566` 的几何更新；归一化位置定义包含 `adjustedContentInset.top`，但这次 inset-only 变化没有提交给容器。下一次有效 offset 变化才进入 `SPPageViewController.swift:914–916` 的 `consume`，把累计变化一次性用于 Header。详细执行路径、后续修复边界见 [根因记录](Results/refresh-investigation-20261027/confirmed-mechanism.md)。本轮没有尝试删除相同 offset 保护、接管业务 delegate、强制展开 Header 或重置正文；后续修复应先明确外部 inset-only 变化时 Header、正文及原生刷新占位的同步规则。
+
+| 运行 | 实际结果与解释 |
+| --- | --- |
+| 原始源码基线 | `testRefreshFromExpandedHeader` 1/1 通过；只覆盖普通刷新及最终展开状态。[原始结果](Results/refresh-investigation-20261027/baseline.json) |
+| 诊断第一轮 | 0/3 通过：XCTest 等待空闲直到刷新结束，“仍在刷新中”的断言失败，切页步骤未执行；属于诊断时序限制，不计为框架缺陷。[失败记录](Results/refresh-investigation-20261027/diagnostic-r1.json) |
+| 诊断第二轮 | 3/3 流程断言通过；长／短列表普通刷新恢复到 position=0，切页返回轨迹首次确认刷新后状态不一致。[结果](Results/refresh-investigation-20261027/diagnostic-r2.json) |
+| 诊断第三轮 | 1 通过 / 2 失败：绑定列表和跳过 reload 的 1 pt 探针均因 59 pt Header 位移失败；`.unbound` 对照通过。[失败记录](Results/refresh-investigation-20261027/diagnostic-r3.json) |
+| 诊断第四轮 | 真实恢复拖动 UI 端点断言 1/1 通过，过程轨迹审计失败（57.3333 pt）；公共 inset 回调、相同 offset 通知和缺失的 adjusted inset KVO 已关联。[运行结果](Results/refresh-investigation-20261027/diagnostic-r4.json) |
+
+保留第一轮失败、第三轮缺陷断言失败及第二轮准备时误用内部 `currentScrollView` 导致的[诊断夹具编译失败](Results/refresh-investigation-20261027/r2-diagnostic-build-failure.txt)。该夹具问题随后改为访问 Demo 自己的 `DemoGrid`，未扩大框架 API。构建使用锁定 SwiftFormat 0.64.0 的现有 Build Phase，未产生其他文件的格式化 diff。原始日志、`xcresult`、阶段源码哈希、[最终诊断补丁](Results/refresh-investigation-20261027/r4-tracked.patch) 和[新增诊断文件](Results/refresh-investigation-20261027/r4-RefreshInvestigation.swift) 均归档在本地忽略目录；它们不随本验证文档提交分发。复现补丁适用于本轮基准提交，需同时添加诊断 Swift 文件，再运行上述聚焦用例。
+
+临时 Demo 采样与诊断 UI 用例已经撤下；最终框架、Demo、测试和工程内容与开始时的 HEAD 一致，两个 `DEVELOPMENT_TEAM` 仍为空。当前只新增本节验证记录，`git diff --check` 通过，没有提交或推送。源码恢复后的状态与本轮未修改基线相同，不把带诊断钩子的运行记录标为整库验收。
+
+未覆盖：真机、Release、iPad、RTL、iOS 15／其他旧系统、空列表、刷新在后台结束、刷新中纯手势分页／取消、复杂业务 inset 写入和完整库／Demo 回归。根因确认限于上述可复现路径；本轮没有将旧刷新测试结果当作当前实现正确的证据，也没有对其余刷新疑点作消除声明。
+
 ## 2026-10-27：提交前复核
 
 最终 diff 仅包含本验证记录，框架、Demo 实现和测试均未追加修改。用户确认保留 Demo 当前为空的 `DEVELOPMENT_TEAM`，不提交此前的 Team 配置。相对下述真机采样快照，当前唯一工程／源码哈希差异是 `project.pbxproj` 中这两处 Team 值；当时的真机开发签名构建结果仍对应原采样产物，不能作为当前空签名配置可构建的证据。保留原快照与摘要，没有改写历史 `sourceChangedSinceRun`。

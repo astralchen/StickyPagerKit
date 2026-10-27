@@ -623,6 +623,7 @@ final class RegressionStatusLabel: UILabel {
 /// UI 回归仅在指定启动参数下读取原生滚动坐标及安全区域，不改变可见内容或生产无障碍描述。
 @MainActor
 private final class RegressionTableView: UITableView {
+    weak var refreshProbe: RefreshRegressionProbe?
     private var verticalHideCount = 0
     private var horizontalHideCount = 0
     override var showsVerticalScrollIndicator: Bool {
@@ -666,6 +667,8 @@ private final class RegressionTableView: UITableView {
                 "horizontalHideCount": Double(horizontalHideCount),
                 "offsetY": Double(contentOffset.y)
             ]
+            geometry.merge(refreshProbe?.metrics ?? [:]) { _, new in new }
+            geometry["currentHeaderY"] = refreshProbe?.currentHeaderY.map(Double.init)
             if let first = indexPathsForVisibleRows?.sorted().first, let cell = cellForRow(at: first) {
                 geometry["firstRow"] = Double(first.row)
                 geometry["firstRowY"] = Double(convert(cell.frame, to: window).minY)
@@ -724,6 +727,7 @@ final class DemoMixedPage: UIViewController, UITableViewDataSource {
 
 @MainActor
 final class DemoList: UITableViewController {
+    private var refreshProbe: RefreshRegressionProbe?
     override func loadView() {
         tableView = RegressionTableView(frame: .zero, style: .plain)
     }
@@ -753,6 +757,10 @@ final class DemoList: UITableViewController {
         refresh.accessibilityIdentifier = "demo.refresh"
         refresh.addTarget(self, action: #selector(refreshContent), for: .valueChanged)
         refreshControl = refresh
+        if RefreshRegressionProbe.enabled {
+            refreshProbe = RefreshRegressionProbe(page: self)
+            (tableView as? RegressionTableView)?.refreshProbe = refreshProbe
+        }
         if count == 0 {
             let label = UILabel(); label.text = "暂无内容 · 仍可折叠 Header"; label.textAlignment = .center
             tableView.backgroundView = label
@@ -781,13 +789,16 @@ final class DemoList: UITableViewController {
 
     @objc private func refreshContent() {
         refreshCount += 1
+        refreshProbe?.beginRefreshing()
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await Task.sleep(nanoseconds: RefreshRegressionProbe.enabled ? 5_000_000_000 : 500_000_000)
             guard let self else {
                 return
             }
             self.tableView.reloadData()
+            self.refreshProbe?.willEndRefreshing()
             self.refreshControl?.endRefreshing()
+            self.refreshProbe?.didEndRefreshing()
         }
     }
 
