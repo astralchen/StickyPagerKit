@@ -1,6 +1,89 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-26。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-10-27。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+
+各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
+
+## 2026-10-27：提交前复核
+
+最终 diff 仅包含本验证记录，框架、Demo 实现和测试均未追加修改。用户确认保留 Demo 当前为空的 `DEVELOPMENT_TEAM`，不提交此前的 Team 配置。相对下述真机采样快照，当前唯一工程／源码哈希差异是 `project.pbxproj` 中这两处 Team 值；当时的真机开发签名构建结果仍对应原采样产物，不能作为当前空签名配置可构建的证据。保留原快照与摘要，没有改写历史 `sourceChangedSinceRun`。
+
+本轮核对了新增记录的 22 个证据链接、实际执行次数、触摸事件数量、首次加载采样窗口、恢复检查、符号与二进制身份，以及临时 scheme 清理状态。既有失败记录保持不变。`git diff --check` 与工程文件语法检查通过；本次仅复核和提交文档，没有重新构建、运行或测试。
+
+## 2026-10-27：iPhone 13 真机 Release 首次加载采样
+
+以当前工作区为准，仅构建、运行与采样，没有修改实现、测试或共享工程配置。开始时已有 Demo `DEVELOPMENT_TEAM` 修改及本文件前轮记录，均保留。Apple 官方 Xcode MCP 列出设备后，再通过 CoreDevice 与 Instruments 核实：实际在线的是有线连接的 iPhone 13 / iOS 27.2（24B119），开发模式已启用、DDI 服务可用；其余配对 iPhone 在 Instruments 清单中离线，未对其运行或安装。使用 Xcode 27.1 / Swift 6.4。
+
+更正工具能力的表述：官方 MCP 的 `BuildProject` 没有直接传入 configuration 的参数，但可以先配置 scheme。本轮创建未跟踪的临时用户 scheme `SPFirstLoadRelease-20261027`，将 Run／Test／Profile 配为 Release，并通过官方 MCP 切换及读取设置，确认 `-O` 和 `dwarf-with-dsym`；原共享 scheme 的 Profile 本来就是 Release。已开始的真机构建使用 `xcodebuild` 显式指定 Release 与设备，采样使用 Xcode 自带 `xctrace` 的 Time Profiler。结束后恢复 `StickyPagerDemo` scheme 和原 iPhone 13 目标，归档并移除临时 scheme。没有改全局 Xcode 配置，也未引入 ETTrace 等依赖。
+
+Release 构建与安装成功。库与 Demo 编译均为 `-O`、whole-module optimization、`arm64-apple-ios15.0`，未启用 `-enable-testing`；采用现有开发签名。可执行文件与 dSYM UUID 均为 `0991BC20-4E28-325C-B0B9-CE813455B864`，二进制 SHA-256、构建日志及运行源码哈希见 [build-identity.json](Results/device-release-firstload-20261027/build-identity.json)。保留 `--open-demo --compositional --window-regression --paging-trace` 诊断参数，无调试器附加、无 XCTest；三段 trace 的映像记录均未发现 XCTest 相关组件。
+
+| 录制 | 实际覆盖 | 结果 |
+| --- | --- | --- |
+| `launch-r1`，15.94 s | 新进程启动、Demo 配置与首次页面创建／布局 | 捕获 `reloadData → applySnapshot → loadPage`；包含 Demo 初始化时的多页工作，不能作为单页创建的纯耗时。 |
+| `handoff-r1`，60.83 s | 用户将 continuous Section 停在末端后，第一次向外拖动交给外层分页 | 首次新页加载在录制第 59.552–59.569 s 被采到；该触摸最大同步处理 **21.776 ms**，其中 nativeHandlingDuration 为 **21.739 ms**。 |
+| `handoff-r2`，173.61 s | 等待及切回后的内部滚动 | 覆盖后续内部滚动，不是第二次首次加载。返回页面手势发生在两段录制之间，有触摸证据但无对应 CPU 样本。 |
+
+输入由用户在真机上手动完成，没有程序化设置 pan 状态或 offset。共保存 10 条手势、209 个原始窗口事件。sequence 7 的内部位置为 `1987.3333`，内部 pan 按边界契约失败、外层开始分页；sequence 8 起点的外层 offset 为 4680，确认目标页已经提交；sequence 9 起点为 4290，且内部位置恢复到 `1987.3333`，随后内部 offset 降低、外层保持 4290。用户也确认已到“更多专题与活动”并返回“组合布局”。见 [触摸分析](Results/device-release-firstload-20261027/touch-analysis.json) 和 [汇总中的恢复检查](Results/device-release-firstload-20261027/summary.json)。
+
+首次交接的正确采样是 `handoff-r1`。读取即时日志时尚未看到交接，于是延长了后一段窗口；归档后以触摸文件修改时间、trace 起止时间和具体调用栈重新校正，确认交接位于第一段结束前约一秒，不能用后一段内部滚动栈代替首次加载。对应 [时间关联](Results/device-release-firstload-20261027/timing-correlation.json) 保留时间分辨率与两段之间的覆盖空隙。
+
+Time Profiler 导出仍保留部分第一方裸地址，因此在核对 UUID、架构与每段实际加载地址后，用同一 dSYM 的 `atos` 补全这些地址，保留原始导出、地址映射和派生 XML。三段中具有已识别第一方映像的帧全部解析成功；仍有少量系统／早期启动地址未解析，不据其推断具体函数。首次交接段主线程共 64 个样本，其中 `loadPage` 出现在 16 个、`layoutPage` 出现在 7 个、`DemoList.loadView` 出现在 5 个，绑定初始化的 KVO 注册出现在 1 个样本；未采到此前 Debug Simulator 的长时间 Swift 协议符合性检查路径。包含关系会重叠，采样权重不等于触摸同步耗时、帧耗时或完整切页时延。见 [首次加载调用栈](Results/device-release-firstload-20261027/handoff-firstload-stacks.txt) 和 [CPU 分析](Results/device-release-firstload-20261027/handoff-r1-profile-analysis.json)。
+
+三段均未报告超过 250 ms 阈值的 potential hang；这不代表无掉帧。交接采样窗口的热状态先为 Fair，59.347 s 后为 Nominal，首次加载样本位于 Nominal 区间。一次真机首次交接未重现秒级停顿，但设备、系统版本与手动输入节奏均不同，不能据此宣称根因已解决或计算相对模拟器的性能提升倍数。诊断开关仍有开销，本产物也不是生产归档。未修改 KVO、缓存、预加载或生命周期策略。
+
+源码终态 `sourceChangedSinceRun=[]`，构建自动格式化没有产生 Swift diff；构建日志和手动运行控制台的四类诊断均为 0。构建另有 App Intents 元数据提取被跳过的警告，原日志保留。原始 trace、符号化 trace、dSYM 与触摸文件均保留在忽略的本地证据目录；本轮没有运行 XCTest、库回归或 UI 自动化套件，也没有验证其他真机、iPad／RTL、旧 iOS、刷新、连续窗口缩放或重复冷启动分布。录制及本轮 Demo 进程已结束，`git diff --check` 通过；没有提交或推送。
+
+## 2026-10-27：Release 与无 XCTest 的首次加载对照
+
+继续使用提交 `b07e96907b82b08e7bab08ce5de0a7e29b655c69` 的源码，固定 Xcode 27.1 / Swift 6.4、iPhone 18 Pro / iOS 27.0 Simulator，比较 continuous Section 末端首次向外拖动、触发新页加载的路径。没有修改框架、测试源码或断言，没有注入停顿。Apple 官方 Xcode MCP 当前测试接口不能指定本轮所需的 Release 配置及重复执行参数，因此回退到仓库 `Scripts/validate.sh`：`SP_SCOPE=demo SP_CONFIGURATION=Release`，筛选 `CompositionalGestureTests/testHorizontalSectionsAndBothBoundaries`，附加 `-test-iterations 3 -test-repetition-relaunch-enabled YES ENABLE_TESTABILITY=YES`。
+
+编译日志确认库与 Demo 均使用 `-O`、`-whole-module-optimization` 和 `-enable-testing`，目标为 `arm64-apple-ios15.0-simulator`。三次原始 UI 用例均通过，耗时分别为 101.442、102.795、100.164 秒；xcresult 顶层按 **1 个唯一测试** 汇总，设备配置结果与日志记录 **3 次实际通过**。共保存 78 条手势、4263 个窗口事件样本，没有内部 pan 仅 `.began` 而无 `.changed` 的轨迹。见 [正式结果](Results/section-release-ui-r1-20261027/summary.json) 与 [触摸分析](Results/section-release-ui-r1-20261027/touch-analysis.json)。
+
+随后通过 `simctl launch` 直接启动同一个 Release 可执行文件，保留 `--open-demo --compositional --window-regression --paging-trace`，无调试器附加和 XCTest 启动。三轮安装后二进制 SHA-256 均与 UI 测试产物一致；进程 Binary Images 未发现 `XCTest`、`XCTAutomationSupport` 或 `libXCTestBundleInject`。这仍是带测试可见性及诊断开关的 Release Simulator 产物，不等同于生产归档或真机环境。
+
+普通启动通过 `ios-simulator-browser` 技能的设备专属 `serve-sim` 镜像，在 `cua_repl` 中拖动，最终送入模拟器 HID；没有直接设置 pan 状态或滚动 offset。先尝试的 Simulator 原生窗口坐标输入未可靠命中目标，排除于结果之外，原始探测保留在 [native-window-input-probe](Results/section-runtime-comparison-20261027/native-window-input-probe/)。官方设备交互接口要求的配套 `device-interaction` 技能在本会话不可用，因此未使用该接口发送触摸，已关闭其会话。浏览器桥接拖动节奏与 XCTest 不同，不能用两组数值直接归因 XCTest 开销。
+
+| 路径 | 首次边界交接同步处理耗时 | 功能与恢复结果 |
+| --- | --- | --- |
+| Release UI 第 1 轮 | 76.6 ms | 完整原用例通过 |
+| Release UI 第 2 轮 | 222.4 ms | 完整原用例通过 |
+| Release UI 第 3 轮 | 435.6 ms | 完整原用例通过 |
+| 无 XCTest 第 1 轮 | 281.0 ms | 交接、切回、末端位置恢复及再次内部滚动均完成 |
+| 无 XCTest 第 2 轮 | 69.1 ms | 交接、切回、末端位置恢复及再次内部滚动均完成 |
+| 无 XCTest 第 3 轮，交接时采样 | 263.9 ms | 交接完成；采样后的切回输入被桥接问题阻塞，恢复未验证 |
+
+无 XCTest 前两轮的下一条触摸分别确认目标页 offset 为 4824、切回页为 4422，内部 Section 恢复至交接前 `sourceOffsetX=2044.6667`，随后内部 offset 降低而外层保持 4422。第 1 轮有两条手势未记录内部 `.changed`，但下一次触摸前原生减速已经推进内容，不能将松手当时 offset 未变判为整个拖动失败。三轮共保留 18 条手势、180 个事件。第 3 轮采样及浏览器截图下载超时后，反向拖动没有产生新的应用触摸文件；重载镜像和按设备重启桥接后仍停留在 sequence 5。已保留 [限制记录](Results/section-runtime-comparison-20261027/direct-sample-r3/input-bridge-limitation.json)，未将该轮恢复算作通过，也未将输入未送达归因于框架。
+
+第 3 轮对 Demo 进程执行 20 秒、1 ms 间隔的 `/usr/bin/sample`。263.9 ms 的交接事件起点位于时钟锚点后约 7.546 秒，落在采样窗口内。调用树仍经过 `scrollViewDidScroll` → `loadPage`；本轮聚合采样中页面 view 加载分支有 67 个样本，绑定分支有 25 个，布局分支有 21 个。记录创建的 KVO → Swift 协议符合性检查分支仅有 4 个样本，未重现前轮 Debug 中该分支占主导的现象。计数不能换算为精确函数耗时，优化内联也影响符号归属。见 [调用链节选](Results/section-runtime-comparison-20261027/direct-sample-r3/handoff-stack-excerpt.txt)、[时间关联](Results/section-runtime-comparison-20261027/direct-sample-r3/handoff-sample-correlation.json) 与原始 `handoff-sample.txt`。
+
+本轮 Release 路径均未复现秒级首次交接停顿，但仍有约 0.1–0.4 秒的同步处理延迟，不能宣称性能问题已消失。当前证据支持继续区分 Debug 运行时检查与 Release 页面创建、绑定和布局成本；不足以确认原偶发内部滚动失败的根因，也不支持立即移除 KVO 或改变缓存、预加载和生命周期策略。完整环境、二进制、逐轮轨迹及状态见 [对照汇总](Results/section-runtime-comparison-20261027/comparison.json)。
+
+Release 正式摘要 `sourceChangedSinceRun=[]`，四类脚本诊断为 0，结果包运行时警告为空；三轮普通启动的源码哈希也与终态一致。构建自动格式化未产生 Swift diff，`git diff --check` 通过。本轮仅更新验证记录，原失败证据保留；未新增库全量、完整 Demo UI、iPad／RTL、旧版 iOS、真机、刷新或连续窗口缩放验证。临时应用进程、镜像标签页、设备交互会话及设备专属桥接均已关闭，见 [清理记录](Results/section-runtime-comparison-20261027/cleanup.json)。没有新增提交或推送。
+
+## 2026-10-27：嵌套横向滚动固定场景重复验证与线程采样
+
+以干净提交 `b07e96907b82b08e7bab08ce5de0a7e29b655c69` 为基准，通过 Apple 官方 Xcode MCP 连续执行原用例 `CompositionalGestureTests/testHorizontalSectionsAndBothBoundaries()`。环境固定为 Xcode 27.1 / Swift 6.4 / Debug、iPhone 18 Pro / iOS 27.0 Simulator；每轮重新启动应用，输入、断言及源码不变。先运行 3 轮无外部采样的用例，再运行 2 轮仅针对该模拟器 Demo 进程的 `/usr/bin/sample` 诊断。未注入停顿、修改手势或添加分析依赖。
+
+| 运行 | 功能结果 | 完整手势数 | 最大同步处理耗时 | 最大交付延迟 |
+| --- | --- | --- | --- | --- |
+| [普通第 1 轮](Results/section-stability-20261027/plain-r1/summary.json) | 1 通过、0 失败 | 26 | 768.6 ms | 89.2 ms |
+| [普通第 2 轮](Results/section-stability-20261027/plain-r2/summary.json) | 1 通过、0 失败 | 26 | 103.9 ms | 34.0 ms |
+| [普通第 3 轮](Results/section-stability-20261027/plain-r3/summary.json) | 1 通过、0 失败 | 26 | 1266.5 ms | 121.5 ms |
+| [带采样第 4 轮](Results/section-stability-20261027/sample-r4/summary.json) | 1 通过、0 失败 | 26 | 1203.2 ms | 141.4 ms |
+| [带采样第 5 轮](Results/section-stability-20261027/sample-r5/summary.json) | 1 通过、0 失败 | 26 | 1384.3 ms | 235.7 ms |
+
+5 轮均完整通过，覆盖 continuous／groupPaging Section、快速往返输入、两端交接及切页后位置恢复，合计保存 130 条手势、6888 个窗口事件样本。没有出现此前“内部识别器有 `.began`、无 `.changed`，正文未滚动”的失败路径；有限次数通过不能宣称该偶发问题已解决。每轮 xcresult、日志、源码哈希、完整触摸文件和事件分析分别保留，见 [汇总](Results/section-stability-20261027/rollup.json)。
+
+本次确认另一个具体运行时现象：第 1、3、4、5 轮均在 sequence 12，即 continuous Section 末端第一次向外拖动、交给外层分页时出现长同步停顿，随后移动事件合并；第 3、4、5 轮单批最多合并 78 个事件。该阶段外层 pan 已进入 `.began`，内部 pan 按边界契约失败；最终分页提交及恢复断言均通过。它与此前内部 pan 开始后不滚动的路径不同，不能直接合并归因。
+
+两轮线程采样均捕获同一调用链：`PagingTraceWindow.sendEvent` → UIKit pan／offset 更新 → `SPPageViewController.scrollViewDidScroll`（1170 行）→ `loadPage`（746 行，创建记录）→ `SPPageSafeArea.init`（20 行，注册 `additionalSafeAreaInsets` KVO）→ Foundation 观察注册／Swift overlay → `swift_conformsToProtocolMaybeInstantiateSuperclasses`。对应 KVO 注册分支分别有 132／164 个采样，其中 Swift 协议符合性检查叶子有 130／163 个采样；这些是调用栈采样计数，不直接换算为精确函数耗时。应用与框架栈已符号化到 Swift 文件和行号，报告保留实际进程、二进制 UUID 及加载地址。完整采样及精简调用链见 [第 4 轮](Results/section-stability-20261027/sample-r4/stall-stack-excerpt.txt)、[第 5 轮](Results/section-stability-20261027/sample-r5/stall-stack-excerpt.txt)。
+
+通过同机 `mach_absolute_time` 与墙钟锚点，将事件的同步处理区间与采样报告起点对齐：1.203 s 与 1.384 s 的事件分别落在第 4 轮 sample-004、第 5 轮 sample-006 的采样窗口内，见各轮 `stall-sample-correlation.json`。系统采样以 5 ms 间隔、约 10 s 分段进行；符号处理产生段间空隙，报告是窗口内聚合调用树，不能逐采样还原事件时序。采样自身有开销，因此两轮采样结果单列；无外部采样的第 1、3 轮也已出现同位置停顿。`nativeHandlingDuration` 包含 UIKit 同步调用进入框架的时间，不能将其名称理解为耗时全部来自系统；交付延迟基于本批最后触摸时间，不能代表所有合并事件的等待时间。
+
+证据将这条 Debug Simulator 下的长停顿收窄到首次新页加载及 KVO 注册触发的运行时检查，尚未确认其在 Release、真机或脱离 XCTest 注入环境下的程度，也未证明它与此前内部滚动失败同源。本轮没有据此预加载页面、移除 KVO 或改变缓存与生命周期契约；后续应先在匹配场景中做 Release／非 XCTest 路径对照，再决定最小优化方案。
+
+5 轮均为 `sourceChangedSinceRun=[]`，四类脚本诊断为 0，结果包运行时警告为空。构建阶段没有产生 Swift 源码 diff，`git diff --check` 通过。仅更新本验证记录，原失败证据保留；未执行库全量、RTL／iPad 扩展、Release、真机、刷新或连续窗口缩放验证。两轮采样进程已结束，Xcode 运行目标恢复为原来的 `iPhone 13`。本轮没有提交或推送。
 
 ## 2026-10-26：视口测试前置位置与独立生命周期诊断
 
