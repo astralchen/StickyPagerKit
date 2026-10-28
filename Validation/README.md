@@ -4,6 +4,37 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-10-28：真机 Release 验证记录提交前复核
+
+本次仅复核并提交验证记录，不修改实现、测试、工程或签名配置，没有重新构建、运行或测试。核对真机终态结果包、命令退出码、四条路径指标、构建参数、警告与覆盖边界；本节对应的七个证据链接均存在。4/4 通过、每条 34 个拖动显示帧及四类运行时诊断为 0 的记录与原始证据一致，既有模拟器和调查失败证据继续保留。
+
+提交前当前工程的两处 `DEVELOPMENT_TEAM` 已为空值，与 HEAD 一致；相对下节真机运行快照，唯一差异是这两处 Team 值。逐字替换回当时值后的工程 SHA-256 与运行快照匹配，其余被记录的源码和配置均无差异。本次保留当前空值，不恢复运行时 Team，不改写原运行摘要中的 `sourceChangedSinceRun=[]`；真机构建与测试结果对应当时使用命令行 Team 覆盖的产物，不能作为当前空签名配置不带覆盖即可构建的证据。
+
+`git diff --check` 通过，仅暂存 `Validation/README.md`，原始结果包与失败日志继续保存在本地忽略目录，不强制加入 Git。按用户授权使用中文提交信息创建本地文档提交，不推送。
+
+## 2026-10-28：iPhone 13 Release 刷新聚焦验证
+
+基于 `3f9b13153430ca54d1e59908f7f413e05d465316`。开始时仅有工程文件两处 `DEVELOPMENT_TEAM` 从空值改为 `MP8ZV9A8HZ` 的已有修改，本轮原样保留，没有改动实现、测试或签名配置。设备检查确认 iPhone 13 有线连接、iOS 27.2（24B119）、开发模式已启用且 DDI 服务可用，见[设备详情](Results/device-release-refresh-20261028/device-details.json)。
+
+官方 Xcode MCP 将 iPhone 13 列为可用运行目标，但 `DeviceInteractionStartSession` 本次拒绝该真机并只返回模拟器候选。`BuildProject`／`RunSomeTests` 不提供本次调用的签名构建参数入口；仓库 `validate.sh` 固定使用模拟器 destination，因此使用 Xcode 27.1 的 `xcodebuild test`，显式指定 `-configuration Release`、`-destination platform=iOS,id=00008110-00167C2C0193801E`、`-only-testing:StickyPagerDemoUITests/RefreshGestureTests`、`DEVELOPMENT_TEAM=MP8ZV9A8HZ CODE_SIGN_STYLE=Automatic ENABLE_TESTABILITY=YES`。未修改 scheme 或全局 Xcode 配置。[构建日志](Results/device-release-refresh-20261028/xcodebuild.log)保留完整命令；[产物标识](Results/device-release-refresh-20261028/build-identity.json)确认库与 Demo 均使用 `-O`、whole-module optimization、iOS 15 部署目标及指定 Team。为编译现有测试 target 启用了测试可见性；本轮是带 XCTest 的 Release 真机 UI 回归，不是生产归档或无 XCTest 对照。
+
+**终态为 4/4 通过、0 失败、0 跳过，命令退出码为 0。** 下拉刷新与首次上滑通过 XCTest 在真机发送触摸；中间切到网格、吸顶及返回由现有 `--refresh-regression` 夹具受控执行，四条路径均断言返回时仍在刷新。刷新结束后的下一次触摸前位置断言全部通过，未修改断言、拖动距离或既有夹具。
+
+| 路径 | 刷新结束前 → 后的归一化位置 | Header 位移 / 页面空白 | 真实拖动显示帧 | Header 最大反向位移 |
+| --- | --- | --- | --- | --- |
+| 长列表 LTR | 119 → 119 pt | 0 / 0 pt | 34 | 0 pt |
+| 长列表 RTL | 119 → 119 pt | 0 / 0 pt | 34 | 0 pt |
+| 短列表 LTR | 119 → 119 pt | 0 / 0 pt | 34 | 0 pt |
+| 短列表 RTL | 119 → 119 pt | 0 / 0 pt | 34 | 0 pt |
+
+短列表结算后的内容高度约为 220 pt。拖动开始回调采样位置为长列表 121.667 pt、短列表 120.333 pt，已经包含手势初始移动；触摸前检查来自测试的独立快照，不能拿这些过程值替代。真机当前几何得到 119 pt，未把此前模拟器的 104 pt 当成跨设备固定期望值。[逐项指标](Results/device-release-refresh-20261028/metrics.json)、[测试指标附件](Results/device-release-refresh-20261028/attachments/manifest.json)及 [Result.xcresult](Results/device-release-refresh-20261028/Result.xcresult/)完整保留。
+
+[最终摘要](Results/device-release-refresh-20261028/summary.json)确认运行设备为物理 iPhone 13，`sourceChangedSinceRun=[]`，observation feedback loop、appearance 不平衡、内容视图配置替换和约束冲突四类诊断均为 0，结果包运行时警告为空。构建仍有测试框架部署版本和 App Intents 元数据提取警告；运行共记录 12 次 `App animations complete notification not received`，各条约 189–194 秒后完成。保留这些警告与等待，不将功能通过解释为性能通过，也不未经定位归因为本修复。
+
+本轮没有取得录像或画面逐帧证据，导出的保留附件为过程指标文本；显示帧几何与 XCTest 断言通过不等于人工视觉验收。未执行无 XCTest 的 Release、人工手动操作、纯手势切页／取消、刷新在后台结束、空列表、其他真机／系统、库全量或完整 Demo 回归。原有模拟器与调查失败证据均保留。
+
+收尾通过 CoreDevice 确认 Demo 与测试 Runner 进程均已结束，Xcode 仍选择 iPhone 13；没有操作其他设备。源码与起始快照一致，构建自动格式化未留下 Swift diff，已有两处 Team 修改逐字保持；本轮仅追加验证记录，`git diff --check` 通过，没有提交或推送。
+
 ## 2026-10-28：短列表刷新修复提交前复核
 
 按用户授权复核本次五个变更文件：绑定层实现、刷新库回归、真实触摸 UI 回归、README 与验证记录。核对同步布局事务、旧请求失效、嵌套保护恢复及新定位／业务 inset／解绑路径；两种收尾时序、触摸前位置和长短列表 LTR／RTL 的对应测试均已保留。此次没有追加实现或测试修改，也没有重新构建、运行或测试。
