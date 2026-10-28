@@ -15,6 +15,12 @@ internal final class SPScrollBinding {
         let safeTop: CGFloat
         let size: CGSize
         let adjustmentBehavior: UIScrollView.ContentInsetAdjustmentBehavior
+
+        func hasSameGeometry(as other: Self) -> Bool {
+            adjustedTop == other.adjustedTop && contentTop == other.contentTop
+                && safeTop == other.safeTop && size == other.size
+                && adjustmentBehavior == other.adjustmentBehavior
+        }
     }
 
     private var coordinates: Coordinates?
@@ -211,9 +217,10 @@ internal final class SPScrollBinding {
         guard abs(y - scrollView.contentOffset.y) > 0.001 else {
             return
         }
+        let wasUpdating = updating
         updating = true
         scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: false)
-        updating = false
+        updating = wasUpdating
         updateIndicators()
     }
 
@@ -616,6 +623,38 @@ internal final class SPScrollBinding {
             coordinates: currentCoordinates
         )
         pendingRetraction = pending
+        // 重载的估算行高可能尚未结算。先在同一个几何事务内交付已排队的布局，
+        // 避免 UITableView 在异步补偿之后再把旧 offset 当作锚点写回。
+        // 仅覆盖本次同步布局，不延长滚动所有权，也不等待刷新状态或固定时间窗口。
+        let wasUpdating = updating
+        updating = true
+        UIView.performWithoutAnimation {
+            scrollView.layoutIfNeeded()
+            guard !detached, pendingRetraction?.generation == pending.generation else {
+                return
+            }
+            // 布局回调中的业务 inset、视口或安全区域更新具有新的坐标基准。
+            guard !pendingGeometryUpdate, currentCoordinates.hasSameGeometry(as: pending.coordinates) else {
+                pendingRetraction = nil
+                return
+            }
+            if abs(scrollView.contentOffset.y - pending.coordinates.offset) > 0.001 {
+                scrollView.contentOffset.y = pending.coordinates.offset
+            }
+        }
+        updating = wasUpdating
+        guard !detached, pendingRetraction?.generation == pending.generation else {
+            if !detached {
+                rememberCoordinates()
+                flushInsetUpdates()
+            }
+            return
+        }
+        guard currentCoordinates == pending.coordinates else {
+            pendingRetraction = nil
+            rememberCoordinates()
+            return
+        }
         rememberCoordinates()
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.detached, self.pendingRetraction?.generation == pending.generation else {

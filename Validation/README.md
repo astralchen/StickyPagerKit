@@ -1,8 +1,106 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-27。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-10-28。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
+
+## 2026-10-28：短列表刷新修复提交前复核
+
+按用户授权复核本次五个变更文件：绑定层实现、刷新库回归、真实触摸 UI 回归、README 与验证记录。核对同步布局事务、旧请求失效、嵌套保护恢复及新定位／业务 inset／解绑路径；两种收尾时序、触摸前位置和长短列表 LTR／RTL 的对应测试均已保留。此次没有追加实现或测试修改，也没有重新构建、运行或测试。
+
+重新计算当前源码 SHA-256，与最终库测试和 UI 测试各自的运行快照比较，两者差异列表均为空；对应终态分别为 200/200 和 4/4 通过。新增三个阶段记录引用的 39 个本地证据链接全部存在，旧实现的 12/2 失败结果、首轮 UI 的 3/1 失败结果及中间夹具修正记录均保留，不以最终通过覆盖历史失败。未执行范围沿用下节说明。
+
+工程与 `Config` 无 diff，两处 `DEVELOPMENT_TEAM` 保持空值。提交范围仅为上述五个文件，包含此前未提交的调查记录；原始结果包继续保存在本地忽略目录，不强制加入 Git。`git diff --check` 通过，本次按授权创建中文本地提交，不推送。
+
+## 2026-10-28：短列表刷新布局写回修复与聚焦验证
+
+基于 `187f8613b7ced58513b25b9730bbf1cfedc178e4`；开始时仅有前两轮调查追加的 `Validation/README.md` 变更，全部保留。目标是固化前节的两种刷新收尾顺序，在绑定层修复已排队的列表布局写回，同时保留新定位、业务 inset、解绑和原生回弹边界。没有新增公开 API、依赖或工程配置，签名 Team 仍为两处空值，不提交、不推送。
+
+`SPScrollBinding` 在确认正向位置的顶部 adjusted inset 收回后，先登记所属补偿请求，以 `updating` 保护和 `UIView.performWithoutAnimation` 结算滚动视图已排队的布局；该次同步布局的旧 offset 不作为新滚动消费，再沿用主队列安全点执行最终位置补偿。布局回调若发起新定位、解绑、业务 inset 或坐标基准变化，旧事务停止恢复 offset；嵌套 `setPosition` 恢复进入前的保护状态。没有建立持续的位置锁、按时间冻结滚动、读取刷新状态、关闭行高估算或替换业务 delegate。README 的下拉刷新段已同步说明事务范围。
+
+**确定性回归与阶段证据：** 使用真实 `UIWindow`，由测试滚动视图显式交付排队布局，固定“行高变化／offset 写回先发生”和“主队列补偿先完成”两个顺序。前者包含实际轨迹的 32 pt 高度差，后者写回刷新前 offset；两者均断言位置 104 pt、布局只执行一次、滚动消费次数为 0，并检查内容高度和合法范围。这些是受控时序测试，不能代替真实触摸。
+
+| 阶段 | 结果与说明 |
+| --- | --- |
+| 初版夹具 | [14/14 通过](Results/refresh-layout-red-20261028/summary.json)，但 RunLoop 会提前交付布局，未能固定“补偿后”顺序；不作为有效检错证据。 |
+| 显式检查点、旧实现 | [12 通过 / 2 失败](Results/refresh-layout-red-r2-20261028/summary.json)。两条新增回归分别得到 12 和 44 pt，并各触发一次错误滚动消费，与调查轨迹吻合。 |
+| 首版修复 | [14/14 通过](Results/refresh-layout-green-r1-20261028/summary.json)，包含原有 10 项刷新用例及两种时序、业务直接 offset 和负向回弹优先。 |
+| 布局重入检查 R1 | [14 通过 / 3 失败](Results/refresh-layout-reentry-r1-20261028/summary.json)。补上业务 inset 变化前取消恢复及嵌套保护；同时拆清夹具在新定位／解绑之后再次人为写入旧 offset 的额外外部操作，原生重复通知仍保留在独立用例中。 |
+| 布局重入检查 R2 | [16 通过 / 1 失败](Results/refresh-layout-reentry-r2-20261028/summary.json)。剩余断言错误来自 `contentInset.top += 13` 将包含框架贡献的 213 pt 提交成新业务基准，却期待解绑恢复 13 pt；按既有绝对值契约改为明确赋值 13，未修改业务 inset 契约。 |
+
+最终 `SPRefreshInsetTests` 共 17 项：原有 10 项，新增两种布局时序、直接业务定位、负向原生回弹、新定位重入、解绑重入和业务 inset／位置重入 7 项。原生重复 offset、已由 UIKit 补偿、后台页、同步解绑及异步请求取消等原覆盖均保留。
+
+**当前源码验证：** Xcode 27.1 / Swift 6.4、Debug、iOS 27.0。库测试通过仓库 `Scripts/validate.sh` 的独立 `UIKitTestHost` application host 执行；官方 MCP 没有执行该 hosted `.xctestrun` 的入口，未使用裸 Package 无宿主结果，也未将库测试加入 Demo scheme。Demo UI 使用 Apple 官方 Xcode MCP。
+
+| 验证 | 结果 |
+| --- | --- |
+| iPad Pro 13-inch (M5) (16GB) 相关库回归 | [200/200 通过](Results/refresh-layout-final-related-20261028/summary.json)：`SPRefreshInsetTests` 17、`StickyPagerKitTests` 151、`SPPageViewportTests` 14、`SPPageReentrancyTests` 14、`SPUIKitEnvironmentTests` 4；`sourceChangedSinceRun=[]`，四类运行时诊断均为 0。 |
+| iPhone 18 Pro 第一轮 UI | [3 通过 / 1 失败](Results/refresh-layout-fix-20261028/ui-r1-result.json)。长列表 RTL 因 `dragFrames=0` 失败，位置断言已通过；保留[日志](Results/refresh-layout-fix-20261028/ui-r1-console.txt)、[指标](Results/refresh-layout-fix-20261028/ui-r1-metrics.json)及原始结果包，未降低帧数断言。 |
+| iPhone 18 Pro 最终 UI | [4/4 通过](Results/refresh-layout-fix-20261028/ui-final-result.json)：长／短列表分别覆盖 LTR／RTL；[源码复核](Results/refresh-layout-fix-20261028/ui-final-source-audit.json)的 `sourceChangedSinceRun=[]`。完整日志与结果包分别保留为 `ui-final-console.txt`、`UI-Final.xcresult`。 |
+
+UI 测试新增短列表 RTL，并收紧短列表要求：刷新结束后及下一次真实触摸前必须保留原有位置；不再只允许位置下降与 Header 展开等量相抵。保留真实下拉刷新、中间受控切页／吸顶／返回、真实上滑、拖动显示帧数量、Header 最大反向位移及页面空白断言。库测试的直接状态写入与 Demo 的真实触摸证据分别报告。
+
+最终四条 UI 的刷新结束位置均为 104 pt，Header 位移及页面空白均为 0，下一次触摸前的位置断言全部通过。长列表 LTR／RTL、短列表 LTR／RTL 的拖动显示帧分别为 28／29／33／28，Header 最大反向位移均为 0；[逐项指标](Results/refresh-layout-fix-20261028/ui-final-metrics.json)保留原始采样值。短列表 LTR 在拖动开始采样点为 105.333 pt，该采样已处于手势过程，不能替代测试在发出触摸前检查的位置；未把过程采样与触摸前状态混为一谈。第一轮 RTL 的 0 帧失败仍单独保留，最终通过不改写阶段历史。
+
+运行期间系统负载较高，UI 多次出现 XCTest 未收到动画完成通知；相同等待提示也存在于之前保留的日志，不能据此认定本修复造成性能退化或把失败自动归为环境问题。对本轮库宿主的一次短时[只读采样](Results/refresh-layout-fix-20261028/library-host-sample.txt)未采到新增补偿路径递归，主要是测试 RunLoop 等待与正常视口布局；这不是性能验收。未执行真机、Release、其他 iOS 版本、完整库／Demo 全套回归或连续窗口缩放 UI 复测，既有失败证据均保留。
+
+SwiftFormat 0.64.0 对三份相关 Swift 文件格式化及 lint 通过，工程／签名配置无 diff，`git diff --check` 通过。本轮结果包、各阶段源码哈希、实现补丁和日志保存在本地忽略目录，未强制加入 Git。
+
+收尾已将 Xcode 恢复为 `StickyPagerDemo / iPhone 13`；本轮使用的 iPhone 18 Pro、iPad Pro 13-inch (M5) 模拟器均确认处于 `Shutdown`，未删除或重置其他设备，见[最终环境记录](Results/refresh-layout-fix-20261028/environment-final.json)。[最终审计](Results/refresh-layout-fix-20261028/final-audit.json)确认运行后源码未变、证据链接存在、工程／签名 diff 为空，HEAD 仍为本轮起点。未提交、未推送。
+
+## 2026-10-28：短列表刷新收尾轨迹与三个最小对照
+
+基于 `187f8613b7ced58513b25b9730bbf1cfedc178e4`，开始时仅存在上一节调查记录的未提交追加。框架、Demo、测试及签名配置与该提交一致。本轮只恢复临时诊断夹具、执行调查、归档后撤回诊断源码；没有实施修复、提交或推送。
+
+**环境恢复与清理确认：** CoreSimulator 在授权访问下正常返回设备列表；沙箱内首次查询的连接错误不能作为服务仍故障的证据。上轮专用 UUID `4DECC6CF-FC87-4D9C-A18C-5B008A8B7512` 已不在完整设备列表中，其设备目录也已不存在，确认上轮临时设备清理完成，本轮无需重复删除。使用原 iPhone 18 Pro / iOS 27.0（`7307F57D-24FD-49D9-A87B-1FE739AA35BB`）执行，未新建、删除或重置其他设备。[检查证据](Results/short-refresh-investigation-20261028/environment-recovery.json)。
+
+通过 Apple 官方 Xcode MCP 的 `StickyPagerDemo` scheme 执行。使用相同诊断源码，真实 XCTest 下拉触发刷新，中途切页、网格吸顶和返回为受控调用，刷新结束后不发送第二次触摸。监听 offset、inset、content size、布局、adjusted inset 回调及调用栈；记录首行坐标、Header、pan 和刷新状态，保留结束后至少 8 秒的显示帧采样。未通过 `visibleCells`／`indexPathsForVisibleRows` 主动结算行高。采样断言只确认刷新、返回与采集完成，**通过不表示位置行为正确**。
+
+| 路径 | 用例结果 | 事件 / 显示帧采样 | 刷新结束前 → 静止窗口终态的归一化位置 / Header 折叠量 |
+| --- | --- | --- | --- |
+| 原流程 R1 | **失败**：XCTest 等待应用空闲及读取无障碍树超时；应用轨迹完整 | 1,388 / 497 | 104 / 104 → 12 / 12 pt |
+| 跳过 `reloadData()` | **通过** | 964 / 484 | 104 / 104 → 104 / 104 pt |
+| 固定行高并关闭估算 | **通过** | 904 / 437 | 104 / 104 → 104 / 104 pt |
+| 短列表 `.unbound` | **通过** | 913 / 436 | -0.3333 / 104 → 0 / 104 pt |
+| 原流程 R2，同源码复核 | **通过** | 1,054 / 501 | 104 / 104 → 44 / 44 pt |
+
+三项对照为一批 3/3，R2 为另一批 1/1；不将 R1 失败改写成全部通过。全部 5 份轨迹均到达 `capture.complete`、未触及 20,000 事件上限，无触摸窗口的 pan 均为 `.possible`，dragging／decelerating 均为 false。解绑后不再有框架 inset，起始正文位置不同；该对照只能用于识别原生行为，不能将它的终态数值当作绑定路径应有的结果。
+
+**已确认的触发链：** 相同的 3 行实际内容约 220 pt，估算行高为 84 pt。原流程 `reloadData()` 先把 content height 写为 252 pt，框架 bottom inset 从 348 改为 316 pt；`endRefreshing()` 随后将 adjusted top 从 208 收回到 148 pt，原始 offset 仍为 -104 pt。后续可见行布局将内容高度结算回约 220 pt，并与框架安排在主队列的 inset 补偿交错。跳过重载或消除估算高度后，本次均没有终态位置损失。
+
+- R1：轨迹 n=477 的调用栈包含 `UITableView._applyContentSizeDeltaImmediately:`、`UIScrollView.performWhileAnimatingAutomaticContentOffsetAdjustments:`；随后 `UIScrollViewScrollAnimation.setProgress:` 驱动 offset。第一个变化在 `tail.nextMain` 前发生，进入 `SPScrollBinding` 的 offset 观察路径，坐标变化使待处理补偿失效，再由 `SPPageViewController.consume` 更新 Header。终态包含 60 pt 刷新 inset 收回与 32 pt 行高差对应的位置损失，落在 12 pt。没有新触摸参与。
+- R2：n=473 先完成 offset -104 → -44 的补偿，位置恢复为 104 pt；随后 `UITableView._updateVisibleCellsNow:` 写回 -104，触发 `onScroll → consume → publishHeader → layoutPage`。n=495 的栈保留该完整调用链，结算后位置与 Header 均停在 44 pt。这说明仅等待一次主队列安全点不能覆盖后续 UITableView 布局写回，终态并非固定减少 32 pt。
+
+对应代码为 `SPScrollBinding.swift` 的 offset 观察路径（105–127）、延迟补偿（611–628）及 pending 期间的几何更新保护（632–644），以及 `SPPageViewController.swift` 的 `consume`（908–916）。本轮确认了原生行高结算／offset 写回被容器当作当前滚动位置消费的路径，以及两种收尾先后顺序；没有把 UIKit 私有符号作为可调用 API，也没有据此修改业务 delegate、原生回弹或刷新生命周期。
+
+**边界与剩余疑点：** 两次基线所有采到的显示帧中，Header 折叠量与归一化位置一致，说明本轮终态异常是无触摸的位置调整，不是最终 Header 与正文脱节。固定行高对照 n=451 在异步补偿前还采到一次 position=44 / collapse=104，随后恢复为 104 / 104；保留此瞬态，未用终态通过掩盖。`CADisplayLink` 回调快照不等于屏幕已呈现该状态，该瞬态是否可见仍需画面或更精细渲染证据。堆栈采集和系统负载可能影响时序，尚未测定未插桩时两种路径的发生率。本轮未覆盖真实设备、iPad、RTL、其他 iOS 版本、Release、下一次真实拖动或全库回归；这些结果不能作为修复验收。
+
+证据保留：[R1 失败结果](Results/short-refresh-investigation-20261028/baseline-r1-result.json)、[R1 日志](Results/short-refresh-investigation-20261028/baseline-r1-console.txt)、[三个对照结果](Results/short-refresh-investigation-20261028/controls-result.json)、[R2 结果](Results/short-refresh-investigation-20261028/baseline-r2-result.json)、[五份原始轨迹及逐事件分析](Results/short-refresh-investigation-20261028/traces/)、[调查摘要](Results/short-refresh-investigation-20261028/investigation-summary.json)、[源码哈希](Results/short-refresh-investigation-20261028/source-hashes.json)。三个 `.xcresult` 完整副本、日志、诊断补丁、新增诊断文件和分析脚本也保存在同目录，既有失败证据未删除或覆盖。
+
+撤回诊断源码前逐文件核对运行快照，`sourceChangedSinceCapture=[]`。相关文件使用 SwiftFormat 0.64.0；构建阶段未留下额外格式化变更。撤回后框架、Demo、测试、工程与本轮起点一致，两处 `DEVELOPMENT_TEAM` 仍为空；仅验证记录留有变更。Xcode 恢复 `StickyPagerDemo / iPhone 13`，本轮启动的原模拟器恢复情况见[最终环境记录](Results/short-refresh-investigation-20261028/environment-final.json)。`git diff --check` 通过；本轮停在根因调查与证据交付，不决定或实施修复。
+
+## 2026-10-27：短列表刷新收尾位置调查（环境阻塞，未取得运行轨迹）
+
+从干净的 `187f8613b7ced58513b25b9730bbf1cfedc178e4` 工作区开始，目标是单独调查短列表在刷新收尾及下一次触摸前的位置调整。仅准备临时 Demo 诊断与 UI 用例，框架实现、公开 API、工程和签名配置未修改。本轮**尚未在应用内重新复现，没有取得完整轨迹，未完成最小对照，未确认根因，也没有实施新修复**；前节的 32 pt 等历史观察不能作为本轮已复现的证据。
+
+诊断夹具在原流程中标记 `reloadData()` 前后、`endRefreshing()` 前后和切页返回；监听 offset、content inset、content size 的前后通知，记录 adjusted inset 回调、布局前后、调用栈及刷新结束后 8 秒的显示帧。字段包括 Header 折叠量、页面 frame、首行屏幕坐标、正文位置、顶部／底部 inset、安全区域、刷新及 pan 状态。通过 `willDisplay` 保存首行引用，避免采样使用 `visibleCells`／`indexPathsForVisibleRows` 主动提前结算列表布局。四个计划路径为原流程、跳过 `reloadData()`、固定行高与 `.unbound`；每次计划由真实 XCTest 下拉触发刷新，中间切页与网格吸顶仍为明确的受控调用，结束后不发送第二次触摸。
+
+使用 Apple 官方 Xcode MCP，诊断构建成功，但实际启动结果如下：
+
+| 尝试 | 结果与证据 |
+| --- | --- |
+| 原 iPhone 18 Pro / iOS 27.0 基线 | 用例未执行；Runner 启动返回 `Busy / Application failed preflight checks`。[结果](Results/short-refresh-investigation-20261027/baseline-launch-failure.json)、[日志](Results/short-refresh-investigation-20261027/baseline-launch-failure-console.txt)。 |
+| 同设备重试 | 持续停留在 Runner 启动，没有应用轨迹。代理仅关闭本轮 MCP 工作区取消挂起请求，然后重新打开；没有关闭其他工程窗口或重置原模拟器。[取消结果](Results/short-refresh-investigation-20261027/baseline-launch-cancelled.json)、[启动阶段日志](Results/short-refresh-investigation-20261027/launch-retry-cancelled/)。 |
+| 独立同型号同系统临时模拟器 | 用例未执行；Xcode 等待启动 60 秒后超时。[结果](Results/short-refresh-investigation-20261027/fresh-simulator-launch-result.json)、[日志](Results/short-refresh-investigation-20261027/fresh-simulator-boot-timeout-console.txt)、[结果包](Results/short-refresh-investigation-20261027/FreshSimulatorBootTimeout.xcresult/)。 |
+| 独立 `simctl bootstatus -b` | 启动等待没有返回进度，代理终止了本轮自己的等待进程；未重启全局 CoreSimulator 服务或终止其他测试。跳过重载、固定行高和解绑对照均未执行。 |
+
+19:11 的 Mac 1／5／15 分钟负载均值为 155.60／271.78／401.81，19:12:19 为 166.21／248.11／381.75；这是启动阻塞同期的环境观察，并非已确认的环境根因。运行时交互辅助会话结束首次超时，重试确认会话已不存在，没有执行该会话的交互事件。临时设备 UUID 为 `4DECC6CF-FC87-4D9C-A18C-5B008A8B7512`，其限时关闭／删除操作结果单独保存在[清理记录](Results/short-refresh-investigation-20261027/temporary-simulator-cleanup.json)，未为清理而影响原有模拟器。
+
+保留[诊断补丁](Results/short-refresh-investigation-20261027/diagnostic.patch)、[采样文件](Results/short-refresh-investigation-20261027/ShortRefreshTrace.swift)、[四条诊断 UI 用例](Results/short-refresh-investigation-20261027/ShortRefreshInvestigationTests.swift)、[诊断源码哈希](Results/short-refresh-investigation-20261027/diagnostic-source-hashes.json)、[环境信息](Results/short-refresh-investigation-20261027/environment.json)、[分析脚本](Results/short-refresh-investigation-20261027/analyze_trace.py) 与[调查摘要](Results/short-refresh-investigation-20261027/investigation-summary.json)，均位于本地忽略目录，不随 Git 分发。诊断构建使用锁定 SwiftFormat 0.64.0，构建成功仅证明诊断源码可编译，不能证明任何运行时假设。
+
+临时模拟器的关闭和删除各等待 45 秒后均超时，清理未确认完成；应在 CoreSimulator 恢复响应后先检查并清理上述专用 UUID，不删除或重置其他设备。没有强制终止 CoreSimulator 服务以绕过这个限制。
+
+归档后先核对临时源码与运行快照的哈希，再恢复两份被临时修改的 Demo 文件并移除两份新增诊断文件。最终框架、Demo、测试和工程内容恢复为本轮起点；两处 `DEVELOPMENT_TEAM` 仍为空，Xcode 恢复 `StickyPagerDemo / iPhone 13`。当前仅追加本节记录，`git diff --check` 通过，不提交、不推送，既有失败证据未删除或改写。待模拟器启动环境恢复后，应先重跑原流程确认能取得轨迹，再执行三个对照；此前不决定修复方向。
 
 ## 2026-10-27：刷新修复提交前复核
 

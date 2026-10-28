@@ -146,6 +146,118 @@ final class SPRefreshInsetTests: XCTestCase {
         }
     }
 
+    func testQueuedRowLayoutBeforeRetractionCommitPreservesPosition() {
+        verifyQueuedRowLayout(layoutBeforeCommit: true)
+    }
+
+    func testQueuedRowLayoutAfterRetractionCommitPreservesPosition() {
+        verifyQueuedRowLayout(layoutBeforeCommit: false)
+    }
+
+    private func verifyQueuedRowLayout(layoutBeforeCommit: Bool) {
+        withBinding { scroll, binding in
+            scroll.contentSize.height = 252
+            binding.setPosition(104)
+            let staleOffset = scroll.contentOffset
+            var callbacks = 0
+            var layoutCount = 0
+            binding.onScroll = { _ in callbacks += 1 }
+            // 重载已排队但尚未结算：同一批行的估算高度 252 -> 实际高度 220，
+            // UIKit 的布局会写回进入刷新收尾前保存的 offset。
+            scroll.pendingRowLayout = {
+                layoutCount += 1
+                scroll.contentSize.height = 220
+                scroll.contentOffset = CGPoint(
+                    x: staleOffset.x,
+                    y: staleOffset.y - (layoutBeforeCommit ? 32 : 0)
+                )
+            }
+            scroll.setNeedsLayout()
+            scroll.retractInset(settle: false)
+            if layoutBeforeCommit {
+                scroll.layoutIfNeeded()
+            }
+            drainMainQueue()
+            scroll.layoutIfNeeded()
+            drainMainQueue()
+            XCTAssertEqual(layoutCount, 1)
+            XCTAssertEqual(binding.position, 104, accuracy: 0.01)
+            XCTAssertEqual(callbacks, 0, "列表布局写回不能作为新的滚动消费")
+            XCTAssertEqual(scroll.contentSize.height, 220, accuracy: 0.01)
+            XCTAssertEqual(binding.maximumPosition, 200, accuracy: 0.01)
+        }
+    }
+
+    func testDirectBusinessOffsetSupersedesPendingRetraction() {
+        withBinding { scroll, binding in
+            binding.setPosition(104)
+            scroll.retractInset(settle: false)
+            scroll.contentOffset.y = 75 - scroll.adjustedContentInset.top
+            drainMainQueue()
+            XCTAssertEqual(binding.position, 75, accuracy: 0.01)
+        }
+    }
+
+    func testNativePullSupersedesPendingRetraction() {
+        withBinding { scroll, binding in
+            binding.setPosition(104)
+            scroll.retractInset(settle: false)
+            scroll.contentOffset.y = -30 - scroll.adjustedContentInset.top
+            drainMainQueue()
+            XCTAssertEqual(binding.position, -30, accuracy: 0.01)
+        }
+    }
+
+    func testNewPositionDuringRowLayoutCancelsRetraction() {
+        withBinding { scroll, binding in
+            binding.setPosition(104)
+            scroll.pendingRowLayout = { binding.setPosition(80) }
+            scroll.setNeedsLayout()
+            scroll.retractInset(settle: false, repeatOffset: false)
+            scroll.layoutIfNeeded()
+            drainMainQueue()
+            XCTAssertEqual(binding.position, 80, accuracy: 0.01)
+        }
+    }
+
+    func testDetachDuringRowLayoutCancelsRetraction() {
+        withBinding { scroll, binding in
+            binding.setPosition(350)
+            scroll.pendingRowLayout = { binding.detach() }
+            scroll.setNeedsLayout()
+            scroll.retractInset(settle: false, repeatOffset: false)
+            scroll.layoutIfNeeded()
+            let detachedOffset = scroll.contentOffset
+            drainMainQueue()
+            XCTAssertEqual(scroll.contentInset.top, 0, accuracy: 0.01)
+            XCTAssertEqual(scroll.contentOffset, detachedOffset)
+            XCTAssertEqual(binding.position, 150, accuracy: 0.01)
+        }
+    }
+
+    func testBusinessInsetsAndPositionDuringRowLayoutSupersedeRetraction() {
+        withBinding { scroll, binding in
+            binding.setPosition(104)
+            scroll.pendingRowLayout = {
+                scroll.contentInset.top = 13
+                scroll.contentOffset.y = 75 - scroll.adjustedContentInset.top
+            }
+            scroll.setNeedsLayout()
+            scroll.retractInset(settle: false, repeatOffset: false)
+            scroll.layoutIfNeeded()
+            drainMainQueue()
+            XCTAssertEqual(binding.position, 75, accuracy: 0.01)
+            binding.detach()
+            XCTAssertEqual(scroll.contentInset.top, 13, accuracy: 0.01)
+        }
+    }
+
+    private func drainMainQueue() {
+        let drained = expectation(description: "刷新收尾主队列检查点")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 2)
+    }
+
     private func withBinding(_ body: (TransientInsetScrollView, SPScrollBinding) -> Void) {
         let window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 440, height: 956))
         let controller = UIViewController()
@@ -167,6 +279,16 @@ final class SPRefreshInsetTests: XCTestCase {
 /// 模拟 UIKit 的临时 adjusted inset：getter 变化不发送 KVO，随后发送相同 offset 通知。
 @MainActor
 private final class TransientInsetScrollView: UIScrollView {
+    var pendingRowLayout: (() -> Void)?
+    // 只在显式布局检查点交付写回，避免 XCTest 的 RunLoop 提前调用
+    // layoutSubviews，导致“补偿后”场景意外退化成“补偿前”。
+    override func layoutIfNeeded() {
+        super.layoutIfNeeded()
+        let pending = pendingRowLayout
+        pendingRowLayout = nil
+        pending?()
+    }
+
     var transientTop: CGFloat = 60
     override var adjustedContentInset: UIEdgeInsets {
         var inset = super.adjustedContentInset
@@ -174,12 +296,15 @@ private final class TransientInsetScrollView: UIScrollView {
         return inset
     }
 
-    func retractInset(settle: Bool = true) {
+    func retractInset(settle: Bool = true, repeatOffset: Bool = true) {
         let original = contentOffset
         transientTop = 0
         contentOffset = original
         // 原生刷新 setter 尚未返回，后续仍可能再次写入进入时的 offset。
-        contentOffset = original
+        // 重入用例只检查绑定自身是否覆盖业务操作，不在解绑后再人为发起外部写入。
+        if repeatOffset {
+            contentOffset = original
+        }
         if settle {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
         }

@@ -14,6 +14,10 @@ final class RefreshGestureTests: XCTestCase {
         try verifyRefresh(index: 2, rtl: false)
     }
 
+    func testShortRefreshRetractionPreservesHeaderThroughoutUpwardDragRTL() throws {
+        try verifyRefresh(index: 2, rtl: true)
+    }
+
     private func verifyRefresh(index: Int, rtl: Bool) throws {
         continueAfterFailure = false
         UITestOrientation.set(.portrait)
@@ -50,6 +54,12 @@ final class RefreshGestureTests: XCTestCase {
         )
         // 短列表的空白区域不一定命中列表内容，从可见 cell 开始发送恢复滚动。
         let beforeDrag = try geometry()
+        // 同时检查下一次触摸前的位置，防止主队列补偿已完成后又被列表布局覆盖。
+        XCTAssertEqual(
+            try XCTUnwrap(beforeDrag["position"]),
+            try XCTUnwrap(beforeDrag["beforeEndPosition"]),
+            accuracy: 1
+        )
         let start = table.cells.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
         start.press(
             forDuration: 0.1,
@@ -72,21 +82,12 @@ final class RefreshGestureTests: XCTestCase {
             try XCTUnwrap(values["maxDragTabY"]),
             try XCTUnwrap(beforeDrag["currentHeaderY"]) + 1
         )
-        if index == 2 {
-            // 短列表的原生 offset 也可能移动；正文未超出折叠区间时，Header 与位置应等量联动。
-            XCTAssertEqual(
-                try XCTUnwrap(values["afterEndPosition"]) + XCTUnwrap(values["afterEndHeaderDelta"]),
-                try XCTUnwrap(values["beforeEndPosition"]),
-                accuracy: 1
-            )
-        } else {
-            XCTAssertEqual(
-                try XCTUnwrap(values["afterEndPosition"]),
-                try XCTUnwrap(values["beforeEndPosition"]),
-                accuracy: 1
-            )
-            XCTAssertEqual(try XCTUnwrap(values["afterEndHeaderDelta"]), 0, accuracy: 1)
-        }
+        XCTAssertEqual(
+            try XCTUnwrap(values["afterEndPosition"]),
+            try XCTUnwrap(values["beforeEndPosition"]),
+            accuracy: 1
+        )
+        XCTAssertEqual(try XCTUnwrap(values["afterEndHeaderDelta"]), 0, accuracy: 1)
         XCTAssertEqual(try XCTUnwrap(values["afterEndGap"]), 0, accuracy: 1)
     }
 }
