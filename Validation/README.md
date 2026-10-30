@@ -1,8 +1,35 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-28。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-10-30。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
+
+## 2026-10-30：UIPageViewController 与 preserve 指示器对照
+
+针对“横向移动时子列表指示器出现”的反馈，通过官方 Xcode MCP 在 iPhone 17 Pro / iOS 26.5 Simulator、Xcode 27.1 / Debug 做临时对照。原生 `UIPageViewController(.scroll, .horizontal)` 与 DemoPager `.preserve` 均使用现有 `DemoList(count: 80 / 3)`，由 XCTest 真实左右拖动。夹具逐显示帧读取表格在窗口内的横向位移，以及指示器视图的有效透明度、隐藏状态和可见区域；不修改指示器属性。以下数量是逐表格采样数，同时可见的两个表格分别计数，不等于唯一屏幕帧数。
+
+| 操作 | UIPageViewController：移动采样 / 指示器可见 | StickyPagerKit preserve：移动采样 / 指示器可见 |
+| --- | --- | --- |
+| 长列表切到短列表，随后直接反向拖动 | 342 / 0 | 327 / 1 |
+| 两次横向拖动之间等待 2 秒 | 340 / 0 | 341 / 0 |
+
+首轮 StickyPagerKit 的可见采样是短列表反向起拖、窗口 x=3 pt 的一帧；[画面快照](Results/page-indicator-comparison-20261030/sticky-moving.png)与逐帧数据保留。原生容器本轮横向移动中未检出可见指示器，但到达长列表后仍出现静止闪现，因此不能表述为 UIPageViewController 的子列表永远不会闪现。[未等待对照数据](Results/page-indicator-comparison-20261030/sticky-1793345868.json)、[原生对照数据](Results/page-indicator-comparison-20261030/native-1793345846.json)。
+
+最终调用栈确认两种容器均经 `UITableViewController.viewDidAppear` 调用 `flashScrollIndicators()`，记录调用时页面均在 x=0；这与 [Apple UITableViewController 文档](https://developer.apple.com/documentation/uikit/uitableviewcontroller)描述一致。短列表的 `adjustedContentInset.bottom` 在原生容器为 34 pt，在 StickyPagerKit 为 482 pt，后者含维持 Header 折叠所需的短内容补齐。观测到的是短列表到达后的自动闪现残留至紧接着的反向起拖；等待淡出后未复现横向移动时显示。该证据不支持把现象简单归为“preserve 下横向滚动必然显示”，也没有复现指示器持续覆盖整个横向转场。[原生最终调用栈与采样](Results/page-indicator-comparison-20261030/native-1793346266.json)、[StickyPagerKit 最终调用栈与采样](Results/page-indicator-comparison-20261030/sticky-1793346290.json)。
+
+未等待和等待对照的两项观察用例各为 2/2 通过；其断言验证实际移动和采样有效性，不将“可见数为零”写成预设结论。最终纵向阳性对照分别检测到 109、116 个可见采样，证实检测器能看到显示中的指示器。[首轮结果](Results/page-indicator-comparison-20261030/comparison-result.json)、[等待对照结果](Results/page-indicator-comparison-20261030/paused-result.json)。临时夹具编译期间的旧 API 名称和重复 override 错误日志、首次未发现新用例的原始 MCP 结果路径及中间复测记录均保留；未将未运行的用例记为通过。
+
+临时入口、采样与测试源码已移出生产目录，保存在上述本地结果目录以便复现；未修改框架的指示器或 appearance 行为。收尾保留工作区并行产生的 scroll-to-top 改动，恢复 Xcode 原运行目标 iPhone 13，`git diff --check` 通过。本轮是特定操作的行为调查，不宣称当前工作区全量验证；未覆盖真机、其他系统、全部手势速度及斜向拖动，没有提交或推送。
+
+## 2026-10-30：分页期间默认隐藏滚动指示器
+
+`SPPageViewController.scrollIndicatorVisibilityPolicy` 默认值改为 `.hideDuringPaging`，同步公开注释和 README。现有分页隐藏与恢复测试直接使用默认策略；保留策略及运行中切换策略的用例显式设置 `.preserve`。非分页状态下短／空内容的业务显隐检查继续保留。
+
+- **通过：** Xcode 27.1 / Swift 6.4、iPhone 17 Pro / iOS 26.5 Simulator、Debug，容器 `StickyPagerKitTests` 测试类 **151/151**，0 失败、0 跳过；最终摘要 `sourceChangedSinceRun=[]`，四类运行时诊断均为 0。[库测试摘要](Results/default-hide-indicators-final-20261030/summary.json)。官方 MCP 当前 Demo 工程仅提供 Demo scheme，库测试通过仓库脚本配置独立 UIKit 宿主执行。
+- **通过：** 官方 Xcode MCP 执行 `testOptInPagingIndicatorVisibility`，真实左右滑动检查两个方向指示器曾隐藏并恢复，**1/1** 通过。[UI 结果摘要](Results/default-hide-indicators-ui-20261030/test-summary.json)。此用例仍显式启用隐藏策略，新默认值由库测试覆盖。UI 执行后仅修正库测试的一条旧默认值断言，框架、Demo 和 UI 测试源码未改变；差异见 [源码核对](Results/default-hide-indicators-ui-20261030/source-check.json)。
+- **通过：** SwiftFormat 0.64.0 对两个修改的 Swift 文件执行 lint，0 文件需要格式化；`git diff --check` 通过。官方 MCP 完成后恢复原 Xcode 运行目标 iPhone 13。
+- **保留失败证据：** Xcode 26.6 / Swift 6.3.3 首轮测试包构建成功，但模拟器设备服务连接失败后取消测试，不能记为运行通过；[原始摘要](Results/default-hide-indicators-20261030/summary.json)保留取消错误。切换 Xcode 27.1 后首轮容器测试 150 通过、1 失败，原因是短／空内容用例仍断言旧默认值 `.preserve`；修正为 `.hideDuringPaging` 后得到上述最终结果。[首轮库摘要](Results/default-hide-indicators-current-xcode-20261030/summary.json)。
+- **未执行：** 全部库测试类、完整 Demo 回归、Release、iPad、真机及旧系统运行。本次没有提交或推送。
 
 ## 2026-10-28：真机 Release 验证记录提交前复核
 

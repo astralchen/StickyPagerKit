@@ -1318,7 +1318,7 @@ final class StickyPagerKitTests: XCTestCase {
         let pager = mount(height: 216, inNavigation: true)
         let scroll = pager.currentScrollView!
         let binding = pager.records[0]!.binding!
-        XCTAssertEqual(pager.scrollIndicatorVisibilityPolicy, .preserve)
+        XCTAssertEqual(pager.scrollIndicatorVisibilityPolicy, .hideDuringPaging)
         for visible in [true, false] {
             scroll.showsVerticalScrollIndicator = visible
             scroll.showsHorizontalScrollIndicator = !visible
@@ -1402,10 +1402,11 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertFalse(scroll.automaticallyAdjustsScrollIndicatorInsets)
     }
 
-    func testDefaultPolicyNeverWritesVisibilityDuringPagingRebindingOrDetach() {
+    func testPreservePolicyNeverWritesVisibilityDuringPagingRebindingOrDetach() {
         for vertical in [false, true] {
             for horizontal in [false, true] {
                 let pager = mount(height: 0)
+                pager.scrollIndicatorVisibilityPolicy = .preserve
                 let root = pager.records[0]!.controller.view!
                 let scroll = IndicatorWriteTrackingScrollView(frame: root.bounds)
                 scroll.showsVerticalScrollIndicator = vertical
@@ -1435,6 +1436,7 @@ final class StickyPagerKitTests: XCTestCase {
 
     func testChangingIndicatorPolicyDuringPagingRestoresAndRecapturesLatestIntent() {
         let pager = mount(height: 0)
+        pager.scrollIndicatorVisibilityPolicy = .preserve
         let scroll = pager.currentScrollView!
         scroll.showsHorizontalScrollIndicator = false
         pager.scrollViewWillBeginDragging(pager.pagingView)
@@ -1622,9 +1624,9 @@ final class StickyPagerKitTests: XCTestCase {
         }
     }
 
-    func testPagingHidesIndicatorsForOutgoingAndNewPagesUntilSettled() {
+    func testDefaultPolicyHidesIndicatorsForOutgoingAndNewPagesUntilSettled() {
         let pager = mount()
-        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
+        XCTAssertEqual(pager.scrollIndicatorVisibilityPolicy, .hideDuringPaging)
         let outgoing = pager.currentScrollView!
         pager.scrollViewWillBeginDragging(pager.pagingView)
         XCTAssertFalse(outgoing.showsVerticalScrollIndicator)

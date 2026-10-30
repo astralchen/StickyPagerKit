@@ -10,9 +10,9 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         didSet { pagingView.isScrollEnabled = isPagingEnabled }
     }
 
-    /// 默认保留业务列表的指示器配置；可显式选择分页期间临时隐藏。
+    /// 默认在分页期间临时隐藏业务列表的指示器；可显式选择 preserve 保留业务配置。
     /// 分页中切换策略立即生效，不改变当前分页或 Header 状态。
-    public var scrollIndicatorVisibilityPolicy: SPScrollIndicatorVisibilityPolicy = .preserve {
+    public var scrollIndicatorVisibilityPolicy: SPScrollIndicatorVisibilityPolicy = .hideDuringPaging {
         didSet {
             if oldValue != scrollIndicatorVisibilityPolicy {
                 updateScrollIndicatorVisibility()
