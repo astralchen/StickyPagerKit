@@ -4,6 +4,20 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-10-30：动画期间重复点击同一标签不回跳
+
+修复 `SPPageViewController` 将同目标重复点击当作新选择、先取消并回到旧页再重启动画的问题。在更新选择 generation 前，仅合并有效选择动画的同目标标签点击；手势候选页、不同目标点击和程序化选择仍按既有接管规则处理。同目标点击沿用原动画与 appearance 转场，完成后只提交一次点击回调。
+
+新增库测试使用真实 `UIWindow` 与原生滚动动画，在页面已推进至少 10%、尚未完成时连续点击，逐次检查位置未重置并通过 KVO 检查整个后续动画没有逆向回跳；同时验证提交次数、页面 appearance 次数。LTR / RTL 均覆盖。另验证重复点击后改选原页、反方向相邻页、非相邻页，以及 `animated: false` 的同目标程序化接管。Demo UI 新用例使用一次五连击真实触摸，再切换短列表与网格；动画全过程不回跳和动画中途改选的精确断言由库测试承担。
+
+- **旧版本复现：** 新增同目标回归在修复前运行，1 项失败；LTR / RTL 记录到约 73–76 pt 的逆向回跳，重复四次点击导致页面出现次数从预期 1 次增至 5 次。[失败摘要](Results/repeated-tab-red-20261030/summary.json)与原始结果保留。这是修复前源码证据，摘要中的后续源码变化符合预期。
+- **聚焦通过：** 三项新增库测试 3/3；随后仅对测试文件完成 SwiftFormat 排版，最终结果以下一项为准。[聚焦摘要](Results/repeated-tab-focused-20261030/summary.json)。
+- **最终库回归通过：** Xcode 27.1 / Swift 6.4、iPhone 17 Pro / iOS 26.5 Simulator、Debug，`StickyPagerKitTests`、`SPPageReentrancyTests`、`SPPagingScrollViewTests`、`SPTabBarModelTests` 合计 **189/189**，0 失败、0 跳过；`sourceChangedSinceRun=[]`，观察反馈循环、appearance 不平衡、content view 替换和约束冲突诊断均为 0。[最终库摘要](Results/repeated-tab-library-final-20261030/summary.json)。官方 MCP 当前工程只提供 Demo scheme，库测试使用仓库脚本配置独立 UIKit application host。
+- **最终 UI 回归通过：** 相同 Xcode / 模拟器 / Debug 环境，新增五连击 **1/1**，同批测试产物上的既有连续跨页选择及 Compositional Section 起始边界交接 **2/2**，合计 **3/3**，0 失败、0 跳过；两份摘要均 `sourceChangedSinceRun=[]`，四类运行时诊断均为 0。[五连击摘要](Results/repeated-tab-ui-script-20261030/summary.json)、[关联交互摘要](Results/repeated-tab-ui-related-20261030/summary.json)。
+- **工具回退记录：** 官方 Xcode MCP 首轮 2 通过、1 未执行；显式 `buildForTesting` 后新增用例仍返回 `No result`，未计为通过。随后回退仓库脚本重新构建并执行新增用例，再用相同产物复核另两项，得到上述最终结果。两次 MCP [首轮记录](Results/repeated-tab-ui-final-20261030/mcp-first-run.json)、[重建后记录](Results/repeated-tab-ui-final-20261030/mcp-second-run.json)及原始结果包均保留。收尾已恢复 Xcode 原运行目标 iPhone 13。
+- **格式检查：** 使用 Package 锁定的 SwiftFormat 0.64.0，仅格式化本次修改的三个 Swift 文件；lint 0 文件需要格式化，`git diff --check` 通过。
+- **未执行：** 完整库测试集、完整 Demo 测试集、Release、iPad、真机、旧系统运行与长时间压力测试。本次未提交或推送。
+
 ## 2026-10-30：UIPageViewController 与 preserve 指示器对照
 
 针对“横向移动时子列表指示器出现”的反馈，通过官方 Xcode MCP 在 iPhone 17 Pro / iOS 26.5 Simulator、Xcode 27.1 / Debug 做临时对照。原生 `UIPageViewController(.scroll, .horizontal)` 与 DemoPager `.preserve` 均使用现有 `DemoList(count: 80 / 3)`，由 XCTest 真实左右拖动。夹具逐显示帧读取表格在窗口内的横向位移，以及指示器视图的有效透明度、隐藏状态和可见区域；不修改指示器属性。以下数量是逐表格采样数，同时可见的两个表格分别计数，不等于唯一屏幕帧数。

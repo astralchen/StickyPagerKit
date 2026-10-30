@@ -1796,6 +1796,21 @@ final class StickyPagerDemoUITests: XCTestCase {
         verifySafeAreaTabs(rtl: true, largeText: true, custom: true)
     }
 
+    func testRepeatedListTabTapsThenSelectOtherPages() {
+        // 一次合成连续触摸，避免多个 tap() 调用间的 XCTest 空闲等待串行化动画。
+        app.buttons["sp.tab.1"].tap(withNumberOfTaps: 5, numberOfTouches: 1)
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        assertPageFrame(app.tables["demo.list"])
+        select(2)
+        expect("page=short")
+        XCTAssertTrue(app.buttons["sp.tab.2"].isSelected)
+        select(0)
+        expect("page=grid")
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        assertPageFrame(app.collectionViews["demo.grid"])
+    }
+
     func testPagingAndRapidSelection() {
         app.collectionViews["demo.grid"].swipeLeft()
         expect("page=list")

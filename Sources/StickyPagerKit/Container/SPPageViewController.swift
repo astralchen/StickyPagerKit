@@ -81,6 +81,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         let incoming: SPPageRecord
         var outgoingBegan = false
         var incomingBegan = false
+        var isSelectionAnimation = false
         init(generation: UInt, outgoing: SPPageRecord?, incoming: SPPageRecord) {
             self.generation = generation
             self.outgoing = outgoing
@@ -494,6 +495,14 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             return
         }
         let id = identifiers[index]
+        // 同目标点击沿用正在运行的选择动画；必须先于 generation 更新和取消转场。
+        // 手势候选页及程序化请求仍按原有接管规则处理。
+        if let userItem, let transition, transition.isSelectionAnimation,
+           !pagingView.isDragging, !pagingView.isDecelerating,
+           transition.generation == selectionGeneration, transition.incoming.identifier == id {
+            withAppearanceUpdates { storedTabBar.beginUserSelection(userItem) }
+            return
+        }
         selectionGeneration &+= 1
         let generation = selectionGeneration
         if appearanceDepth > 0 || isReloading || loadingIdentifiers.contains(id) {
@@ -540,6 +549,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         }
         let point = CGPoint(x: physicalIndex(index) * pagingView.bounds.width, y: 0)
         if animatePage {
+            transition?.isSelectionAnimation = true
             pagingView.setContentOffset(point, animated: true)
         } else {
             let wasSuppressing = suppressPaging

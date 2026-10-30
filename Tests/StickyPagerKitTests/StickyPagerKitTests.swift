@@ -3488,6 +3488,117 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width * 2, accuracy: 0.01)
     }
 
+    private func waitForSelectionAnimationProgress(_ pager: SPPageViewController, rtl: Bool) -> CGFloat {
+        let width = pager.pagingView.bounds.width
+        let origin = pager.pagingView.contentOffset.x
+        let direction: CGFloat = rtl ? -1 : 1
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while (pager.pagingView.contentOffset.x - origin) * direction < width * 0.15, Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+        }
+        let progress = (pager.pagingView.contentOffset.x - origin) * direction
+        XCTAssertGreaterThan(progress, width * 0.1, "必须让真实滚动动画推进后再重复点击")
+        XCTAssertLessThan(progress, width * 0.8, "重复点击必须发生在动画提交之前")
+        return origin
+    }
+
+    func testRepeatedTabClicksDuringAnimationPreserveProgressAndCommitOnce() {
+        for rtl in [false, true] {
+            let pager = mount()
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+            let delegate = PageDelegate(), spy = SelectionSpy()
+            pager.delegate = delegate; pager.tabBar.delegate = spy
+            let outgoing = pager.records[0]!.controller as! FixturePage
+            let initialAppearances = outgoing.appearCount
+            let target = pager.tabBar.items[1]
+            pager.tabBar.requestSelection(of: target)
+            let origin = waitForSelectionAnimationProgress(pager, rtl: rtl)
+            let direction: CGFloat = rtl ? -1 : 1
+            var offsets = [pager.pagingView.contentOffset.x]
+            let observation = pager.pagingView.observe(\.contentOffset, options: [.new]) { _, change in
+                MainActor.assumeIsolated {
+                    if let point = change.newValue {
+                        offsets.append(point.x)
+                    }
+                }
+            }
+            for _ in 0 ..< 4 {
+                XCTAssertEqual(pager.selectedIndex, 0)
+                let before = pager.pagingView.contentOffset.x
+                pager.tabBar.requestSelection(of: target)
+                XCTAssertEqual(pager.pagingView.contentOffset.x, before, accuracy: 0.01, "同目标点击不能重置横向位置")
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            }
+            let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                MainActor.assumeIsolated { pager.selectedIndex == 1 }
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 3), .completed)
+            observation.invalidate()
+            for (previous, next) in zip(offsets, offsets.dropFirst()) {
+                XCTAssertGreaterThanOrEqual((next - previous) * direction, -0.5, "动画不能向旧页回跳")
+            }
+            XCTAssertEqual(
+                (pager.pagingView.contentOffset.x - origin) * direction,
+                pager.pagingView.bounds.width,
+                accuracy: 0.5
+            )
+            XCTAssertEqual(delegate.selected, [1])
+            XCTAssertEqual(spy.selected.count, 1)
+            XCTAssertTrue(spy.selected.first === target)
+            XCTAssertEqual(outgoing.appearCount, initialAppearances, "重复点击不能取消并重新触发旧页出现")
+            XCTAssertEqual((pager.records[1]!.controller as! FixturePage).appearCount, 1)
+        }
+    }
+
+    func testRepeatedTabClicksDuringAnimationStillAllowOtherSelections() {
+        for rtl in [false, true] {
+            // 原页、反方向相邻页、非相邻页；均应接管尚未提交的目标页。
+            for replacement in [1, 0, 3] {
+                let pager = mount()
+                pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+                pager.view.setNeedsLayout(); pager.view.layoutIfNeeded()
+                pager.setSelectedIndex(1, animated: false)
+                let delegate = PageDelegate(), spy = SelectionSpy()
+                pager.delegate = delegate; pager.tabBar.delegate = spy
+                pager.tabBar.requestSelection(of: pager.tabBar.items[2])
+                _ = waitForSelectionAnimationProgress(pager, rtl: rtl)
+                for _ in 0 ..< 3 {
+                    pager.tabBar.requestSelection(of: pager.tabBar.items[2])
+                }
+                let target = pager.tabBar.items[replacement]
+                pager.tabBar.requestSelection(of: target)
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.6))
+                XCTAssertEqual(pager.selectedIndex, replacement)
+                XCTAssertEqual(pager.tabBar.selectedIndex, replacement)
+                let physical = rtl ? 3 - replacement : replacement
+                XCTAssertEqual(
+                    pager.pagingView.contentOffset.x,
+                    CGFloat(physical) * pager.pagingView.bounds.width,
+                    accuracy: 0.5
+                )
+                XCTAssertEqual(delegate.selected, replacement == 1 ? [] : [replacement])
+                XCTAssertEqual(spy.selected.count, 1)
+                XCTAssertTrue(spy.selected.first === target)
+            }
+        }
+    }
+
+    func testImmediateProgrammaticSelectionStillFinishesRepeatedTabAnimation() {
+        let pager = mount()
+        let delegate = PageDelegate(), spy = SelectionSpy()
+        pager.delegate = delegate; pager.tabBar.delegate = spy
+        pager.tabBar.requestSelection(of: pager.tabBar.items[1])
+        _ = waitForSelectionAnimationProgress(pager, rtl: false)
+        pager.tabBar.requestSelection(of: pager.tabBar.items[1])
+        pager.setSelectedIndex(1, animated: false)
+        XCTAssertEqual(pager.selectedIndex, 1)
+        XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width, accuracy: 0.01)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.4))
+        XCTAssertEqual(delegate.selected, [1])
+        XCTAssertTrue(spy.selected.isEmpty, "程序化请求接管后不能发送旧点击回调")
+    }
+
     func testInterruptedAdjacentAnimationAndImmediateSelectionsCommitOnceEach() {
         let pager = mount()
         let delegate = PageDelegate(); pager.delegate = delegate

@@ -167,7 +167,7 @@ favorites.title = "我的收藏" // 自动更新标题和布局
 
 `items` 可以直接设置，也可调用 `setItems(_:)`；重复对象导致整次更新被拒绝。重排按对象身份保留选择，选中对象被移除则清空。`selectedItem` 可以设为 nil；不属于 items 的对象会被拒绝并保留原选择。`selectedIndex` 是只读索引映射；索引选择方法仍作为便利入口保留。`setSelectedIndex(nil, animated:)` 明确清空选择；负数或越界索引忽略，保留选择、滚动、动画及分页进度。分页容器的 `setSelectedIndex(_:animated:)` 和稳定页面 ID 规则不变。
 
-`delegate` 是弱引用，必须由业务方持有。`tabBar(_:shouldSelect:)` 可以否决标签点击；`tabBar(_:didSelect:)` 只在标签点击成功提交后调用，重复点击当前项也通知一次。程序化选择不会发送标签栏代理事件。独立标签栏自行提交选择；嵌入 `SPPageViewController` 后由容器在切页完成时提交，取消、中断、重载或替换栏会废弃旧点击请求。页面手势和程序化切页由 `SPPageViewControllerDelegate` 报告。视觉选中样式与逻辑提交分开：容器接受点击后立即显示目标标签的选中外观；分页拖动到达 50% 时预览目标项，退回阈值以下恢复起始项；取消或重载恢复已提交项。`selectedIndex`、无障碍选中标记及代理回调仍在页面提交后更新；视觉预览不额外发送回调。`isEnabled = false` 仅禁止点击和无障碍激活，不阻止滑动或程序化进入对应页面。
+`delegate` 是弱引用，必须由业务方持有。`tabBar(_:shouldSelect:)` 可以否决标签点击；`tabBar(_:didSelect:)` 只在标签点击成功提交后调用，重复点击当前项也通知一次。程序化选择不会发送标签栏代理事件。独立标签栏自行提交选择；嵌入 `SPPageViewController` 后由容器在切页完成时提交，取消、中断、重载或替换栏会废弃旧点击请求。切页动画尚未结束时，连续点击同一目标标签会沿用当前动画，不回到旧页重新开始，完成后只提交一次点击回调；点击其他标签仍可取消并接管转场。程序化 `setSelectedIndex(_:animated:)` 保持新请求接管语义，包括 `animated: false` 的立即切换。页面手势和程序化切页由 `SPPageViewControllerDelegate` 报告。视觉选中样式与逻辑提交分开：容器接受点击后立即显示目标标签的选中外观；分页拖动到达 50% 时预览目标项，退回阈值以下恢复起始项；取消或重载恢复已提交项。`selectedIndex`、无障碍选中标记及代理回调仍在页面提交后更新；视觉预览不额外发送回调。`isEnabled = false` 仅禁止点击和无障碍激活，不阻止滑动或程序化进入对应页面。
 
 `SPTabBarAppearance` 继承 `UIBarAppearance`，复用背景材质、颜色、图片、阴影和三种 configureWith…Background 方法，支持 NSCopying 与 NSSecureCoding；`SPTabBarItemAppearance`、`SPTabBarItemStateAppearance` 保持主线程值类型。赋值给栏或 Item 时复制 Appearance，后续修改原对象不会影响宿主；通过宿主的 `standardAppearance` getter 修改当前实例或嵌套状态会立即刷新。选中 Item 的 `standardAppearance` 非 nil 时覆盖栏级外观，取消覆盖后回退到栏级设置。Item 的 `setTitleTextAttributes(_:for:)` 支持 font、foregroundColor、shadow，并优先于相应外观状态；未配置的状态使用 normal 属性。
 
