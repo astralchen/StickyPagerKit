@@ -286,7 +286,9 @@ Demo 的“页面”与“标签外观 → 配置”均提供“标签布局模�
 | 栏级／所选 Item 的 `standardAppearance`，其中的各状态 `font` | 字体测量、建议栏高及指示器 | 赋值时复制；通过宿主 getter 修改嵌套值也自动刷新 |
 | `indicatorStyle`、`indicatorLayoutDelegate`、`indicatorView`、Appearance 的 `indicatorLayout` 全部字段 | 指示器参考区域、对齐、宽高、内缩、偏移、圆角和层级 | 自动重算指示器，不参与标签测量；外部几何数据变化调用 `reloadIndicator()` |
 | Appearance 的 `indicatorColor` | 指示器颜色 | 仅刷新渲染，保留选择动画与分页进度 |
-| `tintColor`，Item 的颜色、启用状态、无障碍和大内容查看属性，Appearance 的状态颜色、背景和阴影 | 默认内容渲染、交互和装饰；自定义内容也可能据此改变尺寸 | 自动更新；通用内容刷新会核对实际测量，几何不变时不打断滚动或选择动画；阴影图片高度在布局时更新 |
+| Appearance 的背景和阴影 | 栏背景、材质与阴影；自定义内容也可能据此改变尺寸 | `.standard` 只更新装饰并请求布局，不重新测量标签；阴影图片高度在布局时更新。`.custom` 保留完整内容解析 |
+| Item 的 `badgeColor`、无障碍描述和大内容查看属性 | 单项呈现与无障碍信息 | `.standard` 只更新该 Item 当前可见的 Cell，屏幕外项显示时读取最新值，不重新测量标签；`.custom` 保留完整内容解析 |
+| `tintColor`，Item 的启用状态，Appearance 的状态颜色 | 内容渲染和交互；自定义内容也可能据此改变尺寸 | 自动更新；通用内容刷新核对实际测量，几何不变时不打断滚动或选择动画 |
 | `bounds`／`frame` 尺寸、Safe Area、布局方向、Dynamic Type、相关 traits | 视口、排列、内容尺寸与指示器内容区域 | 使用 UIView 布局／环境回调自动更新；布局方向由 `semanticContentAttribute` 和宿主环境解析 |
 | `items`、`selectedItem`／`setSelectedIndex(_:animated:)`、分页进度 | Item 身份及顺序、选中内容状态、指示器端点和滚动目标 | 使用各自更新入口，保持对象身份与原有选择回调语义；Item 的 `tag` 仅为业务标记，不影响布局 |
 
@@ -820,6 +822,8 @@ python3 Scripts/run_external_rotation.py \
 | `SPTabBarLayout` / `SPTabContentConfiguration` | 既有宽度分配、RTL 排列、可见属性查询，以及可兼容内容视图的复用、点击和无障碍呈现 |
 
 呈现协调器不保存第二份已提交选择。点击候选可以先显示预览，逻辑选择、无障碍选中和 `didSelect` 仍遵守容器提交契约；程序化选择不发送点击事件。动画和分页共用帧计算，应用偏移期间避免滚动代理重复更新指示器；中断后的旧动画不能结束新一代动画。候选宽度测量与当前显示配置分离，内容几何不变时保留动画、分页进度和手动偏移。
+
+属性通知通过内部 `SPTabBarChange` 区分内容、装饰、无障碍、单项呈现和指示器变化，并携带 Item 身份。仅对 `.standard` 中依赖明确的装饰、无障碍和角标颜色采用轻量刷新；仍复核业务指示器端点几何。选中 Item 的 Appearance 是整栏外观，字体等变化继续完整刷新；`.custom` 的代理可读取整个栏及其他 Item，因此不做单项依赖推断。内部 `refreshStatistics` 提供累计测量批次、内容代理调用与 Cell 配置次数，供诊断前后增量；这些计数不等于耗时或布局次数。未引入逐项测量缓存、延迟提交或新的公开 API。
 
 该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。内容样式仍按分页进度过半离散切换，未新增连续文字／颜色插值；细粒度刷新与布局事务调整也不属于此次拆分，不据此承诺性能提升。
 

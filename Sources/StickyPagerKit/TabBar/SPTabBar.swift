@@ -190,6 +190,15 @@ open class SPTabBar: UIView {
     private var resolvingIndicator = false
 
     private let contentResolver = SPTabBarContentResolver()
+    private var cellConfigurations: UInt = 0
+    internal var refreshStatistics: SPTabBarRefreshStatistics {
+        SPTabBarRefreshStatistics(
+            measurementPasses: contentResolver.measurementPasses,
+            contentRequests: contentResolver.contentRequests,
+            cellConfigurations: cellConfigurations
+        )
+    }
+
     private var customViewsNeedUpdate = false
     private var contentGeometryChanged = false
     private var appliedContentMeasurement: SPTabBarContentResolver.Measurement? {
@@ -289,14 +298,34 @@ open class SPTabBar: UIView {
         presentation.setPendingSelection(pending)
     }
 
-    internal func itemDidChange() {
-        // 属性变更共用内容刷新策略：保留分页进度，仅在实际几何改变时收敛选择动画。
-        refreshContentLayout()
-        updateAppearance()
+    internal func itemDidChange(_ item: SPTabBarItem? = nil, reason: SPTabBarChange = .content) {
+        switch reason {
+        case .indicatorAppearance:
+            renderIndicator()
+        case .indicatorGeometry:
+            reloadIndicator()
+        case .decoration where contentStyle == .standard:
+            updateAppearance()
+            // 阴影图片高度及业务指示器几何仍可能变化，不使内容测量失效。
+            setNeedsLayout()
+        case .accessibility where contentStyle == .standard,
+             .itemPresentation where contentStyle == .standard:
+            // Item 的描述、角标颜色等不影响内置内容尺寸；不重配其他可见项。
+            if let item, let index = items.firstIndex(where: { $0 === item }),
+               let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0)) {
+                configure(cell, item: item, at: index)
+            }
+            // 自定义指示器代理可读取 Item 属性，保留端点几何校验与呈现更新。
+            setNeedsLayout()
+        default:
+            // 自定义内容能依赖整个栏、其他 Item 及完整 Appearance，继续完整解析。
+            refreshContentLayout()
+            updateAppearance()
+        }
     }
 
     internal func indicatorAppearanceDidChange() {
-        renderIndicator()
+        itemDidChange(reason: .indicatorAppearance)
     }
 
     private func updateAppearance() {
@@ -878,6 +907,7 @@ open class SPTabBar: UIView {
     }
 
     private func configure(_ cell: UICollectionViewCell, item: SPTabBarItem, at index: Int, selected: Bool? = nil) {
+        cellConfigurations &+= 1
         cell.contentConfiguration = contentEnvironment.configuration(
             for: item,
             at: index,

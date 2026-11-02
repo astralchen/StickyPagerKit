@@ -4,6 +4,29 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-02：SPTabBar 刷新分类与保守增量更新（P3A＋P3B）
+
+在 `codex/container-architecture-refactor`、HEAD `27b52d9` 上实施。本轮新增内部刷新原因与累计工作量快照；Item 通知携带对象身份。`.standard` 的背景／阴影变化只刷新装饰与布局，单项无障碍、大内容图片属性及角标颜色只重新配置该项可见 Cell，保留指示器端点几何复核。字体、标题、角标文本等仍完整测量；选中 Item 的 Appearance 仍作用于整栏，`.custom` 继续完整解析以保留跨 Item、Appearance 和环境依赖。没有增加公开 API、逐项测量缓存、异步提交或新的视觉效果。后续 P4 按用户要求同时安排布局提交顺序整理与新视觉效果，具体效果留待下一轮设计。本次未提交或推送，原有开发团队配置变更保留。
+
+使用 Xcode 27.2（27B52）/ Swift 6.4.2、iPhone 18 Pro / iOS 27.2 Simulator、Debug。库测试使用仓库独立 UIKit application host，Demo 使用官方 Xcode MCP，各批次串行。
+
+- **优化前基线：** 在仅增加计数和新用例、尚未接入轻量路径的构建上，1 项用例按预期失败（5 处工作量断言），四类运行诊断为 0。源码快照保留，后续实现与夹具修改导致的差异符合阶段性质。[基线摘要](Results/20261102-tabbar-p3-baseline/summary.json)。
+- **首轮聚焦失败并保留：** 85 项中 84 通过、1 项新增用例崩溃；夹具直接读取屏幕外的回退 Cell，强制解包失败。该批另有 6 条 appearance 不平衡诊断。修正为先滚动使回退项可见再用 `XCTUnwrap` 核验，并遵循既有 `SPTestWindow` 约定，在实际挂载时显示窗口，不跨异步 `setUp` 的显示边界；框架实现未因这批失败改动，未删除或放宽业务行为断言。[首轮摘要](Results/20261102-tabbar-p3-focused/summary.json)。
+- **修正后新增专项通过：8/8**，0 失败、0 跳过，四类诊断为 0。覆盖工作量、按压状态、LTR／RTL 动画与分页接管、手动偏移、完整自定义内容依赖及回退、几何变化重测、共享 Item／解绑／屏幕外刷新、候选与已应用测量隔离、选中 Item 外观复制和整栏作用域，以及业务指示器依赖轻量属性时的端点更新。[专项摘要](Results/20261102-tabbar-p3-fixture-fixed/summary.json)。
+- **最终完整库回归通过：397/397**，0 失败、0 跳过；`sourceChangedSinceRun=[]`，四类运行诊断均为 0，xcresult 运行时警告为空。包含新增 8 项及原有容器、生命周期、滚动绑定、标签模型、外观、布局、指示器和选择契约测试。[完整库摘要](Results/20261102-tabbar-p3-final-library/summary.json)。
+- **最终 Demo 验证通过：15/15**，包含全部 13 项 Demo 单元测试，以及 RTL 深色外观／附件菜单、频道指示器分页取消两项真实触摸测试。MCP 返回与完整 xcresult 一致；`sourceChangedSinceRun=[]`，四类运行诊断为 0，xcresult 运行时警告为空。结束后已恢复 Xcode 原运行目标 iPhone 13。[Demo 摘要](Results/20261102-tabbar-p3-demo-mcp/summary.json)、[请求清单](Results/20261102-tabbar-p3-demo-mcp/requested-tests.json)、[MCP 返回](Results/20261102-tabbar-p3-demo-mcp/mcp-result.json)。
+- **静态检查通过：** 三个修改的公开类型的 `public`／`open` 声明与 HEAD 一致；SwiftFormat 0.64.0 对本次 6 个 Swift 文件 lint，0 文件需要格式化；`git diff --check` 通过。
+
+以下为真实窗口、三个内置标签夹具内各次属性修改的计数增量。Cell 配置次数包含经过同一配置入口的测量副本，不等同于独立 Cell 数量；数据不代表耗时、内存或帧率收益。优化后的夹具还修正了窗口显示时机，仅比较属性修改前后的工作量。[对照数据](Results/20261102-tabbar-p3-final-library/refresh-cost-comparison.json)。
+
+| 修改 | 优化前测量批次／Cell 配置 | 优化后测量批次／Cell 配置 |
+| --- | --- | --- |
+| 栏背景颜色 | 1／4 | 0／0 |
+| 单项无障碍标题 | 1／4 | 0／1 |
+| 单项角标颜色 | 1／4 | 0／1 |
+
+**未执行：** Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、耗时／内存基准及长期压力测试。之前版本的结果不计为本轮重新执行。
+
 ## 2026-11-02：ContentStyle.standard 命名调整
 
 在 `codex/container-architecture-refactor`、HEAD `eb2c61a` 上，将 `SPTabBar.ContentStyle.default` 更名为 `.standard`，同步默认值、注释、Demo、现有测试及 README。未保留旧名称别名；显式使用旧名称的调用方需要更新，枚举原始值仍为 `standard = 0`、`custom = 1`。`defaultContentLayout` 等其他 API 名称及内容、布局、选择行为不变。本次改动尚未提交或推送；工作区原有的开发团队配置变更保留，未作调整。

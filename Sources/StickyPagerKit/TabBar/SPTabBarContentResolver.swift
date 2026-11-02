@@ -16,6 +16,8 @@ internal final class SPTabBarContentResolver {
     }
 
     private(set) var applied: Measurement?
+    private(set) var measurementPasses: UInt = 0
+    private(set) var contentRequests: UInt = 0
     private var candidate: Measurement?
     private var contentRevision: UInt = 0
     private var resolvingCustomContents = false
@@ -46,6 +48,7 @@ internal final class SPTabBarContentResolver {
             }
         }
         resolvingCustomContents = true
+        measurementPasses &+= 1
         defer { resolvingCustomContents = false }
         let revision = contentRevision
         measurementHost
@@ -70,6 +73,7 @@ internal final class SPTabBarContentResolver {
                 availableWidth: width,
                 appearance: SPTabBarAppearance(barAppearance: appearance)
             )
+            contentRequests &+= 1
             guard var content = provider(item, index, context) else {
                 return nil
             }

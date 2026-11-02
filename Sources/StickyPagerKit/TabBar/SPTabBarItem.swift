@@ -31,19 +31,19 @@ public final class SPTabBarItem: UIBarItem {
     }
 
     public var badgeColor: UIColor? {
-        didSet { changed() }
+        didSet { changed(.itemPresentation) }
     }
 
     private var storedAccessibilityLabel: String? = nil
     public override var accessibilityLabel: String? {
         get { storedAccessibilityLabel }
-        set { storedAccessibilityLabel = newValue; changed() }
+        set { storedAccessibilityLabel = newValue; changed(.accessibility) }
     }
 
     private var storedAccessibilityHint: String? = nil
     public override var accessibilityHint: String? {
         get { storedAccessibilityHint }
-        set { storedAccessibilityHint = newValue; changed() }
+        set { storedAccessibilityHint = newValue; changed(.accessibility) }
     }
 
     private var storedAppearance: SPTabBarAppearance?
@@ -151,13 +151,13 @@ public final class SPTabBarItem: UIBarItem {
     private var storedLargeContentSizeImage: UIImage? = nil
     public override var largeContentSizeImage: UIImage? {
         get { storedLargeContentSizeImage }
-        set { storedLargeContentSizeImage = newValue; changed() }
+        set { storedLargeContentSizeImage = newValue; changed(.accessibility) }
     }
 
     private var storedLargeContentSizeImageInsets: UIEdgeInsets = .zero
     public override var largeContentSizeImageInsets: UIEdgeInsets {
         get { storedLargeContentSizeImageInsets }
-        set { storedLargeContentSizeImageInsets = newValue; changed() }
+        set { storedLargeContentSizeImageInsets = newValue; changed(.accessibility) }
     }
 
     /// 单项文字属性优先于栏级状态外观；支持字体、前景色和阴影。
@@ -182,24 +182,21 @@ public final class SPTabBarItem: UIBarItem {
     }
 
     internal func indicatorDidChange() {
-        for bar in hosts.allObjects {
-            bar.reloadIndicator()
-        }
+        changed(.indicatorGeometry)
     }
 
     internal func indicatorAppearanceDidChange() {
-        for bar in hosts.allObjects {
-            bar.indicatorAppearanceDidChange()
-        }
+        changed(.indicatorAppearance)
     }
 
-    internal func appearanceDidChange() {
-        changed()
+    internal func appearanceDidChange(_ reason: SPTabBarChange = .content) {
+        // 选中 Item 的 Appearance 是整栏外观，不能按单项显示属性处理。
+        changed(reason)
     }
 
-    private func changed() {
+    private func changed(_ reason: SPTabBarChange = .content) {
         for bar in hosts.allObjects {
-            bar.itemDidChange()
+            bar.itemDidChange(self, reason: reason)
         }
     }
 }

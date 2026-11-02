@@ -56,27 +56,27 @@ public final class SPTabBarAppearance: UIBarAppearance {
     private let items = NSHashTable<SPTabBarItem>.weakObjects()
 
     public override var backgroundEffect: UIBlurEffect? {
-        didSet { changed() }
+        didSet { changed(.decoration) }
     }
 
     public override var backgroundColor: UIColor? {
-        didSet { changed() }
+        didSet { changed(.decoration) }
     }
 
     public override var backgroundImage: UIImage? {
-        didSet { changed() }
+        didSet { changed(.decoration) }
     }
 
     public override var backgroundImageContentMode: UIView.ContentMode {
-        didSet { changed() }
+        didSet { changed(.decoration) }
     }
 
     public override var shadowColor: UIColor? {
-        didSet { changed() }
+        didSet { changed(.decoration) }
     }
 
     public override var shadowImage: UIImage? {
-        didSet { changed() }
+        didSet { changed(.decoration) }
     }
 
     public override init(idiom: UIUserInterfaceIdiom) {
@@ -142,12 +142,12 @@ public final class SPTabBarAppearance: UIBarAppearance {
 
     public override func configureWithOpaqueBackground() {
         super.configureWithOpaqueBackground()
-        changed()
+        changed(.decoration)
     }
 
     public override func configureWithTransparentBackground() {
         super.configureWithTransparentBackground()
-        changed()
+        changed(.decoration)
     }
 
     internal func attach(_ bar: SPTabBar) {
@@ -168,19 +168,19 @@ public final class SPTabBarAppearance: UIBarAppearance {
 
     private func indicatorChanged() {
         for bar in bars.allObjects {
-            bar.reloadIndicator()
+            bar.itemDidChange(reason: .indicatorGeometry)
         }
         for item in items.allObjects {
             item.indicatorDidChange()
         }
     }
 
-    private func changed() {
+    private func changed(_ reason: SPTabBarChange = .content) {
         for bar in bars.allObjects {
-            bar.itemDidChange()
+            bar.itemDidChange(reason: reason)
         }
         for item in items.allObjects {
-            item.appearanceDidChange()
+            item.appearanceDidChange(reason)
         }
     }
 
