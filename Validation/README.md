@@ -4,6 +4,21 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-02：SPTabBar 布局提交顺序整理（P4A）
+
+在 `codex/container-architecture-refactor`、HEAD `b03a787` 上实施。将 `SPTabBar.layoutSubviews` 内部流程拆为视口与附件、内容测量与 Collection View 几何、运动状态与偏移、最终指示器与边缘渐隐四个阶段；布局提交期间抑制同步滚动回调的中间呈现。保留切页入口的同步布局及 `layoutSubviews` override 分发，合并内容／视口变化后的重复处理，同时保留内容变化优先、手动偏移限制、选中对齐、分页进度及动画中断规则。候选测量仍不提交当前显示几何，没有引入异步队列、自定义内容缓存新契约或新视觉／动画效果。未提交或推送，未修改工程和开发团队配置。
+
+使用 Xcode 27.2（27B52）/ Swift 6.4.2、iPhone 18 Pro / iOS 27.2 Simulator、Debug。各批次串行执行，仓库脚本显式使用 `-parallel-testing-enabled NO`。官方 Xcode MCP 的当前工作区仅有 Demo scheme，库测试继续使用独立 UIKit application host；Demo 单元测试 target 的 scheme 配置为 `parallelizable = YES`，MCP 测试接口没有禁用并行的参数，因此 Demo 同样使用脚本，未修改 scheme 或 Xcode 当前运行目标。
+
+- **聚焦库回归通过：82/82**，0 失败、0 跳过，四类运行诊断为 0。覆盖自定义／自动内容、刷新、指示器、选择契约及新增 4 项布局提交测试。新增用例检查 LTR／RTL 的内容与视口同时变化、指示器提交时几何一致性、候选测量隔离、动画中切页的同步布局、重复布局工作量和选择回调重入。[聚焦摘要](Results/20261102-tabbar-p4a-focused/summary.json)。
+- **首轮完整库验证失败并保留：** 401/401 项测试断言通过，但 `SPTabBarModelTests.testContentConfigurationReplacementClearsOldContentAndTapAction` 运行期间出现 1 条普通 `UIViewController` 的 appearance 不平衡诊断，脚本以非零状态退出；其余三类诊断为 0。该夹具只包含独立标签栏，没有分页容器，已使用既有窗口显示／关闭流程。不能把 XCTest 通过解释为该批整体验证通过。[首轮摘要](Results/20261102-tabbar-p4a-final-library/summary.json)、[原始日志](Results/20261102-tabbar-p4a-final-library/xcodebuild.log)。
+- **模型测试组隔离复验通过：19 项连续 3 轮，共 57 次执行**，0 失败、0 跳过，四类诊断为 0。源码、夹具和诊断规则均未改动；警告未复现，根因尚未确认，不宣称已修复。[隔离复验摘要](Results/20261102-tabbar-p4a-model-isolated/summary.json)。
+- **最终完整库复验通过：401/401**，0 失败、0 跳过，`sourceChangedSinceRun=[]`，四类运行诊断为 0，xcresult 运行时警告为空。该复验与首轮、隔离批次使用相同源码，没有通过修改夹具或断言规避诊断；首次 warning 继续作为未定因问题保留。[完整库复验摘要](Results/20261102-tabbar-p4a-library-verified/summary.json)。
+- **Demo 串行验证通过：16/16**，包含全部 13 项 Demo 单元测试，以及频道指示器分页取消、RTL 深色外观／附件菜单、大字体旋转／窄视口 3 项真实触摸测试；0 失败、0 跳过，`sourceChangedSinceRun=[]`，四类运行诊断为 0，xcresult 运行时警告为空。Demo 构建期间曾发现另一项 QuickLayoutKit 任务使用同一模拟器，未干预该任务；本轮批次串行不代表整机环境独占。[Demo 摘要](Results/20261102-tabbar-p4a-demo/summary.json)、[所选测试清单](Results/20261102-tabbar-p4a-demo/requested-tests.json)。
+- **静态检查通过：** `SPTabBar` 的 `public`／`open` 声明与 HEAD 一致；五批源码快照完全相同。SwiftFormat 0.64.0 对本次 2 个 Swift 文件 lint，0 文件需要格式化；Demo 既有格式化阶段也未修改源码。`git diff --check` 通过，工程配置无 diff。[静态核对记录](Results/20261102-tabbar-p4a-library-verified/static-audit.json)。
+
+**未执行：** Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、耗时／内存基准及长期压力测试。重复布局工作量回归只证明既定夹具没有新增测量或 Cell 配置，不代表耗时、内存或帧率收益。首次 appearance 警告原因未确认，不因后续通过而抹去该限制。
+
 ## 2026-11-02：SPTabBar 刷新分类与保守增量更新（P3A＋P3B）
 
 在 `codex/container-architecture-refactor`、HEAD `27b52d9` 上实施。本轮新增内部刷新原因与累计工作量快照；Item 通知携带对象身份。`.standard` 的背景／阴影变化只刷新装饰与布局，单项无障碍、大内容图片属性及角标颜色只重新配置该项可见 Cell，保留指示器端点几何复核。字体、标题、角标文本等仍完整测量；选中 Item 的 Appearance 仍作用于整栏，`.custom` 继续完整解析以保留跨 Item、Appearance 和环境依赖。没有增加公开 API、逐项测量缓存、异步提交或新的视觉效果。后续 P4 按用户要求同时安排布局提交顺序整理与新视觉效果，具体效果留待下一轮设计。本次未提交或推送，原有开发团队配置变更保留。

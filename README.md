@@ -825,7 +825,9 @@ python3 Scripts/run_external_rotation.py \
 
 属性通知通过内部 `SPTabBarChange` 区分内容、装饰、无障碍、单项呈现和指示器变化，并携带 Item 身份。仅对 `.standard` 中依赖明确的装饰、无障碍和角标颜色采用轻量刷新；仍复核业务指示器端点几何。选中 Item 的 Appearance 是整栏外观，字体等变化继续完整刷新；`.custom` 的代理可读取整个栏及其他 Item，因此不做单项依赖推断。内部 `refreshStatistics` 提供累计测量批次、内容代理调用与 Cell 配置次数，供诊断前后增量；这些计数不等于耗时或布局次数。未引入逐项测量缓存、延迟提交或新的公开 API。
 
-该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。内容样式仍按分页进度过半离散切换，未新增连续文字／颜色插值；细粒度刷新与布局事务调整也不属于此次拆分，不据此承诺性能提升。
+布局提交按视口与附件、内容测量与 Collection View 几何、运动状态与偏移、最终指示器与边缘渐隐的顺序执行。提交中途的同步滚动回调不提前呈现指示器或边缘遮罩；切页入口仍同步完成待处理布局，并保留 `layoutSubviews` 的 override 分发。内容与视口同时变化时沿用内容刷新策略：没有动画或对齐请求则保留并限制手动偏移；仅视口变化时继续对齐选中项。候选宽度测量不提交当前显示几何，未增加异步布局队列或改变内容代理契约。
+
+该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。内容样式仍按分页进度过半离散切换，未新增连续文字／颜色插值；刷新分类和布局提交顺序的后续调整均保持公开 API，不据此承诺耗时或帧率提升。
 
 ## 目录
 

@@ -140,7 +140,7 @@ open class SPTabBar: UIView {
     private func refreshContentLayout() {
         let previous = appliedContentMeasurement
         invalidateContentMeasurements()
-        resolveCustomContents(width: contentViewport.width)
+        applyContentMeasurement(width: contentViewport.width)
         contentGeometryChanged = contentGeometryChanged || metricsDiffer(from: previous)
         updateVisibleCells()
         invalidateIntrinsicContentSize()
@@ -346,7 +346,7 @@ open class SPTabBar: UIView {
     }
 
     private func renderIndicator(from: Int? = nil, to: Int? = nil, progress: CGFloat? = nil) {
-        guard !isPreparingSelection else {
+        guard !isPreparingSelection, !isCommittingLayout else {
             return
         }
         guard indicatorStyle != .none else {
@@ -442,6 +442,7 @@ open class SPTabBar: UIView {
     // 选择提交期间先准备外观和几何；应用统一帧时抑制滚动回调的重复指示器更新。
     private var isPreparingSelection = false
     private var isApplyingPresentationFrame = false
+    private var isCommittingLayout = false
     private var needsSelectionAlignment = true
     private var previousViewport: CGRect = .zero
     private var previousDirection: UIUserInterfaceLayoutDirection?
@@ -659,8 +660,7 @@ open class SPTabBar: UIView {
             return
         }
         cancelUserSelection()
-        layoutIfNeeded()
-        collectionView.layoutIfNeeded()
+        synchronizeLayoutBeforeTransition()
         isPreparingSelection = true
         // 中断时从当前实际呈现的位置继续，不回跳到上次动画的起点或终点。
         stopSelectionAnimation()
@@ -704,8 +704,7 @@ open class SPTabBar: UIView {
             return
         }
         // 先应用待完成的属性刷新，避免把旧动画呈现位置与新端点几何一起保存为接管起点。
-        layoutIfNeeded()
-        collectionView.layoutIfNeeded()
+        synchronizeLayoutBeforeTransition()
         let previous = presentationSelectedIndex
         let origin = selectionAnimation == nil ? nil : SPTabBarPresentationCoordinator.Origin(
             indicator: indicator.frame,
@@ -731,11 +730,47 @@ open class SPTabBar: UIView {
 
     open override func layoutSubviews() {
         super.layoutSubviews()
-        let direction = UIView.userInterfaceLayoutDirection(
-            for: semanticContentAttribute,
-            relativeTo: superview?.effectiveUserInterfaceLayoutDirection ?? effectiveUserInterfaceLayoutDirection
-        )
-        let accessories = accessoryGeometry(in: bounds)
+        guard !isCommittingLayout else {
+            // 同步布局中的嵌套请求留给后续布局遍次，不能提交半完成的几何。
+            setNeedsLayout()
+            return
+        }
+        commitLayoutGeometry()
+        updateIndicator()
+        updateEdgeMask()
+    }
+
+    /// 切页入口需要当前实际几何；保留同步边界及公开 layoutSubviews 的动态分发。
+    private func synchronizeLayoutBeforeTransition() {
+        layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+    }
+
+    private struct LayoutInput {
+        let bounds: CGRect
+        let direction: UIUserInterfaceLayoutDirection
+        let accessories: AccessoryGeometry
+    }
+
+    private struct LayoutChanges {
+        let viewportWidth: CGFloat
+        let viewportChanged: Bool
+        let accessoryChanged: Bool
+        let previousOffset: CGFloat
+    }
+
+    /// 一次布局先应用视口与内容，再处理运动状态；滚动代理不在这些阶段之间呈现指示器。
+    private func commitLayoutGeometry() {
+        isCommittingLayout = true
+        defer { isCommittingLayout = false }
+        let input = LayoutInput(bounds: bounds, direction: contentDirection, accessories: accessoryGeometry(in: bounds))
+        let changes = applyViewportLayout(input)
+        applyContentLayout(changes)
+        resolvePresentationAfterLayout(changes)
+    }
+
+    private func applyViewportLayout(_ input: LayoutInput) -> LayoutChanges {
+        let accessories = input.accessories
         let viewport = accessories.viewport
         // 附件变化采用内容刷新策略；旋转、布局方向变化继续使用原有选中对齐策略。
         let accessoryChanged = appliedAccessoryGeometry.map {
@@ -744,73 +779,74 @@ open class SPTabBar: UIView {
         contentGeometryChanged = contentGeometryChanged || accessoryChanged
         appliedAccessoryGeometry = accessories
         applyAccessories(accessories)
-        let geometryChanged = previousViewport != viewport || previousDirection != direction
+        let geometryChanged = previousViewport != viewport || previousDirection != input.direction
         if geometryChanged {
             indicatorContentFrames.removeAll()
         }
         previousViewport = viewport
-        previousDirection = direction
-        tabLayout.isRightToLeft = direction == .rightToLeft
-        materialView.frame = bounds
-        backgroundImageView.frame = bounds
+        previousDirection = input.direction
+        tabLayout.isRightToLeft = input.direction == .rightToLeft
+        materialView.frame = input.bounds
+        backgroundImageView.frame = input.bounds
         let shadowHeight = appearance.shadowImage?.size.height ?? (1 / max(1, traitCollection.displayScale))
         shadowView.frame = CGRect(
-            x: bounds.minX,
-            y: bounds.maxY - shadowHeight,
-            width: bounds.width,
+            x: input.bounds.minX,
+            y: input.bounds.maxY - shadowHeight,
+            width: input.bounds.width,
             height: shadowHeight
         )
         let previousOffset = collectionView.contentOffset.x
         collectionView.frame = viewport
+        return LayoutChanges(
+            viewportWidth: viewport.width,
+            viewportChanged: geometryChanged,
+            accessoryChanged: accessoryChanged,
+            previousOffset: previousOffset
+        )
+    }
+
+    private func applyContentLayout(_ changes: LayoutChanges) {
         let previousMeasurement = appliedContentMeasurement
-        if resolveCustomContents(width: viewport.width), !geometryChanged {
+        if applyContentMeasurement(width: changes.viewportWidth), !changes.viewportChanged {
             contentGeometryChanged = contentGeometryChanged || metricsDiffer(from: previousMeasurement)
         }
-        if customViewsNeedUpdate || accessoryChanged {
+        if customViewsNeedUpdate || changes.accessoryChanged {
             updateVisibleCells()
             invalidateIntrinsicContentSize()
             superview?.setNeedsLayout()
         }
         collectionView.layoutIfNeeded()
+    }
+
+    private func resolvePresentationAfterLayout(_ changes: LayoutChanges) {
         // Item 宽度可能被最小宽度固定，内容区域或新 Appearance 的指示器仍会改变。
         // 核对转场端点的真实几何，避免保留动画或分页接管时使用旧矩形。
         contentGeometryChanged = contentGeometryChanged || indicatorTransitionGeometryChanged()
-        if contentGeometryChanged {
-            contentGeometryChanged = false
-            let wasAnimating = selectionAnimation != nil
-            let shouldAlign = needsSelectionAlignment
-            stopSelectionAnimation()
-            presentation.discardOrigin()
-            needsSelectionAlignment = false
-            if let transition {
-                let from = centeredOffset(for: transition.from)
-                let to = centeredOffset(for: transition.to)
-                collectionView.setContentOffset(
-                    CGPoint(x: from + (to - from) * transition.progress, y: 0),
-                    animated: false
-                )
-            } else if wasAnimating || shouldAlign {
-                alignSelection()
-            } else {
-                let maximum = max(0, tabLayout.collectionViewContentSize.width - viewport.width)
-                collectionView.setContentOffset(CGPoint(x: min(maximum, max(0, previousOffset)), y: 0), animated: false)
-            }
-        } else if geometryChanged || needsSelectionAlignment {
-            presentation.discardOrigin()
-            stopSelectionAnimation()
-            needsSelectionAlignment = false
-            if let transition {
-                let from = centeredOffset(for: transition.from), to = centeredOffset(for: transition.to)
-                collectionView.setContentOffset(
-                    CGPoint(x: from + (to - from) * transition.progress, y: 0),
-                    animated: false
-                )
-            } else {
-                alignSelection()
-            }
+        guard contentGeometryChanged || changes.viewportChanged || needsSelectionAlignment else {
+            return
         }
-        updateIndicator()
-        updateEdgeMask()
+        // 内容几何变化优先于视口变化：没有动画或对齐请求时，保留并限制手动偏移。
+        let shouldAlign = needsSelectionAlignment || selectionAnimation != nil
+            || (!contentGeometryChanged && changes.viewportChanged)
+        contentGeometryChanged = false
+        stopSelectionAnimation()
+        presentation.discardOrigin()
+        needsSelectionAlignment = false
+        if let transition {
+            let from = centeredOffset(for: transition.from), to = centeredOffset(for: transition.to)
+            collectionView.setContentOffset(
+                CGPoint(x: from + (to - from) * transition.progress, y: 0),
+                animated: false
+            )
+        } else if shouldAlign {
+            alignSelection()
+        } else {
+            let maximum = max(0, tabLayout.collectionViewContentSize.width - changes.viewportWidth)
+            collectionView.setContentOffset(
+                CGPoint(x: min(maximum, max(0, changes.previousOffset)), y: 0),
+                animated: false
+            )
+        }
     }
 
     private func indicatorTransitionGeometryChanged() -> Bool {
@@ -878,7 +914,7 @@ open class SPTabBar: UIView {
     }
 
     @discardableResult
-    private func resolveCustomContents(width: CGFloat) -> Bool {
+    private func applyContentMeasurement(width: CGFloat) -> Bool {
         guard let measurement = measureContents(width: width), contentResolver.apply(measurement) else {
             return false
         }
@@ -903,7 +939,7 @@ open class SPTabBar: UIView {
 
     private func updateMetrics() {
         invalidateContentMeasurements()
-        resolveCustomContents(width: contentViewport.width)
+        applyContentMeasurement(width: contentViewport.width)
     }
 
     private func configure(_ cell: UICollectionViewCell, item: SPTabBarItem, at index: Int, selected: Bool? = nil) {
@@ -942,6 +978,9 @@ open class SPTabBar: UIView {
 
     /// 仅在还有内容的物理边缘渐隐；到达首尾后恢复全不透明，回弹时也不遮住端点。
     private func updateEdgeMask() {
+        guard !isCommittingLayout else {
+            return
+        }
         let viewport = collectionView.bounds
         let overflow = max(0, collectionView.contentSize.width - viewport.width)
         guard viewport.width > 0, viewport.height > 0, !items.isEmpty, overflow > Self.scrollOffsetTolerance else {
@@ -1000,7 +1039,7 @@ open class SPTabBar: UIView {
     }
 
     private func updateIndicator() {
-        guard !isPreparingSelection, !isApplyingPresentationFrame, selectionAnimation == nil else {
+        guard !isPreparingSelection, !isCommittingLayout, !isApplyingPresentationFrame, selectionAnimation == nil else {
             return
         }
         let frame: SPTabBarPresentationCoordinator.Frame
