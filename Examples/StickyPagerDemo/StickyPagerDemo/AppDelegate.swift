@@ -599,11 +599,13 @@ final class RegressionStatusLabel: UILabel {
         return "interfaceOrientation=\(orientation.rawValue);interfaceOrientationLocked=\(orientationLock);safeLeft=\(safe.left);safeRight=\(safe.right);\(super.accessibilityValue ?? "")"
     }
 
-    // 状态等待以短 label 为条件；完整触摸诊断仍通过 value 显式读取。
+    // 保留可见文字并附加短状态，兼顾图库选择回调与窗口几何断言；完整触摸诊断仍从 value 读取。
     override var accessibilityLabel: String? {
         get {
-            ProcessInfo.processInfo.arguments.contains("--window-regression") ? regressionState : super
-                .accessibilityLabel
+            guard ProcessInfo.processInfo.arguments.contains("--window-regression") else {
+                return super.accessibilityLabel
+            }
+            return [super.accessibilityLabel, regressionState].compactMap { $0 }.joined(separator: ";")
         }
         set { super.accessibilityLabel = newValue }
     }

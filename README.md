@@ -809,6 +809,20 @@ python3 Scripts/run_external_rotation.py \
 
 该分层保留了标签点击、程序化切页、交互式切页的既有区别：相邻页面可以滚动动画切换，跨多页直接定位，同目标标签重复点击延续当前选择动画；取消转场不提交候选页。后续若评估其他分页实现，应先对照这些契约验证，不能只替换滚动视图。
 
+标签栏继续以 `SPTabBar` 为公开入口，使用 Collection View 复用内容视图。内部按以下边界组织：
+
+| 组件 | 负责的状态与操作 |
+| --- | --- |
+| `SPTabBar` | 公开 API 与 override 分发、唯一的已提交 `selectedIndex`、业务代理调用、附件与视图所有权、布局协调、指示器扩展点 |
+| `SPTabBarContentEnvironment` | 单次解析的环境值、内置字体及图文尺寸规则、默认／自定义内容配置生成；接收点击闭包，不持有标签栏 |
+| `SPTabBarContentResolver` | 内容代理结果、自动测量宿主、revision、候选宽度与已应用快照、有效几何比较；测量不提交 Collection View 布局，不持有容器或业务代理 |
+| `SPTabBarPresentationCoordinator` | 点击请求代次、待提交 Item、互斥的静止／程序化动画／分页进度状态、动画时钟与接管起点；输出同一帧的指示器几何、内容偏移及进度 |
+| `SPTabBarLayout` / `SPTabContentConfiguration` | 既有宽度分配、RTL 排列、可见属性查询，以及可兼容内容视图的复用、点击和无障碍呈现 |
+
+呈现协调器不保存第二份已提交选择。点击候选可以先显示预览，逻辑选择、无障碍选中和 `didSelect` 仍遵守容器提交契约；程序化选择不发送点击事件。动画和分页共用帧计算，应用偏移期间避免滚动代理重复更新指示器；中断后的旧动画不能结束新一代动画。候选宽度测量与当前显示配置分离，内容几何不变时保留动画、分页进度和手动偏移。
+
+该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。内容样式仍按分页进度过半离散切换，未新增连续文字／颜色插值；细粒度刷新与布局事务调整也不属于此次拆分，不据此承诺性能提升。
+
 ## 目录
 
 - `Sources/StickyPagerKit`：Container、Interfaces、TabBar、Layout、Internal。

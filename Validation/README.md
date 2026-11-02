@@ -4,6 +4,23 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-02：SPTabBar 内容与呈现职责分层（P0—P2）
+
+在 `codex/container-architecture-refactor`、HEAD `907319f` 上实施，本轮未提交或推送。保留公开标签栏入口、Collection View、布局算法和业务扩展点，提取内容环境／配置生成、候选与已应用测量快照，以及点击待提交／动画／分页呈现状态；未实施细粒度刷新、布局事务调整或连续文字动画。参考 Tabman 的职责划分与统一进度思想，未增加第三方运行时依赖。
+
+使用 Xcode 27.2（27B52）/ Swift 6.4.2、iPhone 18 Pro / iOS 27.2 Simulator，库与 Demo 批次串行执行。库测试使用仓库 UIKit application host 脚本，Demo 优先官方 Xcode MCP；不修改 scheme、target、签名或部署版本。
+
+- **最终 Debug 完整库测试通过：389/389**，0 失败、0 跳过，`sourceChangedSinceRun=[]`，四类运行诊断均为 0，xcresult 运行时警告为空。包含现有标签模型、Appearance、自动内容、候选测量隔离、同尺寸刷新、指示器动画接管、附件、RTL、Dynamic Type、容器取消／重排／生命周期及新增六项测试。[最终库摘要](Results/20261102-tabbar-final-debug/summary.json)。
+- **Demo 单元测试通过、MCP UI 启动失败：** 原始 xcresult 为 13 项 Demo 单元测试通过，另有 1 项 UI runner 启动错误；10 项所选 UI 均未执行。错误为 `SBMainWorkspace / NotFound / Unknown application display identifier dev.stickypager.StickyPagerDemoUITests.xctrunner`。MCP 返回的“14 通过、9 未运行”与原始结果不符，以 xcresult 为准；两份原始结果均保留。源码哈希一致，四类运行诊断均为 0。[MCP 原始返回](Results/20261102-tabbar-final-demo-mcp/mcp-result.json)、[xcresult 摘要](Results/20261102-tabbar-final-demo-mcp/summary.json)、[完整日志](Results/20261102-tabbar-final-demo-mcp/xcodebuild.log)。
+- **UI 首批完成：9/10 通过、1 项断言失败。** 复用本次 MCP 构建产物，正常启动指定模拟器、显式安装应用与 UI runner，再以 `test-without-building` 和 `-parallel-testing-enabled NO` 执行原定 10 项 UI。通过项覆盖自动内容高度、两类指示器取消、自定义／默认标签按住横拖、RTL 辅助大字体四方向安全区域、动态间距、重复点击和附件窄视口旋转。四类运行诊断均为 0，运行时源码哈希一致。[首批 UI 摘要](Results/20261102-tabbar-final-ui-booted/summary.json)、[运行日志](Results/20261102-tabbar-final-ui-booted/xcodebuild.log)、[安装证据](Results/20261102-tabbar-final-ui-booted/installation.log)、[产物来源](Results/20261102-tabbar-final-ui-booted/artifact-origin.json)、[产物哈希](Results/20261102-tabbar-final-ui-booted/artifact-hashes.json)。启动描述模板的文件名保留旧 SDK 字样，仅在证据目录中展开 `TESTROOT` 到本次 MCP 产物路径，未修改原件。
+- **断言失败原因及修复：** `TabBarAccessoryUITests.testGalleryRTLAndDarkAppearance()` 点击附件菜单中的“收藏”后，等待 `demo.gallery.status.label` 包含“已选择：收藏”超时。原始[结束截图](Results/20261102-tabbar-final-ui-booted/accessory-attachments/9580BFB5-5CC1-4C8A-A86B-FD19E7C8DC1C.png)显示收藏已选中，页面状态文字也正确。源码确认既有 `RegressionStatusLabel` 在 `--window-regression` 模式下用方向信息覆盖无障碍 label，图库又未设置独立 accessibilityValue，导致 UI 断言读不到可见文字；该逻辑可追溯至 `bd67df44`，不是本次标签栏拆分引入。修复仅让该 Demo 辅助标签保留可见文字并附加短回归状态，正常模式不变；未修改原断言、超时或框架。全部[失败用例附件](Results/20261102-tabbar-final-ui-booted/accessory-attachments/manifest.json)保留。
+- **诊断标签修复后验证通过：15/15**，0 失败、0 跳过，`sourceChangedSinceRun=[]`，四类运行诊断均为 0，xcresult 运行时警告为空。官方 MCP 重新构建后执行全部 13 项 Demo 单元测试、原失败附件 RTL UI，以及读取窗口状态的频道分页取消 UI。[最终 Demo 摘要](Results/20261102-tabbar-demo-label-fix-mcp/summary.json)、[请求清单](Results/20261102-tabbar-demo-label-fix-mcp/requested-tests.json)。修复后复核显示此前 389 项库回归对应的框架和库测试文件哈希全部一致，整仓唯一源码差异为 `Examples/StickyPagerDemo/StickyPagerDemo/AppDelegate.swift`；不把此前 9 项 UI 通过写成 Demo 辅助标签修复后的完整矩阵复测。[库源码复核](Results/20261102-tabbar-final-debug/source-verification-after-demo-fix.json)、[UI 源码复核](Results/20261102-tabbar-final-ui-booted/source-verification-after-demo-fix.json)。
+- **最终 MCP 结果归档：** MCP 报告 15/15 通过，但返回的导出副本缺少 `Info.plist`，保留该副本及读取错误；直接归档同次运行的完整原始 xcresult，确认终态 Passed 15/15，没有重跑或覆盖失败证据。[导出副本读取记录](Results/20261102-tabbar-demo-label-fix-mcp/mcp-export-summary.json)、[原始结果归档来源](Results/20261102-tabbar-demo-label-fix-mcp/archive-origin.json)。
+- **准备阶段中断保留：** 首次回退的独立构建长时间停留在 SwiftFormat 工具的 Release 编译；为复用已通过 MCP 构建且源码一致的产物，主动取消本任务该批构建，退出码 75，尚未执行 UI 用例。[取消批次日志](Results/20261102-tabbar-final-ui-cli/xcodebuild.log)。首次显式安装因模拟器处于 `Shutdown` 状态退出，随后正常启动设备并成功安装；没有重置或清空模拟器、修改断言或调整超时。[安装准备错误](Results/20261102-tabbar-final-ui-installed/installation.log)。本任务各批次串行，但运行期间观察到本机另有其他工程构建，未中断它们。
+- **阶段证据：** 改造前新加的选择重入／公开 override 契约测试 **4/4** 通过；首次拆分后的内容、动画、模型聚焦测试 **112/112** 通过。后者运行期间的静态复核补上当前 display link 身份检查，并恢复静止指示器端点只解析一次；两批摘要均保留后续源码差异，不作为最终源码验收。最终 389 项完整回归包含上述调整和全部新增测试。[P0 基线](Results/20261102-tabbar-p0-contract/summary.json)、[聚焦阶段](Results/20261102-tabbar-focused/summary.json)。
+- **新增覆盖与静态检查：** 选择代理中替换／重排 Item、嵌套 `shouldSelect`、`didSelect` 发起下一次容器提交、属性与容器同步保留公开 override 分发；旧动画完成不能结束新动画、分页接管拒绝旧动画帧并清理起点。34 处公开声明与改造前一致，新增类型全部为内部类型。七个相关 Swift 文件的 SwiftFormat 0.64.0 lint 和 `git diff --check` 通过。现有测试中的 iOS 17 弃用警告保留，未为消除警告修改兼容性路径。
+- **未执行：** 本轮 Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、性能基准和长期压力测试。此前容器优化的 Release／iPad 结果属于旧源码，不作为本次标签栏重构的验收证据。
+
 ## 2026-11-02：容器职责分层最终验证续跑
 
 用户处理本机环境后继续验证，分支仍为 `codex/container-architecture-refactor`，HEAD 为 `c34235c`，未提交或推送。运行前核对源码与 10 月 30 日包含析构修复的最终 Release 构建快照一致；只读检查 Xcode Source Control Git XPC 进程数为 0。使用 Xcode 27.2（27B52）/ Swift 6.4.2、iOS 27.2 Simulator，所有测试批次串行执行，不删除历史失败证据。
