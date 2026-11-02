@@ -74,6 +74,70 @@ final class SPPageReentrancyTests: XCTestCase {
         }
     }
 
+    func testUnloadedContainerCanBeReleased() {
+        weak var released: SPPageViewController?
+        autoreleasepool {
+            let container = SPPageViewController()
+            released = container
+            XCTAssertFalse(container.isViewLoaded)
+        }
+        XCTAssertNil(released)
+    }
+
+    func testContainerReleaseAfterHeaderInertiaRestoresBusinessScroll() {
+        weak var released: SPPageViewController?
+        var scroll: UIScrollView!
+        // UIKit 的挂载／卸载会产生 autoreleased 引用；与既有释放测试使用同一边界。
+        autoreleasepool {
+            mount()
+            released = pager
+            scroll = pager.currentScrollView!
+            let pan = ReentrantPan()
+            pan.send(pager, state: .began)
+            pan.send(pager, state: .changed, y: -80)
+            pan.send(pager, state: .ended, y: -80)
+            window?.closeForTesting()
+            window?.rootViewController = nil
+            pager = nil
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertNil(released)
+        XCTAssertEqual(scroll.contentInset.top, 0, accuracy: 0.01)
+        let position = scroll.contentOffset
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(scroll.contentOffset, position, "容器释放后不再由旧 displayLink 写入正文")
+    }
+
+    func testAppearanceQueuesSnapshotThenSelectionUsingStableIdentity() {
+        for rtl in [false, true] {
+            mount(rtl: rtl, capacity: 1)
+            let source = source!, pager = pager!
+            source.onCreate = { id, page in
+                guard id == 1 else {
+                    return
+                }
+                page.onEvent = { event in
+                    guard event == "willAppear" else {
+                        return
+                    }
+                    page.onEvent = nil
+                    source.onCreate = nil
+                    source.ids = [2, 0, 3, 1]
+                    pager.reloadData()
+                    // 回调尚未退出，索引 2 指向旧快照中的标识 2。
+                    pager.setSelectedIndex(2, animated: false)
+                }
+            }
+            pager.setSelectedIndex(1, animated: false)
+            assertSelection(2)
+            XCTAssertEqual(recorder.selected, [1, 0], "重排后的旧选中页先通知索引变化，再提交排队的标识 2")
+            XCTAssertEqual(pager.records.count, 1)
+            for record in pager.records.values {
+                assertBalanced(record.controller as! ReentrantPage)
+            }
+        }
+    }
+
     func testMountReloadCancelsOldSelectionAcrossSnapshotChanges() {
         for rtl in [false, true] {
             for target in [1, 2] {

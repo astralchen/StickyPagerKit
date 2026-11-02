@@ -1,8 +1,41 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-10-30。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-11-02。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
+
+## 2026-11-02：容器职责分层最终验证续跑
+
+用户处理本机环境后继续验证，分支仍为 `codex/container-architecture-refactor`，HEAD 为 `c34235c`，未提交或推送。运行前核对源码与 10 月 30 日包含析构修复的最终 Release 构建快照一致；只读检查 Xcode Source Control Git XPC 进程数为 0。使用 Xcode 27.2（27B52）/ Swift 6.4.2、iOS 27.2 Simulator，所有测试批次串行执行，不删除历史失败证据。
+
+- **Debug 完整库测试通过：** iPhone 18 Pro，**383/383**、0 失败、0 跳过，`sourceChangedSinceRun=[]`；包含未加载容器释放、Header 惯性期间释放与恢复业务 inset、appearance 中快照重排再选择等回归。四类运行诊断均为 0，结果包运行时警告为空。[最终 Debug 摘要](Results/20261102-architecture-final-debug/summary.json)、[环境核对](Results/20261102-architecture-final-debug/environment-check.json)。
+- **Release 完整库测试通过：** iPad Pro 11-inch（M5），`ENABLE_TESTABILITY=YES`，**383/383**、0 失败、0 跳过，`sourceChangedSinceRun=[]`；四类运行诊断均为 0，结果包运行时警告为空。[最终 Release 摘要](Results/20261102-architecture-final-release/summary.json)。
+- **Demo 单元与 iPhone UI 通过：** 官方 MCP、Debug、iPhone 18 Pro，全部 **13 项 Demo 单元测试 + 3 项代表性 UI = 16/16**，0 失败、0 跳过；原先崩溃的 `minimalDataSourceCreatesIndependentPages()` 已通过。UI 覆盖 Header 折叠／分页／位置恢复、重复点击标签后再选择、系统容器分页／旋转／系统标签恢复。`sourceChangedSinceRun=[]`，四类运行诊断均为 0，结果包运行时警告为空。[最终 Demo 摘要](Results/20261102-architecture-final-demo-mcp/summary.json)、[请求清单](Results/20261102-architecture-final-demo-mcp/requested-tests.json)。
+  - MCP 返回时报告结果包尚未写完；调用结束后直接读取同一原始 xcresult，终态为 Passed 16/16，测试进程已经结束。没有重跑或覆盖原结果。[MCP 汇总错误记录](Results/20261102-architecture-final-demo-mcp/mcp-result.json)、[原始归档](Results/20261102-architecture-final-demo-mcp/Result.xcresult)。运行调度日志明确 `Parallelization disabled`；Xcode 自动使用模拟器 clone，未手工创建或删除设备。
+- **iPad RTL UI 通过：** 官方 MCP、Debug、iPad Pro 11-inch（M5），`testRTLPagingRotationAndSystemTabRestore()` **1/1**，0 失败、0 跳过、0 未运行；`sourceChangedSinceRun=[]`，四类运行诊断均为 0，结果包运行时警告为空。[最终 iPad 摘要](Results/20261102-architecture-final-ipad-mcp/summary.json)、[MCP 原始摘要](Results/20261102-architecture-final-ipad-mcp/mcp-summary.txt)。该批 runner 启动约 5 分 33 秒，随后用例执行通过；保留启动耗时和运行日志，不将功能通过解释为性能通过。
+- **工具选择：** 开始时官方 MCP 返回没有打开的工作区，Debug 库测试使用仓库脚本。随后用户打开 Demo，MCP 确认 `StickyPagerDemo` / `iPhone 18 Pro`，并列出 Demo 和 Package 两个 scheme；没有中断已运行的库测试。Release 库测试仍通过脚本显式指定 configuration、`ENABLE_TESTABILITY=YES` 与 UIKit application host；脚本批次使用 `-jobs 2 -scmProvider system`。Demo 回归使用官方 MCP。
+- **最终检查与边界：** 相关 11 个 Swift 文件的 SwiftFormat 0.64.0 lint 通过，`git diff --check` 通过；源码在整个续跑期间保持一致，工程／签名配置无 diff。Xcode 已恢复为本轮用户打开时的 `StickyPagerDemo / iPhone 18 Pro`。本轮只追加验证记录，未提交或推送。10 月 30 日同一最终源码的 Demo Release 构建结果仍有效，本轮未重复该构建。
+- **未执行：** 最终源码上的完整 119 项 Demo 测试集，以及 10 月 30 日广泛 UI 矩阵的全部重跑；该矩阵仍明确归于析构修复前的阶段证据。本轮以完整 Debug／Release 库测试、全部 Demo 单元测试及 4 项代表性 UI 补齐最终验证。iOS 15 实际运行、真机、无 XCTest 人工视觉验收、性能基准与长时间压力测试未执行；没有剩余环境阻塞项。
+
+## 2026-10-30：容器职责分层
+
+在 `codex/container-architecture-refactor` 分支实施内部重构，保留公开容器和 `SPPagingScrollView`。新增 snapshot/store、选择协调器、布局协调器与纯几何计算、纵向协调器及不可变分页进度。业务页面仍直接作为 `SPPageViewController` 的 children；公开声明、手势仲裁算法及 `SPScrollBinding` / `SPPageSafeArea` 的底层算法保持不变。队列由闭包改为类型化请求，仍同步执行；位置历史和运行时绑定选择只在删除稳定标识时清除。
+
+- **新鲜基线：** `c34235c` 上完整 Debug 库测试 **380/380** 通过。[基线摘要](Results/20261030-architecture-baseline/summary.json)。该结果对应重构前源码，摘要中的后续源码变化符合预期，不作为最终源码验收。
+- **拆分阶段：** 容器、重入、视口与分页手势库测试 **184/184** 通过。[原始结果](Results/20261030-architecture-split/Result.xcresult)，对应中间源码。
+- **首轮失败保留：** 完整库测试 **381 通过 / 1 失败**。新增惯性期间释放容器的夹具没有建立 UIKit autorelease 边界，释放及 inset 恢复断言失败；按照既有释放测试加入显式 `autoreleasepool`，未修改框架代码、断言或容差。[失败摘要](Results/20261030-architecture-final-debug/summary.json)。后续完整 Debug / Release 均覆盖该用例；另一个新增用例验证 appearance 回调中排队重排快照再选择时，按稳定标识提交并保持通知顺序。
+- **释放修复前 Debug 库测试通过：** Xcode 27.1 / Swift 6.4、iPhone 17 Pro / iOS 26.5 Simulator，**382/382**，0 失败、0 跳过；该阶段结束时 `sourceChangedSinceRun=[]`。[最终 Debug 摘要](Results/20261030-architecture-final-debug-confirmed/summary.json)。
+- **释放修复前 Release 库测试通过：** 同一工具链、iPad Pro 11-inch（M5）/ iOS 26.5 Simulator，`ENABLE_TESTABILITY=YES`，**382/382**，0 失败、0 跳过；该阶段结束时 `sourceChangedSinceRun=[]`。[最终 Release 摘要](Results/20261030-architecture-final-release/summary.json)。两组库测试在该阶段的 observation feedback loop、appearance 不平衡、content view 替换及约束冲突诊断均为 0。
+- **释放修复前 Demo Release 构建通过：** 仓库脚本终态 `BUILD SUCCEEDED`，源码哈希一致；仅构建，没有将 0 个执行测试计为测试通过。[构建日志](Results/20261030-architecture-demo-release/xcodebuild.log)、[摘要](Results/20261030-architecture-demo-release/summary.json)。
+- **UI 环境中断保留：** 测试期间 `/Applications/Xcode.app` 从 Xcode 27.1（27A9275）/ Swift 6.4 更新为 Xcode 27.2（27B52）/ Swift 6.4.2。CoreSimulator 明确报告运行期间框架发生变化，服务版本 1174.21 与进程期望的 1174.9.2 不符，随后 runner 被 SIGTERM 中断并无法重新连接。未通过重启 Xcode、清空模拟器或改变测试断言规避问题。
+  - iPhone 官方 MCP：**16 通过、1 用例中断、17 未执行**；原始 xcresult 另计入两个 runner 启动错误，因此摘要的 failure 数为 3。已通过项包含全部 5 项 Compositional 手势、4 项刷新、两类指示器取消、快速选择、动态重排删除、跨页跳转、RTL 分页、旋转和返回手势。[MCP 原始摘要](Results/20261030-architecture-iphone-mcp/mcp-summary.txt)、[xcresult 摘要](Results/20261030-architecture-iphone-mcp/summary.json)。该批框架与 Demo 源码哈希一致；全仓差异仅为同批不参与 Demo 编译的库释放测试补入 autorelease 边界。
+  - iPad 脚本：**3 通过、1 用例中断**，剩余 4 项尚未执行；xcresult 另计入 runner 启动错误。通过项为 RTL Section 边界、Header 联动和位置恢复、大字体 LTR 四方向布局。[中断摘要](Results/20261030-architecture-ipad-ui/summary.json)、[包含服务版本错误的完整日志](Results/20261030-architecture-ipad-ui/xcodebuild.log)，`sourceChangedSinceRun=[]`。
+- **独立代码回归及修复：** Xcode 27.2 补跑 iPhone 的 5 项 UI 全部通过，Demo 单元测试 12 通过、1 崩溃。`minimalDataSourceCreatesIndependentPages()` 暴露未加载视图的容器在析构时访问 `lazy vertical`，协调器初始化再次写入即将释放容器的弱引用。崩溃栈包含 `objc_initWeak → SPVerticalScrollCoordinator.init(host:) → SPPageViewController.vertical.getter → __isolated_deallocating_deinit`；这是真实重构缺陷，与 CoreSimulator 更新中断分开记录。[失败摘要](Results/20261030-architecture-iphone-resumed/summary.json)、[原始崩溃报告](Results/20261030-architecture-iphone-resumed/unloaded-container-crash.ips)。修复为显式可选存储，正常使用时创建协调器，析构时仅停止已经存在的实例；新增未加载容器释放回归，不修改 Demo 的失败用例。
+- **完整 UI 矩阵的阶段结果：** iPhone 21 项、iPad 8 项所选 UI 均已在相应批次执行通过（含环境中断后的补跑）；[iPad 补跑 5/5 摘要](Results/20261030-architecture-ipad-resumed/summary.json)。这些广泛 UI 证据对应释放修复前的框架源码，后续容器释放修复造成的源码差异保留，不冒充最终版本全矩阵复测。最终版本另执行完整库／Demo 单元回归与代表性 UI 生命周期路径，结果单独列出。
+- **最终源码 Release 构建通过：** Xcode 27.2 / Swift 6.4.2，`generic/platform=iOS Simulator`，日志终态 `BUILD SUCCEEDED`，`sourceChangedSinceRun=[]`。[构建日志](Results/20261030-architecture-lifetime-generic-build/xcodebuild.log)、[源码摘要](Results/20261030-architecture-lifetime-generic-build/summary.json)。该构建包含未加载容器的析构修复，不包含测试运行。
+- **最终回归启动受阻的证据：** `architecture-lifetime-{debug,release,demo}` 及对应 `-available` 批次在测试前因目标 UDID 已不存在而失败；没有执行用例。切换到 iOS 27.2 后，`-debug-ios272` 的 iPhone 目标再次被替换，`-release-ios272` 和 `-demo-ios272` 出现 `posix_spawn`／`fork: Resource temporarily unavailable`，Demo 明确无法创建 `clang` 进程，均未进入测试。只读进程统计发现 2,178 个 Xcode Source Control Git XPC 进程；未结束这些进程或用户的 Xcode。随后改为串行、`-jobs 2 -scmProvider system` 重新验证，失败日志保留在各自独立结果目录。
+- **工作区状态：** 更新后 MCP 可用列表中的同名 `iPhone 13` 为 iOS 26.5 Simulator，原 iOS 27.2 真机条目暂不可用；未重启用户的 Xcode 或改变其他工程。后续补跑使用命令行明确指定 UDID。
+- **工具与兼容性：** 官方 Xcode MCP 的当前工作区仅有 Demo scheme，库测试使用仓库脚本提供独立 UIKit application host；MCP 没有指定构建 configuration 的接口，Demo Release 也使用脚本。库编译命令保持 `-target arm64-apple-ios15.0-simulator`，没有提高部署版本。iOS 15 实际运行、真机、性能和长时间压力测试未执行。
 
 ## 2026-10-30：动画期间重复点击同一标签不回跳
 

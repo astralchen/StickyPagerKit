@@ -97,30 +97,3 @@ internal final class SPPagingScrollView: UIScrollView, UIGestureRecognizerDelega
             : scroll.contentOffset.x < range.upper - 0.5
     }
 }
-
-/// displayLink 不直接保留容器，避免动画期间形成循环引用。
-@MainActor
-internal final class SPDisplayLinkTarget {
-    var tick: (@MainActor (CADisplayLink) -> Void)?
-    @objc func step(_ link: CADisplayLink) {
-        tick?(link)
-    }
-}
-
-@MainActor
-internal final class SPPageRecord {
-    let identifier: AnyHashable
-    let controller: UIViewController
-    let safeArea: SPPageSafeArea
-    var binding: SPScrollBinding?
-    var isPreparingBinding = true
-    var isBinding = false
-    var needsBinding = false
-    var scrollViewSelection = SPScrollViewBindingSelection(.automatic)
-    var access: UInt = 0
-    init(identifier: AnyHashable, controller: UIViewController) {
-        self.identifier = identifier
-        self.controller = controller
-        safeArea = SPPageSafeArea(controller: controller)
-    }
-}

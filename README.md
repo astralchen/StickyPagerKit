@@ -790,6 +790,25 @@ python3 Scripts/run_external_rotation.py \
 
 最终执行结果及未覆盖范围见 [Validation/README.md](Validation/README.md)。Swift tools 6.3 声明、Swift 6 语言模式、Swift 6.3 编译器通过和 iOS 15 实际运行是不同的验证项。
 
+## 内部架构
+
+公开入口仍是 `SPPageViewController`，业务页面直接作为它的子控制器。内部采用具体职责组件协作，未引入 `UIPageViewController` 或第三方运行时依赖。
+
+| 组件 | 负责的状态与操作 |
+| --- | --- |
+| `SPPageViewController` | 公开 API、UIKit 生命周期和代理入口、视图所有权、页面工厂与 containment 挂载／拆卸；`selectedIndex` 的唯一存储与提交入口 |
+| `SPPageSnapshot` / `SPPageStore` | 原子验证的标识／标签快照、标识到索引的映射、页面记录、LRU 候选、正文位置历史和运行时绑定选择；不调用业务数据源或 UIKit containment |
+| `SPPageSelectionCoordinator` | 类型化的快照／选择请求、同步排队与代次校验、appearance 配对、交互取消和选中提交顺序 |
+| `SPPagingProgress` | 同一份标识、索引、代次和进度数据，按既有顺序更新标签指示器并通知代理；不提交选中状态 |
+| `SPPageLayoutCoordinator` / `SPPageGeometry` | 当前配置的测量与几何计算、布局重入保护、尺寸转场保护、安全区域和绑定布局事务 |
+| `SPVerticalScrollCoordinator` | Header 折叠、绑定和重新发现、纵向手势与惯性、横向分页时的纵向交接；通过 store 保存位置历史 |
+| `SPPagingScrollView` | 原生横向滚动与起拖时的嵌套横向手势仲裁 |
+| `SPScrollBinding` / `SPPageSafeArea` | 框架贡献的 inset 和安全区域管理、业务设置保留及解绑恢复 |
+
+协调器弱引用容器；异步动画和滚动观察回调也使用弱引用。页面缓存淘汰只释放实例，删除稳定标识才清除位置历史和运行时绑定选择。重入请求仍在外层操作及 appearance 配对完成后同步执行，不通过异步派发改变既有回调时机。几何只用于当前布局事务，不跨业务回调长期缓存。
+
+该分层保留了标签点击、程序化切页、交互式切页的既有区别：相邻页面可以滚动动画切换，跨多页直接定位，同目标标签重复点击延续当前选择动画；取消转场不提交候选页。后续若评估其他分页实现，应先对照这些契约验证，不能只替换滚动视图。
+
 ## 目录
 
 - `Sources/StickyPagerKit`：Container、Interfaces、TabBar、Layout、Internal。
