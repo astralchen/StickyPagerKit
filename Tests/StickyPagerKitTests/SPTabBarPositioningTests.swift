@@ -150,7 +150,7 @@ final class SPTabBarPositioningTests: XCTestCase {
             let source = PositioningSource()
             source.fallbackIndex = 0
             bar.contentDelegate = source
-            for style: SPTabBar.ContentStyle in [.default, .custom] {
+            for style: SPTabBar.ContentStyle in [.standard, .custom] {
                 bar.contentStyle = style
                 if count > 0 {
                     bar.items[0].title = String(repeating: "长标题", count: 15)

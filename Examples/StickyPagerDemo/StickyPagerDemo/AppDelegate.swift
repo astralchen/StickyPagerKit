@@ -167,7 +167,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                 guard let self else {
                     return
                 }
-                self.tabBar.contentStyle = self.tabBar.contentStyle == .custom ? .default : .custom
+                self.tabBar.contentStyle = self.tabBar.contentStyle == .custom ? .standard : .custom
             },
             UIAction(title: "切换紧凑标签") { [weak self] _ in
                 guard let self else {

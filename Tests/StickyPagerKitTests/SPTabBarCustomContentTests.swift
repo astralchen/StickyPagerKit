@@ -88,7 +88,7 @@ final class SPTabBarCustomContentTests: XCTestCase {
             bar.items[0].largeContentSizeImage = UIImage(systemName: "star")
             control.isHighlighted = true
             weak var previousCustom = probe(bar)
-            bar.contentStyle = .default
+            bar.contentStyle = .standard
             XCTAssertTrue(cell(bar).contentView === container)
             XCTAssertTrue(button(bar) === control)
             XCTAssertNil(previousCustom?.superview, "离开自定义模式应移除业务内容")
@@ -200,7 +200,7 @@ final class SPTabBarCustomContentTests: XCTestCase {
             let bar = mount(provider)
             content = probe(bar)
             XCTAssertNotNil(content)
-            bar.contentStyle = .default
+            bar.contentStyle = .standard
             XCTAssertNil(content?.superview)
             bar.layoutIfNeeded()
         }
@@ -299,7 +299,7 @@ final class SPTabBarCustomContentTests: XCTestCase {
     func testDefaultModeProviderChangesDoNotDisturbPresentation() {
         let provider = CustomContentSource()
         let bar = scrollable(provider)
-        bar.contentStyle = .default
+        bar.contentStyle = .standard
         bar.layoutIfNeeded()
         let replacement = CustomContentSource()
         collection(bar).contentOffset.x = 70
@@ -474,7 +474,7 @@ final class SPTabBarCustomContentTests: XCTestCase {
             XCTAssertFalse(bar.point(inside: CGPoint(x: 10, y: height + 1), with: nil))
         }
         XCTAssertEqual(spy.selected.count, 5)
-        bar.contentStyle = .default
+        bar.contentStyle = .standard
         XCTAssertNil(probe(bar))
         XCTAssertFalse(cell(bar).contentView.clipsToBounds, "默认图文恢复原有布局")
         bar.contentStyle = .custom
@@ -585,7 +585,7 @@ final class SPTabBarCustomContentTests: XCTestCase {
         bar.delegate = spy
         button(bar).sendActions(for: .touchUpInside)
         XCTAssertTrue(spy.selected.first === replacement)
-        bar.contentStyle = .default
+        bar.contentStyle = .standard
         XCTAssertNil(probe(bar))
         XCTAssertEqual(button(bar).configuration?.title, "新对象")
         bar.contentStyle = .custom

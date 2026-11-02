@@ -4,6 +4,18 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-02：ContentStyle.standard 命名调整
+
+在 `codex/container-architecture-refactor`、HEAD `eb2c61a` 上，将 `SPTabBar.ContentStyle.default` 更名为 `.standard`，同步默认值、注释、Demo、现有测试及 README。未保留旧名称别名；显式使用旧名称的调用方需要更新，枚举原始值仍为 `standard = 0`、`custom = 1`。`defaultContentLayout` 等其他 API 名称及内容、布局、选择行为不变。本次改动尚未提交或推送；工作区原有的开发团队配置变更保留，未作调整。
+
+使用 Xcode 27.2（27B52）/ Swift 6.4.2、iPhone 18 Pro / iOS 27.2 Simulator、Debug，串行执行以下验证：
+
+- **库编译与聚焦测试通过：66/66**，覆盖 `SPTabBarCustomContentTests`、`SPTabBarAutomaticContentTests` 和 `SPTabBarIndicatorTests`。当前官方 MCP 工作区仅有 Demo scheme，独立库测试使用仓库 UIKit application host 脚本。[库测试摘要](Results/20261102-content-style-standard-library/summary.json)。
+- **Demo 编译与聚焦测试通过：2/2**，通过官方 Xcode MCP 执行 `DemoIndicatorContentTests`，覆盖内容模式切换后的指示器恢复，以及不同宽度模式／大字体下的紧凑文本下划线。MCP 返回与完整 xcresult 一致；结束后恢复 Xcode 原运行目标 iPhone 13。[Demo 测试摘要](Results/20261102-content-style-standard-demo-mcp/summary.json)、[MCP 原始返回](Results/20261102-content-style-standard-demo-mcp/mcp-result.json)。
+- **源码与运行诊断：** 两批均为 `sourceChangedSinceRun=[]`，观察反馈循环、appearance 不平衡、不兼容内容替换和约束冲突诊断均为 0，xcresult 运行时警告为空。
+- **静态检查通过：** SwiftFormat 0.64.0 对本次 10 个 Swift 文件 lint，0 文件需要格式化；`git diff --check` 通过。源码与示例中没有遗留旧枚举名称的调用。
+- **未执行：** 完整库／Demo 测试集、UI 手势矩阵、Release、iPad、真机及旧系统运行。本轮为 API 名称调整，以上一轮 UI 记录作为历史证据，不视为本轮重新执行。
+
 ## 2026-11-02：SPTabBar 内容与呈现职责分层（P0—P2）
 
 在 `codex/container-architecture-refactor`、HEAD `907319f` 上实施，本轮未提交或推送。保留公开标签栏入口、Collection View、布局算法和业务扩展点，提取内容环境／配置生成、候选与已应用测量快照，以及点击待提交／动画／分页呈现状态；未实施细粒度刷新、布局事务调整或连续文字动画。参考 Tabman 的职责划分与统一进度思想，未增加第三方运行时依赖。

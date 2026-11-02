@@ -1068,7 +1068,7 @@ final class StickyPagerKitTests: XCTestCase {
             let provider = CustomContentSource()
             provider.size = CGSize(width: 150, height: 96)
             pager.tabBar.contentDelegate = provider
-            pager.tabBar.contentStyle = custom ? .custom : .default
+            pager.tabBar.contentStyle = custom ? .custom : .standard
             let scroll = pager.currentScrollView!
             scroll.contentOffset.y = 310 - scroll.adjustedContentInset.top
             let position = pager.records[0]!.binding!.position
@@ -1179,7 +1179,7 @@ final class StickyPagerKitTests: XCTestCase {
         pager.tabBar.contentDelegate = provider
         for rtl in [false, true] {
             pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
-            for style: SPTabBar.ContentStyle in [.custom, .default, .custom] {
+            for style: SPTabBar.ContentStyle in [.custom, .standard, .custom] {
                 pager.tabBar.contentStyle = style
                 pager.view.layoutIfNeeded()
                 XCTAssertEqual(pager.tabBar.bounds.height, style == .custom ? 80 : 44, accuracy: 0.01)

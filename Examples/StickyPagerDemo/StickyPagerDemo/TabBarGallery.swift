@@ -63,7 +63,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
                     self?.bar.layoutConfiguration.itemSpacing = CGFloat(spacing)
                 }
             }),
-            UIAction(title: "默认内容") { [weak self] _ in self?.bar.contentStyle = .default },
+            UIAction(title: "默认内容") { [weak self] _ in self?.bar.contentStyle = .standard },
             UIAction(title: "自定义卡片") { [weak self] _ in
                 guard let self else {
                     return

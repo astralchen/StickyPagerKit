@@ -741,7 +741,7 @@ final class SPTabBarIndicatorTests: XCTestCase {
         XCTAssertEqual(indicator.frame, provider.rect(0, frame(0, collection)))
         XCTAssertNotNil(view.state)
         XCTAssertFalse(view.isHidden)
-        XCTAssertEqual(bar.contentStyle, .default)
+        XCTAssertEqual(bar.contentStyle, .standard)
         bar.indicatorStyle = .capsule
         XCTAssertEqual(indicator.frame, frame(0, collection).insetBy(dx: 4, dy: 4))
         XCTAssertTrue(view.isHidden)

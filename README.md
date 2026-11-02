@@ -505,7 +505,7 @@ final class ScreenController: UIViewController, SPTabBarDelegate {
 
 ### 自定义标签 UI
 
-`SPTabBar.ContentStyle` 将内容展示分为 `.default` 和 `.custom`，默认值为 `.default`。已有接入无需修改。设置 `.custom` 后，由弱引用 `contentDelegate` 为每项提供 `SPTabBarContent`；切回 `.default` 恢复内置图文样式，保留 Item 身份和当前选择。内容样式与 `indicatorStyle` 独立，背景、指示器和分页进度仍由标签栏维护。
+`SPTabBar.ContentStyle` 将内容展示分为 `.standard` 和 `.custom`，默认值为 `.standard`。旧版显式使用 `.default` 的调用需改为 `.standard`；枚举原始值保持不变（`standard = 0`、`custom = 1`）。设置 `.custom` 后，由弱引用 `contentDelegate` 为每项提供 `SPTabBarContent`；切回 `.standard` 恢复内置图文样式，保留 Item 身份和当前选择。内容样式与 `indicatorStyle` 独立，背景、指示器和分页进度仍由标签栏维护。
 
 每项内容以 `UIContentConfiguration` 描述 UI，默认由内容视图的 Auto Layout 自动测量。可以返回系统的 `UIListContentConfiguration`，也可以自行实现配置及 `UIView & UIContentView`，在视图中任意组合编号、图片、标题、副标题或角标。框架继续使用标准 `UICollectionViewCell` 和 `CellRegistration`，业务方无需注册 Cell 或继承 Cell。
 
@@ -555,7 +555,7 @@ pager.tabBar.reloadContent()
 - 内容根视图须适应实际分配宽度，包括 `.equal` 下的压缩。`.balanced` 和未设上限的 `.content` 允许内部 required 最小宽度撑开单项并横向滚动；`.equal` 不会因此增宽，业务需自行降级内容或约束。根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
 - 未设置代理、代理释放后下一次标签栏布局、返回 nil 或尺寸无效时，对应项回退到默认内容。允许同一栏混用默认项和自定义项。
 - 内容和尺寸会缓存。Item、选择、Appearance、tint、traits、可用宽度、RTL 或模式变化会重新获取配置；业务自有数据变化需调用 `reloadContent()`。提供方法应同步、无副作用，不得在其中修改标签栏或 Item、触发布局或重载。自动测量由框架构造独立视图；不要在代理回调中自行构造或缓存正在显示的视图。状态样式宜保持约束尺寸稳定，或为显式尺寸取各状态最大值。
-- `reloadContent()` 不发送选择回调。内容及指示器端点几何不变时保留手动滚动偏移、正在进行的选择动画和分页进度；几何变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.default` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
+- `reloadContent()` 不发送选择回调。内容及指示器端点几何不变时保留手动滚动偏移、正在进行的选择动画和分页进度；几何变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.standard` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
 - `sizeThatFits(_:)` 只测量建议宽度对应的高度，不提交配置、不改变当前 Cell 布局、偏移或指示器。实际布局时才采用实际视口的配置与尺寸。显示快照与最近一次候选测量分开缓存，重复询问相同宽度不会反复调用代理或构造测量视图；候选宽度变化仍可能触发代理，所以回调不能假定标签栏已经改变 frame。
 - 测量视图处于隐藏、无交互和无障碍入口的独立宿主中，继承标签栏 traits、tint 和视觉方向，完成测量后移除；不会借用正在显示的 Cell。`makeContentView()` 和配置更新可能用于测量，不能依赖可见性或触发业务副作用。配置需独立描述完整内容。业务异步数据变化后调用 `reloadContent()`；仅在某个显示视图上调用 `invalidateIntrinsicContentSize()` 不会自动清除标签栏缓存。
 - 自定义配置的 `updated(for:)` 接收 `UICellConfigurationState`，其中包含视觉选中预览、禁用和真实按压高亮。点击立即预览目标项，分页过半预览目标项，回退或取消时恢复；提供方法的 `context.state.isSelected` 仍表示已提交的逻辑选择，状态外观应在 `updated(for:)` 中处理。高亮变化仅更新内容配置，不重新询问尺寸。提供方法的 `context.state` 高亮为 false；框架只保证 traits、选中、禁用和运行时按压高亮，不承诺同步 Cell 的焦点、编辑或多选状态。`UIContentView.configuration` 应覆盖旧状态并复用子视图。默认、自定义及回退模式共用同一个框架内容容器和激活按钮；切换模式不会重建整个 Cell 内容容器。兼容的业务配置通过 `configuration` 原位更新；业务配置不兼容时仅替换内部自定义视图。iOS 16+ 使用 `supports(_:)` 判断业务配置兼容性，iOS 15 按配置类型判断。离开自定义模式会释放业务视图，恢复时按当前配置重新创建，不隐藏缓存旧内容。

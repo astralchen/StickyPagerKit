@@ -35,7 +35,7 @@ final class DemoIndicatorContentTests: XCTestCase {
                     indicators.useAutomaticStyle(on: bar)
                     XCTAssertTrue(line.isHidden)
                 }
-                bar.contentStyle = .default
+                bar.contentStyle = .standard
                 indicators.updateContentStyle(on: bar)
                 bar.layoutIfNeeded()
                 XCTAssertEqual(bar.indicatorStyle, .underline)

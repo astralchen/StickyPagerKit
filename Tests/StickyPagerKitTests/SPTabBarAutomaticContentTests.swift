@@ -115,7 +115,7 @@ final class SPTabBarAutomaticContentTests: XCTestCase {
             40,
             accuracy: 0.01
         )
-        for style: SPTabBar.ContentStyle in [.default, .custom] {
+        for style: SPTabBar.ContentStyle in [.standard, .custom] {
             bar.contentStyle = style
             source.fallbackIndex = 0
             bar.layoutConfiguration.minimumItemWidth = 90

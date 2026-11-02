@@ -106,7 +106,7 @@ final class SPTabBarSpacingTests: XCTestCase {
             window.rootViewController!.view.frame = window.bounds
             window.rootViewController!.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 30)
             window.rootViewController!.view.layoutIfNeeded()
-            for style: SPTabBar.ContentStyle in [.default, .custom] {
+            for style: SPTabBar.ContentStyle in [.standard, .custom] {
                 source.fallbackIndex = 1
                 bar.contentStyle = style
                 bar.setNeedsLayout()

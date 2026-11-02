@@ -32,14 +32,14 @@ open class SPTabBar: UIView {
     /// 内容展示方式，与 indicatorStyle 的指示器展示方式独立。
     public enum ContentStyle: Int, Sendable {
         /// 内置图文内容；不调用内容代理。
-        case `default`
+        case standard
         /// 由内容代理配置只负责显示的 UI，点击和无障碍仍由标签栏管理。
         case custom
     }
 
     /// 默认使用内置内容；切换模式保留 Item 身份和当前选择。
     /// 自定义内容缺失或尺寸无效时，逐项回退到内置内容。
-    public var contentStyle: ContentStyle = .default {
+    public var contentStyle: ContentStyle = .standard {
         didSet {
             if oldValue != contentStyle {
                 itemDidChange()
@@ -119,7 +119,7 @@ open class SPTabBar: UIView {
     }
 
     /// 仅在 `.custom` 模式下使用，业务方需自行持有代理。
-    /// 赋值会刷新自定义内容；`.default` 下不影响当前显示或交互。
+    /// 赋值会刷新自定义内容；`.standard` 下不影响当前显示或交互。
     /// 弱引用释放不会主动安排布局，在下一次标签栏布局时回退到默认内容。
     public weak var contentDelegate: (any SPTabBarContentDelegate)? {
         didSet { reloadContent() }
