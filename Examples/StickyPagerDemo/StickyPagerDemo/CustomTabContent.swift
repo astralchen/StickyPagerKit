@@ -32,7 +32,7 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
         let index = context.index
-        return makeContent(
+        var content = makeContent(
             layout: context.layoutConfiguration,
             itemCount: context.itemCount,
             item: ContentValues(
@@ -47,6 +47,8 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
             direction: context.layoutDirection,
             width: context.availableWidth
         )
+        content.tracksSelectionProgress = true
+        return content
     }
 
     private func makeContent(
@@ -164,6 +166,7 @@ private struct DemoCardConfiguration: UIContentConfiguration {
     let direction: UIUserInterfaceLayoutDirection
     let compact: Bool
     var selected = false
+    var selectionProgress: CGFloat = 0
     var highlighted = false
     var disabled = false
 
@@ -177,6 +180,7 @@ private struct DemoCardConfiguration: UIContentConfiguration {
         }
         var result = self
         result.selected = state.isSelected
+        result.selectionProgress = state.spSelectionProgress
         result.highlighted = state.isHighlighted
         result.disabled = state.isDisabled
         return result
@@ -252,6 +256,8 @@ private final class DemoCardContentView: UIView, UIContentView {
             number.topAnchor.constraint(equalTo: badge.topAnchor, constant: 8),
             number.bottomAnchor.constraint(equalTo: badge.bottomAnchor, constant: -8)
         ])
+        card.accessibilityIdentifier = "demo.tabCard.surface"
+        number.accessibilityIdentifier = "demo.tabCard.number"
         card.layer.cornerRadius = 12
         number.textAlignment = .center
         number.layer.cornerRadius = 10
@@ -278,12 +284,12 @@ private final class DemoCardContentView: UIView, UIContentView {
         number.font = value.titleFont
         title.font = value.titleFont
         subtitle.font = value.subtitleFont
-        number.backgroundColor = value.tintColor.withAlphaComponent(value.selected ? 0.2 : 0.08)
+        number.backgroundColor = value.tintColor.withAlphaComponent(0.08 + 0.12 * value.selectionProgress)
         number.textColor = value.tintColor
         title.textColor = value.selected ? value.tintColor : .label
         subtitle.textColor = .secondaryLabel
         card.backgroundColor = value.highlighted ? value.tintColor.withAlphaComponent(0.2) : .secondarySystemBackground
-        card.layer.borderWidth = value.selected ? 1.5 : 0
+        card.layer.borderWidth = 1.5 * value.selectionProgress
         card.layer.borderColor = value.tintColor.cgColor
         card.alpha = value.disabled ? 0.4 : 1
         semanticContentAttribute = value.direction == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
@@ -304,6 +310,7 @@ private struct DemoCompactConfiguration: UIContentConfiguration {
     var minimumWidth: CGFloat = 0
     var isCard = false
     var selected = false
+    var selectionProgress: CGFloat = 0
     var highlighted = false
     var disabled = false
 
@@ -317,6 +324,7 @@ private struct DemoCompactConfiguration: UIContentConfiguration {
         }
         var result = self
         result.selected = state.isSelected
+        result.selectionProgress = state.spSelectionProgress
         result.highlighted = state.isHighlighted
         result.disabled = state.isDisabled
         return result
@@ -373,7 +381,7 @@ private final class DemoCompactContentView: UIView, UIContentView {
         backgroundColor = value.highlighted ? value.tintColor.withAlphaComponent(0.12) :
             (value.isCard ? .secondarySystemBackground : .clear)
         layer.cornerRadius = value.isCard ? 8 : 0
-        layer.borderWidth = value.isCard && value.selected ? 1.5 : 0
+        layer.borderWidth = value.isCard ? 1.5 * value.selectionProgress : 0
         layer.borderColor = value.tintColor.cgColor
     }
 }

@@ -50,6 +50,36 @@ final class TabBarCardTests: XCTestCase {
         withExtendedLifetime(provider) {}
     }
 
+    func testCardBorderAndNumberBackgroundFollowContinuousProgressAndCancel() throws {
+        for rtl in [false, true] {
+            try withBar(count: 2, rtl: rtl, largeText: false) { bar, list in
+                bar.layoutConfiguration.itemSizing = .equal
+                bar.frame.size.height = bar.sizeThatFits(bar.bounds.size).height
+                bar.layoutIfNeeded()
+                func find(_ identifier: String, in view: UIView) -> UIView? {
+                    if view.accessibilityIdentifier == identifier {
+                        return view
+                    }
+                    return view.subviews.lazy.compactMap { find(identifier, in: $0) }.first
+                }
+                let cell = try XCTUnwrap(list.cellForItem(at: IndexPath(item: 0, section: 0)))
+                let card = try XCTUnwrap(find("demo.tabCard.surface", in: cell))
+                let number = try XCTUnwrap(find("demo.tabCard.number", in: cell))
+                let initialFrame = card.frame
+                bar.setTransitionProgress(from: 0, to: 1, progress: 0.25)
+                XCTAssertEqual(card.layer.borderWidth, 1.125, accuracy: 0.001)
+                XCTAssertEqual(try XCTUnwrap(number.backgroundColor).cgColor.alpha, 0.17, accuracy: 0.001)
+                bar.setTransitionProgress(from: 0, to: 1, progress: 0.75)
+                XCTAssertEqual(card.layer.borderWidth, 0.375, accuracy: 0.001)
+                XCTAssertEqual(try XCTUnwrap(number.backgroundColor).cgColor.alpha, 0.11, accuracy: 0.001)
+                XCTAssertEqual(card.frame, initialFrame)
+                XCTAssertEqual(bar.selectedIndex, 0)
+                bar.setSelectedIndex(0, animated: false)
+                XCTAssertEqual(card.layer.borderWidth, 1.5, accuracy: 0.001)
+            }
+        }
+    }
+
     private func settle(_ window: UIWindow) {
         window.layoutIfNeeded()
         CATransaction.flush()

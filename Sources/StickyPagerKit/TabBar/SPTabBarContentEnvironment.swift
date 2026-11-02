@@ -82,6 +82,7 @@ internal struct SPTabBarContentEnvironment {
         at index: Int,
         selected: Bool,
         content: SPTabBarContent?,
+        selectionProgress: CGFloat? = nil,
         onTap: @escaping @MainActor () -> Void
     ) -> SPTabContentConfiguration {
         let isSelected = selected
@@ -89,10 +90,14 @@ internal struct SPTabBarContentEnvironment {
             var state = UICellConfigurationState(traitCollection: traitCollection)
             state.isSelected = isSelected
             state.isDisabled = !item.isEnabled
+            if content.tracksSelectionProgress, let selectionProgress {
+                state.setSPSelectionProgress(selectionProgress)
+            }
             return SPTabContentConfiguration.custom(SPCustomTabContentConfiguration(
                 content: content.configuration,
                 measuredSize: content.size ?? CGSize(width: 44, height: 44),
                 state: state,
+                tracksSelectionProgress: content.tracksSelectionProgress,
                 isAccessibilitySelected: index == selectedIndex,
                 itemIdentifier: ObjectIdentifier(item),
                 accessibilityIdentifier: "sp.tab.\(index)",

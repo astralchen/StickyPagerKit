@@ -41,6 +41,27 @@ internal final class SPTabBarPresentationCoordinator {
         case paging(Transition, Origin?)
     }
 
+    // 稀疏权重只保存呈现，不保存 Item，也不改变已提交选择。
+    private var contentProgress: [Int: CGFloat]?
+    private var animationContentOrigin: [Int: CGFloat] = [:]
+    private var pagingContentOrigin: [Int: CGFloat]?
+
+    func contentWeights(selectedIndex: Int?) -> [Int: CGFloat] {
+        contentProgress ?? selectedIndex.map { [$0: 1] } ?? [:]
+    }
+
+    func prepareContentProgress(_ origin: [Int: CGFloat]?) {
+        contentProgress = origin
+    }
+
+    private func interpolateContent(from origin: [Int: CGFloat], to index: Int?, progress: CGFloat) {
+        var weights = origin.mapValues { $0 * (1 - progress) }
+        if let index {
+            weights[index, default: 0] += progress
+        }
+        contentProgress = weights.filter { $0.value > 0 }
+    }
+
     private var motion: Motion = .idle
     private var generation: UInt = 0
     private var displayLink: CADisplayLink?
@@ -115,24 +136,33 @@ internal final class SPTabBarPresentationCoordinator {
     func resetMotion() {
         stopAnimation()
         motion = .idle
+        contentProgress = nil
+        pagingContentOrigin = nil
         generation &+= 1
     }
 
     func discardOrigin() {
         if let transition {
             motion = .paging(transition, nil)
+            pagingContentOrigin = nil
+            interpolateContent(from: [transition.from: 1], to: transition.to, progress: transition.progress)
         }
     }
 
     func setTransition(from: Int, to: Int, progress: CGFloat, takeoverOrigin: Origin?) {
-        let retainedOrigin = transition?.from == from && transition?.to == to ? origin : takeoverOrigin
+        let sameTransition = transition?.from == from && transition?.to == to
+        let retainedOrigin = sameTransition ? origin : takeoverOrigin
+        let retainedContent = sameTransition ? pagingContentOrigin : (animation == nil ? nil : contentProgress)
         stopAnimation()
+        pagingContentOrigin = retainedContent
+        interpolateContent(from: retainedContent ?? [from: 1], to: to, progress: min(1, max(0, progress)))
         motion = .paging(Transition(from: from, to: to, progress: min(1, max(0, progress))), retainedOrigin)
         generation &+= 1
     }
 
-    func startAnimation(_ animation: Animation) {
+    func startAnimation(_ animation: Animation, contentOrigin: [Int: CGFloat] = [:]) {
         resetMotion()
+        animationContentOrigin = contentOrigin
         motion = .selection(animation)
         let current = generation
         advance(to: 0)
@@ -149,6 +179,7 @@ internal final class SPTabBarPresentationCoordinator {
         displayLink?.invalidate()
         displayLink = nil
         if animation != nil {
+            contentProgress = nil
             motion = .idle
             generation &+= 1
         }
@@ -161,6 +192,7 @@ internal final class SPTabBarPresentationCoordinator {
         let current = generation
         let p = min(1, max(0, progress))
         let eased = p * p * (3 - 2 * p)
+        interpolateContent(from: animationContentOrigin, to: animation.toIndex, progress: eased)
         onFrame?(Self.frame(
             from: animation.fromIndex,
             to: animation.toIndex,

@@ -78,7 +78,13 @@ internal protocol SPTabIndicatorContentGeometry: AnyObject {
 }
 
 @MainActor
-private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorContentGeometry {
+internal protocol SPTabContentProgressDisplaying: AnyObject {
+    func updateSelectionProgress(_ progress: CGFloat)
+}
+
+@MainActor
+private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorContentGeometry,
+SPTabContentProgressDisplaying {
     private var storedConfiguration: SPTabContentConfiguration
     var configuration: UIContentConfiguration {
         get { storedConfiguration }
@@ -95,6 +101,7 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
             default:
                 resetHighlight = true
             }
+            displayedSelectionProgress = nil
             storedConfiguration = value
             applyingConfiguration = true
             if resetHighlight {
@@ -108,6 +115,7 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
     private let button = ActivationButton(type: .system)
     private var customView: (UIView & UIContentView)?
     private var applyingConfiguration = false
+    private var displayedSelectionProgress: CGFloat?
     private let badge = UILabel()
 
     init(configuration: SPTabContentConfiguration) {
@@ -193,12 +201,24 @@ private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorConte
         updateCustomContent()
     }
 
+    func updateSelectionProgress(_ progress: CGFloat) {
+        guard case let .custom(value) = storedConfiguration, value.tracksSelectionProgress,
+              progress != (displayedSelectionProgress ?? value.state.spSelectionProgress) else {
+            return
+        }
+        displayedSelectionProgress = progress
+        updateCustomContent()
+    }
+
     private func updateCustomContent() {
         guard case let .custom(value) = storedConfiguration else {
             return
         }
         var state = value.state
         state.isHighlighted = button.isHighlighted && button.isEnabled
+        if let displayedSelectionProgress {
+            state.setSPSelectionProgress(displayedSelectionProgress)
+        }
         let content = value.content.updated(for: state)
         let compatible: Bool
         if let customView {

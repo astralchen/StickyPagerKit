@@ -38,6 +38,11 @@ public struct SPTabBarContent {
     /// 内容视图须适应实际 bounds，不应保存旧状态或在更新时重复添加子视图。
     /// 内部控件不接受触摸，也不单独暴露无障碍入口；整项交互由框架维护。
     public var configuration: any UIContentConfiguration
+    /// 是否在可见内容上逐帧传递 spSelectionProgress；默认 false，保持离散状态更新。
+    /// 开启后 updated(for:) 可在动画或分页的每帧调用，不重新请求内容代理或测量尺寸。
+    /// 进度仅用于颜色、透明度等呈现，不得改变固有尺寸、约束或在回调中修改标签栏。
+    /// isSelected 仍表示既有的离散视觉预览，无障碍选择仍以实际提交为准。
+    public var tracksSelectionProgress: Bool = false
     /// 可选的理想尺寸覆盖；nil（默认）由 UIContentView 的 Auto Layout 自动测量。
     /// 自动测量先求首选宽度，再按实际分配宽度定宽测高。
     /// content / fixed 使用自然首选宽度；balanced / equal 尝试视口内的首选宽度。

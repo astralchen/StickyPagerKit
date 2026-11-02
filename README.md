@@ -563,6 +563,24 @@ pager.tabBar.reloadContent()
 - `sizeThatFits(_:)` 只测量建议宽度对应的高度，不提交配置、不改变当前 Cell 布局、偏移或指示器。实际布局时才采用实际视口的配置与尺寸。显示快照与最近一次候选测量分开缓存，重复询问相同宽度不会反复调用代理或构造测量视图；候选宽度变化仍可能触发代理，所以回调不能假定标签栏已经改变 frame。
 - 测量视图处于隐藏、无交互和无障碍入口的独立宿主中，继承标签栏 traits、tint 和视觉方向，完成测量后移除；不会借用正在显示的 Cell。`makeContentView()` 和配置更新可能用于测量，不能依赖可见性或触发业务副作用。配置需独立描述完整内容。业务异步数据变化后调用 `reloadContent()`；仅在某个显示视图上调用 `invalidateIntrinsicContentSize()` 不会自动清除标签栏缓存。
 - 自定义配置的 `updated(for:)` 接收 `UICellConfigurationState`，其中包含视觉选中预览、禁用和真实按压高亮。点击立即预览目标项，分页过半预览目标项，回退或取消时恢复；提供方法的 `context.state.isSelected` 仍表示已提交的逻辑选择，状态外观应在 `updated(for:)` 中处理。高亮变化仅更新内容配置，不重新询问尺寸。提供方法的 `context.state` 高亮为 false；框架只保证 traits、选中、禁用和运行时按压高亮，不承诺同步 Cell 的焦点、编辑或多选状态。`UIContentView.configuration` 应覆盖旧状态并复用子视图。默认、自定义及回退模式共用同一个框架内容容器和激活按钮；切换模式不会重建整个 Cell 内容容器。兼容的业务配置通过 `configuration` 原位更新；业务配置不兼容时仅替换内部自定义视图。iOS 16+ 使用 `supports(_:)` 判断业务配置兼容性，iOS 15 按配置类型判断。离开自定义模式会释放业务视图，恢复时按当前配置重新创建，不隐藏缓存旧内容。
+- **P4C 连续呈现（显式开启）：** 设置 `SPTabBarContent.tracksSelectionProgress = true` 后，可见内容的 `updated(for:)` 通过 `UICellConfigurationState.spSelectionProgress` 接收 0...1 的连续选择程度；默认 false，旧配置保持离散更新。进度与指示器、内容偏移使用同一动画时钟，不重新请求代理或测量尺寸，相同进度不重复更新。`isSelected` 仍保留点击预览／分页过半切换语义，无障碍选中仍以逻辑提交为准。
+- 连续进度只驱动呈现，不应修改固有尺寸或约束。测量上下文中的进度按已提交选择返回 0 或 1；不要按它改变测量结果。跨多个标签直接插值起终项；连续改选从各项当前程度接续，短时间内可能有多个部分选中项。分页取消时随反向进度恢复，提交／无动画选择收敛到目标；重排清除旧索引的进度。尺寸或内容几何改变沿用现有规则：程序动画收敛，分页重算端点并保留逻辑进度。
+- 开启连续内容后，即使 `.none` 指示器和无滚动距离，也能执行内容选择动画。减少动态效果时程序选择直接完成；交互分页仍按实际手势进度呈现。业务如增加缩放等运动效果，应自行遵守减少动态效果设置，不额外叠加 UIView 动画或创建计时器。Demo 的自定义卡片展示连续描边宽度与编号背景透明度；默认图文、标题字体及颜色仍使用既有离散外观。
+
+自定义配置可按以下方式读取进度；提供方法只需将返回内容的 `tracksSelectionProgress` 设为 `true`：
+
+```swift
+func updated(for state: UIConfigurationState) -> Self {
+    guard let state = state as? UICellConfigurationState else { return self }
+    var result = self
+    result.selectionProgress = state.spSelectionProgress
+    result.isHighlighted = state.isHighlighted
+    return result
+}
+// 在 UIContentView 中应用到颜色、透明度或图层等，不改变测量几何：
+// layer.borderWidth = 1.5 * configuration.selectionProgress
+```
+
 - 每个标签保留一个由框架管理的整项点击和无障碍入口。自定义视图内部控件不参与命中测试或独立无障碍导航；如需标签内的独立按钮，当前接口不提供该交互模型。点击否决、禁用、程序化选择和分页手势的回调语义均沿用原规则。
 - `SPTabBarContent.accessibilityLabel`、`accessibilityHint`、`accessibilityValue` 可覆盖描述；nil 沿用 Item 标题／描述与角标值。选中和禁用 traits 由框架维护，避免重复暴露内部标签。
 
@@ -830,7 +848,7 @@ python3 Scripts/run_external_rotation.py \
 
 布局提交按视口与附件、内容测量与 Collection View 几何、运动状态与偏移、最终指示器与边缘渐隐的顺序执行。提交中途的同步滚动回调不提前呈现指示器或边缘遮罩；切页入口仍同步完成待处理布局，并保留 `layoutSubviews` 的 override 分发。内容与视口同时变化时沿用内容刷新策略：没有动画或对齐请求则保留并限制手动偏移；仅视口变化时继续对齐选中项。候选宽度测量不提交当前显示几何，未增加异步布局队列；P4B 的内容代理契约调整独立于布局提交阶段。
 
-该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。内容样式仍按分页进度过半离散切换，未新增连续文字／颜色插值；P3 与 P4A 保持公开 API，P4B 按上述迁移说明调整内容代理，不据此承诺耗时或帧率提升。
+该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。默认内容样式仍按分页进度过半离散切换；P4C 为自定义配置提供显式开启的连续选择进度，Demo 使用其呈现描边与背景变化，未新增默认文字／颜色插值。P3 与 P4A 保持公开 API，P4B 按上述迁移说明调整内容代理，P4C 增加兼容的可选呈现能力；不据此承诺耗时或帧率提升。
 
 ## 目录
 

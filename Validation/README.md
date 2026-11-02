@@ -4,6 +4,26 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-02：自定义内容连续选择进度与 Demo 视觉过渡（P4C）
+
+在 `codex/container-architecture-refactor`、HEAD `d899241` 上继续实施。新增可选 `SPTabBarContent.tracksSelectionProgress`（默认 false）及只读 `UICellConfigurationState.spSelectionProgress`，通过 UIKit 公开的自定义配置状态键传递 0...1 的视觉程度。内容、指示器与横向偏移共用现有动画时钟；每帧只更新显式开启且进度变化的可见内容，不重新请求代理、测量或重建兼容视图。未使用 UIKit 私有视图、系统内部 Scroll View 或业务专用依赖。
+
+呈现协调器保存各索引当前视觉程度，连续改选和程序动画转分页从当前值接续；跨页跳转只插值起终项，动画多次接管时允许多个部分选中项。待提交点击只改变既有离散预览，连续进度从实际逻辑选择起步，避免预览先跳到完成态。重排清除旧索引进度，尺寸变化、取消、减少动态效果通知沿用既有收敛规则。即使无指示器及横向滚动距离，显式开启的内容仍可执行程序选择动画；默认图文和未开启的自定义内容保持离散更新。Demo 自定义卡片使用连续描边宽度与编号背景透明度，不改变布局约束或固有尺寸，没有增加独立计时器。
+
+设计对照 Tabman 固定版本 `b666020935dbd1c3fb5a97ad96f0fe7444c907a6` 的 [TMBarButton.SelectionState 与 alpha 更新](https://github.com/uias/Tabman/blob/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar/BarButton/TMBarButton.swift)，沿用内容配置与视觉状态分离的思路，未复制源码或引入第三方依赖。框架只增加通用进度能力，颜色、描边等具体视觉由 UIContentConfiguration 决定。
+
+使用 Xcode 27.2（27B52）/ Swift 6.4.2、iPhone 18 Pro Max / iOS 27.2 Simulator、Debug，批次串行。官方 MCP 本轮已能列出 Demo 与 Package scheme；库测试仍需要脚本的 UIKit application host，Demo 测试接口不能关闭 scheme 的并行配置，因此使用仓库脚本和 `-parallel-testing-enabled NO`。未改变其他工作区的 scheme 或设备，未修改工程及开发团队配置。
+
+- **首轮聚焦通过：67/67**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空。覆盖新增 5 项进度测试及既有内容缓存、自定义内容、P4A 布局与指示器测试。此后补充待提交点击不跳变的实现和第 6 项回归，因此该批仅作为阶段证据，源码差异如实列出。[聚焦摘要](Results/20261102-tabbar-p4c-focused/summary.json)。
+
+- **最终完整库回归通过：413/413**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。新增 6 项实际窗口用例覆盖：LTR／RTL 分页与逻辑／无障碍提交隔离；无指示器的内容动画与多次改选；动画转分页、非相邻及非法进度；尺寸变化、重载和重排；待提交点击与减少动态效果通知；兼容内容视图复用、按压高亮及未开启内容的离散更新。逐帧更新不增加代理请求及测量批次的断言通过。[完整库摘要](Results/20261102-tabbar-p4c-library/summary.json)。
+
+- **最终 Demo 串行验证通过：17/17**，包含全部 14 项 Demo 单元测试和自定义卡片切换／内容刷新、分页／按住拖动、大字体 RTL／旋转／安全区域 3 项真实触摸测试。0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。新增实际窗口用例在 25%／75% 进度核对卡片描边宽度、编号背景 alpha、frame 不变及取消恢复。分页用例在切换自定义标签前的菜单操作出现 2 次 XCTest `App animations complete notification not received`，之后继续执行并通过全部断言；等待异常保留，未关闭动画或放宽等待预算，不宣称其原因已确认或修复。[Demo 摘要](Results/20261102-tabbar-p4c-demo/summary.json)、[所选测试](Results/20261102-tabbar-p4c-demo/requested-tests.json)、[原始日志](Results/20261102-tabbar-p4c-demo/xcodebuild.log)。
+- **截图核对：** 从结果包导出 9 张保留截图，检查其中的大字体 RTL 竖屏和横屏画面，选中卡片描边、编号背景、标签与 Header 的静态布局正常；截图只证明相应静止时刻，不替代连续动画或性能验收。[截图清单](Results/20261102-tabbar-p4c-demo/attachments/manifest.json)、[竖屏](Results/20261102-tabbar-p4c-demo/attachments/65755583-8055-4A82-9156-2B3EA99FC7F5.png)、[横屏](Results/20261102-tabbar-p4c-demo/attachments/AC6D10C1-3A56-47DD-AA67-73DD31C33429.png)。
+- **静态检查通过：** SwiftFormat 0.64.0 对本次 10 个 Swift 文件 lint，0 文件需要格式化；Demo 既有格式化阶段为 0/86 文件变化。`git diff --check` 通过。`SPTabBar`／`SPTabBarItem` 的公开声明与 HEAD 相同；新增 API 为可选开关和只读进度，未引入新的公开代理方法。框架、库测试、Demo、测试和脚本均与最终两批源码快照一致；工程与开发团队配置无改动，未暂存、提交或推送。[静态核对](Results/20261102-tabbar-p4c-library/static-audit.json)。
+
+**未执行：** Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、减少动态效果系统设置的端到端切换、耗时／内存／帧率基准及长期压力测试。减少动态效果通知分支由库测试覆盖，不等于系统设置操作已验收。没有新增默认图文连续颜色／字体插值、缩放或弹性指示器预设；这些视觉扩展仍属后续阶段。历史 appearance 警告及 P4B 的 XCTest 等待记录继续保留，不因本轮通过而注销。
+
 ## 2026-11-02：自定义内容快照契约与逐项缓存（P4B）
 
 在 `codex/container-architecture-refactor`、HEAD `9db7b3b` 上继续实施。按已允许调整公开契约的方向，将内容代理迁移为 `content(for:context:)`：接收 `SPTabBarContentItem` 只读单项快照及显式索引、项数、布局、traits、选择和外观上下文，不再传入可变标签栏或 Item；外部／跨项依赖统一通过 `reloadContent()` 失效，不要求业务版本或依赖列表。Demo、测试与 README 同步迁移，没有兼容别名。

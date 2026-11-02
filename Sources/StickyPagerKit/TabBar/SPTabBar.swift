@@ -675,6 +675,7 @@ open class SPTabBar: UIView {
         cancelUserSelection()
         synchronizeLayoutBeforeTransition()
         let previousAppearance = appearance
+        let contentOrigin = presentation.contentWeights(selectedIndex: selectedIndex)
         isPreparingSelection = true
         // 中断时从当前实际呈现的位置继续，不回跳到上次动画的起点或终点。
         stopSelectionAnimation()
@@ -683,6 +684,7 @@ open class SPTabBar: UIView {
         let fromOffset = collectionView.contentOffset.x
         selectedIndex = index.flatMap { items.indices.contains($0) ? $0 : nil }
         presentation.resetMotion()
+        presentation.prepareContentProgress(contentOrigin)
         needsSelectionAlignment = false
         updateMetrics(preservingContentCache: previousAppearance === appearance)
         updateAppearance()
@@ -693,9 +695,13 @@ open class SPTabBar: UIView {
         let targetOffset = centeredOffset(for: selectedIndex)
         isPreparingSelection = false
         let canInterpolateIndicator = !fromIndicator.isEmpty && !targetIndicator.isEmpty
+        let animatesContent = appliedContentMeasurement?.contents
+            .contains { $0?.tracksSelectionProgress == true } == true
+            && contentOrigin != (selectedIndex.map { [$0: CGFloat(1)] } ?? [:])
         if animated, !UIAccessibility.isReduceMotionEnabled, window != nil, bounds.width > 0, bounds.height > 0,
-           (canInterpolateIndicator && fromIndicator != targetIndicator) || abs(fromOffset - targetOffset) > Self
-            .scrollOffsetTolerance {
+           animatesContent || (canInterpolateIndicator && fromIndicator != targetIndicator) ||
+           abs(fromOffset - targetOffset) > Self
+           .scrollOffsetTolerance {
             presentation.startAnimation(SPTabBarPresentationCoordinator.Animation(
                 fromIndex: fromIndex,
                 toIndex: selectedIndex,
@@ -706,8 +712,9 @@ open class SPTabBar: UIView {
                 fromOffset: fromOffset,
                 toOffset: targetOffset,
                 startTime: CACurrentMediaTime()
-            ))
+            ), contentOrigin: contentOrigin)
         } else {
+            presentation.prepareContentProgress(nil)
             updateIndicator()
             alignSelection()
         }
@@ -962,7 +969,9 @@ open class SPTabBar: UIView {
             for: item,
             at: index,
             selected: selected ?? (index == presentationSelectedIndex),
-            content: customContent(at: index)
+            content: customContent(at: index),
+            selectionProgress: selected.map { $0 ? 1 : 0 }
+                ?? presentation.contentWeights(selectedIndex: selectedIndex)[index, default: 0]
         ) { [weak self, weak item] in
             guard let item else {
                 return
@@ -1049,7 +1058,19 @@ open class SPTabBar: UIView {
         if updatesOffset {
             collectionView.setContentOffset(CGPoint(x: frame.offset, y: 0), animated: false)
         }
+        updateContentProgress()
         renderIndicator(from: frame.from, to: frame.to, progress: frame.progress)
+    }
+
+    private func updateContentProgress() {
+        guard contentStyle == .custom else {
+            return
+        }
+        let weights = presentation.contentWeights(selectedIndex: selectedIndex)
+        for path in collectionView.indexPathsForVisibleItems {
+            (collectionView.cellForItem(at: path)?.contentView as? SPTabContentProgressDisplaying)?
+                .updateSelectionProgress(weights[path.item, default: 0])
+        }
     }
 
     private func updateIndicator() {
