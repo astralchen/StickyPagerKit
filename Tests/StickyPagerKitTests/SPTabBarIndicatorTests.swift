@@ -250,6 +250,8 @@ final class SPTabBarIndicatorTests: XCTestCase {
                 let updateContent = {
                     provider.rect = CGRect(x: 17, y: 11, width: 41, height: 19)
                     bar.items[2].title = "更新内容区域"
+                    // rect 是影响所有项的外部数据；单项通知只刷新该项，显式重载更新两个端点。
+                    bar.reloadContent()
                 }
                 if changeBeforeTakeover {
                     updateContent()
@@ -938,10 +940,8 @@ private final class RecordingIndicator: SPTabBarIndicatorView {
 @MainActor
 private final class IndicatorContentProvider: SPTabBarContentDelegate {
     var rect: CGRect? = CGRect(x: 7, y: 9, width: 31, height: 17)
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
         var config = UIListContentConfiguration.cell()

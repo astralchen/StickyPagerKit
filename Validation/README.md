@@ -4,6 +4,29 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-02：自定义内容快照契约与逐项缓存（P4B）
+
+在 `codex/container-architecture-refactor`、HEAD `9db7b3b` 上继续实施。按已允许调整公开契约的方向，将内容代理迁移为 `content(for:context:)`：接收 `SPTabBarContentItem` 只读单项快照及显式索引、项数、布局、traits、选择和外观上下文，不再传入可变标签栏或 Item；外部／跨项依赖统一通过 `reloadContent()` 失效，不要求业务版本或依赖列表。Demo、测试与 README 同步迁移，没有兼容别名。
+
+框架按 Item 身份管理有界配置和自动测量复用，逐项最多保留两个输入组合，另保留既有已应用／候选测量快照；不缓存测量视图。单项变化只失效该项，选择及重排复用输入未变的项；删除、代理变化和全局环境变化处理缓存淘汰。选中项外观变化及移除仍刷新整栏，Item.tag 现在也自动通知宿主。自动高度复用还要求最终分配宽度相同，邻项变化导致重新分配时仍定宽测高；内置回退尺寸按需计算。公开点击／分页提交、业务滚动、容器生命周期和 P4A 布局顺序保持现有职责。新视觉和连续动画留在后续阶段，本轮未提交或推送，未修改工程与开发团队配置。
+
+对照了 Tabman 固定版本 `b666020935dbd1c3fb5a97ad96f0fe7444c907a6` 中 [Item 的更新通知](https://github.com/uias/Tabman/blob/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar/BarItem/TMBarItem.swift)与 [Button 的内容／选择状态更新](https://github.com/uias/Tabman/blob/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar/BarButton/TMBarButton.swift)，确认 MIT 许可；仅借鉴职责分工，没有复制源码、引入运行时依赖或把它的视图实现直接用于本库缓存。
+
+使用 Xcode 27.2（27B52）/ Swift 6.4.2、iPhone 18 Pro Max / iOS 27.2 Simulator、Debug，各批次串行。另一项 QuickLayoutKit 任务使用 iPhone 18 Pro，因此本轮选择不同设备，未干预该任务。官方 MCP 当前工作区只有 Demo scheme，且测试接口不能覆盖其单元 target 的并行配置，库／Demo 使用仓库脚本与 `-parallel-testing-enabled NO`；库仍使用独立 UIKit application host。
+
+- **首轮编译失败、测试未执行：** `WidthPolicySource` 迁移后新增索引局部量，使原单表达式失去隐式返回；补入显式 `return`。原始 `Build.xcresult` 与日志保留；摘要没有测试结果，不把运行诊断为 0 计为测试通过。[编译日志](Results/20261102-tabbar-p4b-focused/xcodebuild.log)。
+- **首轮运行失败并保留：51/52 通过**，1 项新增自动高度用例的 2 处断言失败，四类诊断为 0。夹具错误期待 balanced 将 80 pt 理想宽度压缩到 50 pt；原契约允许溢出。调整为 400 pt 视口，使邻项由约 133 pt 真实收窄至 90 pt，并严格检查高度由 40 pt 增至 60 pt，未改变框架宽度分配规则。[失败摘要](Results/20261102-tabbar-p4b-focused-fixed/summary.json)。
+- **修正后聚焦通过：52/52**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空。包含新增 6 项缓存回归、既有自动／自定义内容、刷新分类与 P4A 布局测试。该阶段结束时源码一致；之后补充快照注释及 Demo 显式返回，最终源码另以完整库和 Demo 批次验证。[聚焦摘要](Results/20261102-tabbar-p4b-cache-verified/summary.json)。
+- **首轮完整库运行失败并保留：406/407 通过**，四类诊断为 0。`testContentGeometryChangeRebasesPagingOriginTakenFromAnimation` 修改了影响所有项的外部 `provider.rect`，却只靠单个 Item 标题变化刷新整栏；新单项缓存契约下另一端点按预期保持原配置。夹具补入 `reloadContent()` 显式通知外部数据变化，保留原有 LTR／RTL、接管前／后及 0.01 pt 几何断言，未为通过测试恢复隐式跨项失效。[首轮完整库摘要](Results/20261102-tabbar-p4b-final-library/summary.json)。
+- **指示器迁移专项通过：46/46**，覆盖指示器接管、缓存与刷新分类，0 失败、0 跳过，四类诊断为 0，`sourceChangedSinceRun=[]`。[迁移专项摘要](Results/20261102-tabbar-p4b-indicator-migration/summary.json)。
+- **最终完整库回归通过：407/407**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空。包含新增 6 项及既有容器、生命周期、滚动绑定、手势仲裁、布局、内容和选择契约测试。该批后仅修正 Demo 的 `CustomTabContent.swift`，全仓 `sourceChangedSinceRun` 如实列出该文件；框架、库测试及脚本与当前终态一致，Demo 修改另由后续批次验证。[最终库摘要](Results/20261102-tabbar-p4b-library-verified/summary.json)、[按验证目标核对源码](Results/20261102-tabbar-p4b-library-verified/component-source-audit.json)。
+- **首轮 Demo 编译失败、测试未执行：** 共用卡片配置方法仍有指示器入口传入旧 `on:bar`／Item 参数。仅在 Demo 内提取 `ContentValues` 展示值，分别适配内容快照和既有指示器上下文，不扩大框架公开 API、不改库实现和库测试。结果包计数为 0、状态 unknown，不能视为通过。[编译日志](Results/20261102-tabbar-p4b-demo/xcodebuild.log)、[摘要](Results/20261102-tabbar-p4b-demo/summary.json)。
+
+- **最终 Demo 串行验证通过：18/18**，包含全部 13 项 Demo 单元测试及 5 项真实触摸 UI 测试：自动内容高度、样式切换与内容更新、分页与按住拖动、大字体 RTL／旋转／安全区域、双向宽度策略与 required 内容溢出。0 失败、0 跳过，`sourceChangedSinceRun=[]`，四类运行诊断为 0，xcresult 运行时警告为空。自动高度与宽度策略用例各出现 2 次 XCTest `App animations complete notification not received` 提示，框架继续执行后全部断言通过；保留这 4 次等待异常，不据此宣称动画等待或性能问题已解决。[最终 Demo 摘要](Results/20261102-tabbar-p4b-demo-verified/summary.json)、[所选测试清单](Results/20261102-tabbar-p4b-demo-verified/requested-tests.json)、[原始日志](Results/20261102-tabbar-p4b-demo-verified/xcodebuild.log)。
+- **静态检查通过：** SwiftFormat 0.64.0 对本次 16 个 Swift 文件执行 lint，0 文件需要格式化；Demo 既有格式化阶段未改动源码。`SPTabBar`／`SPTabBarItem` 的公开声明与 HEAD 一致，公开变化为内容代理签名、单项快照、上下文扩展及 `tag` 变化通知行为。`git diff --check` 通过，工程与开发团队配置无 diff，HEAD 仍为 `9db7b3b`，未暂存、提交或推送。[静态核对记录](Results/20261102-tabbar-p4b-demo-verified/static-audit.json)。
+
+**未执行：** Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、耗时／内存基准及长期压力测试。代理调用与测量次数回归证明夹具中的逐项复用和失效边界，不代表耗时、内存或帧率收益。P4A 历史 appearance 警告的根因仍未确认；本轮终态未出现该诊断，不能据此注销历史记录。新视觉与连续动画仍待后续阶段实现与验证。
+
 ## 2026-11-02：SPTabBar 布局提交顺序整理（P4A）
 
 在 `codex/container-architecture-refactor`、HEAD `b03a787` 上实施。将 `SPTabBar.layoutSubviews` 内部流程拆为视口与附件、内容测量与 Collection View 几何、运动状态与偏移、最终指示器与边缘渐隐四个阶段；布局提交期间抑制同步滚动回调的中间呈现。保留切页入口的同步布局及 `layoutSubviews` override 分发，合并内容／视口变化后的重复处理，同时保留内容变化优先、手动偏移限制、选中对齐、分页进度及动画中断规则。候选测量仍不提交当前显示几何，没有引入异步队列、自定义内容缓存新契约或新视觉／动画效果。未提交或推送，未修改工程和开发团队配置。

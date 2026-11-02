@@ -4,6 +4,12 @@ import UIKit
 /// 测量可能使用尚未应用到标签栏的建议宽度，不表示当前显示尺寸已发生变化。
 @MainActor
 public struct SPTabBarContentContext {
+    /// 当前项的逻辑位置与标签总数；重排后按新位置请求内容。
+    public let index: Int
+    public let itemCount: Int
+    /// 本次测量使用的归一化布局配置，不代表标签栏已经采用候选宽度。
+    public let layoutConfiguration: SPTabBarLayoutConfiguration
+    public let defaultContentLayout: SPTabBarDefaultContentLayout
     /// 保证包含当前 traits、已提交的选中状态和禁用状态；回调测量时高亮为 false。
     /// 内容配置的 updated(for:) 另接收视觉预览：点击立即预览目标项，分页过半预览目标项，回退或取消时恢复。
     /// 真实按压高亮由配置的 `updated(for:)` 接收，不重新测量尺寸。
@@ -16,7 +22,11 @@ public struct SPTabBarContentContext {
     /// 扣除左右安全区域、固定附件和水平 contentInsets 后的内容可用宽度；尚未布局时可能为 0，不代表每项必须填满视口。
     public let availableWidth: CGFloat
     /// 当前生效外观的独立副本，修改它不会改变标签栏外观。
-    public let appearance: SPTabBarAppearance
+    public var appearance: SPTabBarAppearance {
+        SPTabBarAppearance(barAppearance: storedAppearance)
+    }
+
+    internal let storedAppearance: SPTabBarAppearance
 }
 
 /// 一项自定义内容。尺寸包含业务内边距，框架不再添加默认图文样式的留白。
@@ -70,6 +80,9 @@ public struct SPTabBarContent {
 /// 提供自定义标签内容，业务方需自行持有代理。回调应为同步、无副作用的配置与测量过程。
 /// 仅在 `.custom` 模式下调用；配置和尺寸按内容版本及环境缓存，不保证每次布局都回调。
 /// Item 和环境变化由框架刷新；业务自有数据变化后调用 `reloadContent()`。
+/// 配置只依赖本项快照、显式上下文及当前外部数据；不能捕获标签栏隐式读取其他项。
+/// 外部或跨项依赖变化统一使用 reloadContent()，不提供业务版本号或依赖列表。
+/// 框架可跳过未受影响项的请求，并复用配置与测量；不得依赖回调次数或顺序。
 @MainActor
 public protocol SPTabBarContentDelegate: AnyObject {
     /// 返回 nil 时该项使用默认内容。不得在回调内修改标签栏或 Item、触发布局或重新加载。
@@ -78,15 +91,11 @@ public protocol SPTabBarContentDelegate: AnyObject {
     /// 自动测量会调用 updated(for:) 和 makeContentView()，结果按版本与环境缓存。
     /// 异步内容、约束或固有尺寸变化后，业务应调用 reloadContent() 使框架测量缓存失效。
     /// - Parameters:
-    ///   - tabBar: 请求内容的标签栏。
-    ///   - item: 当前 Item，按对象身份区分。
-    ///   - index: Item 的逻辑索引，RTL 下保持不变。
+    ///   - item: 当前 Item 的只读快照，identifier 保留对象身份。
     ///   - context: 本次配置与测量的状态、外观及可用空间。
     /// - Returns: 显示配置和理想尺寸；nil 或无效尺寸使该项回退到默认图文。
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent?
 }

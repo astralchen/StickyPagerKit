@@ -479,12 +479,11 @@ final class AutomaticTabSource: SPTabBarContentDelegate {
     var creations = 0
     var samples: [Sample] = []
     let views = NSHashTable<UIView>.weakObjects()
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
+        let index = context.index
         let configuration = AutoLayoutTabConfiguration(
             text: text,
             font: .preferredFont(forTextStyle: .body, compatibleWith: context.state.traitCollection),
@@ -599,12 +598,11 @@ final class StaticAutomaticSource: SPTabBarContentDelegate {
         self.configuration = configuration
     }
 
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
+        let index = context.index
         guard index != fallbackIndex else {
             return nil
         }
@@ -638,13 +636,15 @@ private final class IntrinsicTabView: UIView, UIContentView {
 @MainActor
 private final class WidthPolicySource: SPTabBarContentDelegate {
     var widths: [CGFloat] = [160, 44]
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
-        SPTabBarContent(configuration: IntrinsicTabConfiguration(), size: CGSize(width: widths[index], height: 28))
+        let index = context.index
+        return SPTabBarContent(
+            configuration: IntrinsicTabConfiguration(),
+            size: CGSize(width: widths[index], height: 28)
+        )
     }
 }
 

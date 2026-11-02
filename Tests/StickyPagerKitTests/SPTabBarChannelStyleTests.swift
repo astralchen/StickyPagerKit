@@ -680,10 +680,8 @@ final class SPTabBarChannelStyleTests: XCTestCase {
 private final class ChannelContentProvider: SPTabBarContentDelegate {
     var rect: CGRect? = CGRect(x: 20, y: 5, width: 40, height: 20)
 
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
         var config = UIListContentConfiguration.cell()

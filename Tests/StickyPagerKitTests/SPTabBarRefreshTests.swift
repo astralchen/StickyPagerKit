@@ -125,23 +125,27 @@ final class SPTabBarRefreshTests: XCTestCase {
         }
     }
 
-    func testCustomContentRetainsWholeBarDependenciesAndFallback() throws {
+    func testCustomContentUsesItemSnapshotsAndGlobalEnvironmentWithFallback() throws {
         let bar = mount()
         let source = RefreshContentSource()
         bar.contentDelegate = source
         bar.contentStyle = .custom
         settle(bar)
-        for mutation in [
+        let mutations: [() -> Void] = [
             { bar.standardAppearance.backgroundColor = .systemOrange },
             { bar.items[0].accessibilityLabel = "更长的内容" },
             { bar.items[0].badgeColor = .systemGreen }
-        ] {
+        ]
+        for (index, mutation) in mutations.enumerated() {
             let before = bar.refreshStatistics
             let oldWidth = collection(bar).contentSize.width
             mutation()
             settle(bar)
             XCTAssertGreaterThan(bar.refreshStatistics.measurementPasses, before.measurementPasses)
-            XCTAssertEqual(bar.refreshStatistics.contentRequests - before.contentRequests, UInt(bar.items.count))
+            XCTAssertEqual(
+                bar.refreshStatistics.contentRequests - before.contentRequests,
+                index == 0 ? UInt(bar.items.count) : 1
+            )
             XCTAssertGreaterThan(collection(bar).contentSize.width, oldWidth)
             collection(bar).scrollToItem(at: IndexPath(item: 2, section: 0), at: .right, animated: false)
             settle(bar)
@@ -259,26 +263,25 @@ private final class RefreshIndicatorSource: SPTabBarIndicatorLayoutDelegate {
 
 @MainActor
 private final class RefreshContentSource: SPTabBarContentDelegate {
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
+        let index = context.index
         guard index != 2 else {
             return nil
         }
         var configuration = UIListContentConfiguration.cell()
         configuration.text = item.title
-        // 明确跨 Item 读取依赖，防止将 .custom 错误优化为单项更新。
+        // 内容只依赖单项快照和显式环境；外部依赖变化由 reloadContent() 刷新。
         var width: CGFloat = 200
         if context.appearance.backgroundColor == .systemOrange {
             width += 40
         }
-        if tabBar.items[0].accessibilityLabel != nil {
+        if item.accessibilityLabel != nil {
             width += 40
         }
-        if tabBar.items[0].badgeColor == .systemGreen {
+        if item.badgeColor == .systemGreen {
             width += 40
         }
         return SPTabBarContent(configuration: configuration, size: CGSize(width: width, height: 60))

@@ -117,7 +117,7 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 | `SPPageLayout` | Header 总高度、保留高度、标签栏高度 |
 | `SPHeaderState` | `expanded`、`collapsing`、`collapsed` |
 | `SPTabBar` / `SPTabBarItem` | 可滚动标签栏与继承 UIBarItem 的动态标签对象 |
-| `SPTabBarContentDelegate` / `SPTabBarContent` / `SPTabBarContentContext` | 自定义标签 UI 的配置、尺寸及当前环境 |
+| `SPTabBarContentDelegate` / `SPTabBarContent` / `SPTabBarContentItem` / `SPTabBarContentContext` | 自定义标签 UI 的配置、尺寸、单项快照及显式环境 |
 
 数据源和代理均为弱引用；需要由业务方持有。选择与分页事件代理提供默认实现；自定义内容代理需要实现内容提供方法。
 
@@ -514,10 +514,8 @@ final class ScreenController: UIViewController, SPTabBarDelegate {
 ```swift
 @MainActor
 final class TabContentProvider: SPTabBarContentDelegate {
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
         let font = UIFont.preferredFont(
@@ -556,7 +554,11 @@ pager.tabBar.reloadContent()
 - `.balanced` 的宽度分配连续：320 pt 视口中，理想宽度 `[160, 44]` 得到 `[160, 160]`，变成 `[161, 44]` 后得到 `[161, 159]`，不会再跳到 `[218.5, 101.5]`。这是对原“固有宽度加平均剩余空间”策略的行为调整。减少最小宽度不会关闭剩余空间分配，两个短标签仍可能等宽填满整栏。
 - 内容根视图须适应实际分配宽度，包括 `.equal` 下的压缩。`.balanced` 和未设上限的 `.content` 允许内部 required 最小宽度撑开单项并横向滚动；`.equal` 不会因此增宽，业务需自行降级内容或约束。根视图的 required 固定宽度、自身矛盾的 required 约束不受支持。有限正数检查不负责诊断业务约束冲突。自动内容在实际分配宽度下重新测高，业务自定义内边距由内容视图负责。
 - 未设置代理、代理释放后下一次标签栏布局、返回 nil 或尺寸无效时，对应项回退到默认内容。允许同一栏混用默认项和自定义项。
-- 内容和尺寸会缓存。Item、选择、Appearance、tint、traits、可用宽度、RTL 或模式变化会重新获取配置；业务自有数据变化需调用 `reloadContent()`。提供方法应同步、无副作用，不得在其中修改标签栏或 Item、触发布局或重载。自动测量由框架构造独立视图；不要在代理回调中自行构造或缓存正在显示的视图。状态样式宜保持约束尺寸稳定，或为显式尺寸取各状态最大值。
+- **P4B 接口迁移：** 内容代理改为 `content(for:context:)`，不再接收可变 `SPTabBar` 或 `SPTabBarItem`。`SPTabBarContentItem` 是单项只读快照，`identifier` 对应原 Item 的对象身份但不持有它；原对象释放后不能将该身份当作持久业务标识。逻辑索引、总项数、布局配置和默认内容布局通过 `context.index`、`itemCount`、`layoutConfiguration`、`defaultContentLayout` 读取。外观 getter 返回独立副本。旧协议方法需要迁移，没有兼容别名。
+- 配置应只依赖单项快照、显式上下文和当前外部数据。不要捕获标签栏读取其他项或用回调次数驱动业务。外部数据及跨项依赖变化统一调用 `reloadContent()`，框架不要求业务版本号或依赖列表。配置应独立描述完整内容；不要返回随后原地修改、却不通知框架的共享配置。
+- 框架按 Item 身份复用配置与自动测量结果。单项属性变化只失效该项；选择变化在整栏外观不变时复用其他项。外观、布局、tint、traits、模式和显式重载等环境变化会刷新相应缓存；选中项外观变化（包括移除外观）影响整栏。Item 的 `tag` 变化现在也自动通知宿主。重排后使用新索引请求受影响项，删除项淘汰缓存，代理变化重新解析，nil／非法尺寸的回退结果也会缓存。
+- 逐项缓存最多保留最近两个输入组合，另保留既有已应用与候选测量快照；不会无限积累宽度或缓存测量视图。自动内容只有配置输入和最终分配宽度都未变时才复用高度；邻项改变宽度分配时仍重新测高。候选宽度探测可以触发配置请求，但不能改变当前显示。
+- 提供方法应同步、无副作用，不得在其中修改标签栏或 Item、触发布局或重载。自动测量由框架构造独立视图；不要在代理回调中自行构造或缓存正在显示的视图。状态样式宜保持约束尺寸稳定，或为显式尺寸取各状态最大值。
 - `reloadContent()` 不发送选择回调。内容及指示器端点几何不变时保留手动滚动偏移、正在进行的选择动画和分页进度；几何变化时将手动偏移限制到新的可滚动范围，选择动画落到已选项，分页则按相同逻辑进度在新布局中重新定位。`.standard` 下调用此方法或设置 `contentDelegate` 不改变当前显示和交互。弱引用释放不会主动触发布局，需要立即回退时可显式清空代理或请求标签栏布局。
 - `sizeThatFits(_:)` 只测量建议宽度对应的高度，不提交配置、不改变当前 Cell 布局、偏移或指示器。实际布局时才采用实际视口的配置与尺寸。显示快照与最近一次候选测量分开缓存，重复询问相同宽度不会反复调用代理或构造测量视图；候选宽度变化仍可能触发代理，所以回调不能假定标签栏已经改变 frame。
 - 测量视图处于隐藏、无交互和无障碍入口的独立宿主中，继承标签栏 traits、tint 和视觉方向，完成测量后移除；不会借用正在显示的 Cell。`makeContentView()` 和配置更新可能用于测量，不能依赖可见性或触发业务副作用。配置需独立描述完整内容。业务异步数据变化后调用 `reloadContent()`；仅在某个显示视图上调用 `invalidateIntrinsicContentSize()` 不会自动清除标签栏缓存。
@@ -817,17 +819,18 @@ python3 Scripts/run_external_rotation.py \
 | --- | --- |
 | `SPTabBar` | 公开 API 与 override 分发、唯一的已提交 `selectedIndex`、业务代理调用、附件与视图所有权、布局协调、指示器扩展点 |
 | `SPTabBarContentEnvironment` | 单次解析的环境值、内置字体及图文尺寸规则、默认／自定义内容配置生成；接收点击闭包，不持有标签栏 |
-| `SPTabBarContentResolver` | 内容代理结果、自动测量宿主、revision、候选宽度与已应用快照、有效几何比较；测量不提交 Collection View 布局，不持有容器或业务代理 |
+| `SPTabBarContentItem` / `SPTabBarContentContext` | 只读单项快照与显式环境；隔离可变 Item／标签栏，外观按读取复制 |
+| `SPTabBarContentResolver` | 有界逐项配置与测量复用、自动测量宿主、revision、候选宽度与已应用快照、有效几何比较；测量不提交 Collection View 布局，不持有容器或业务代理 |
 | `SPTabBarPresentationCoordinator` | 点击请求代次、待提交 Item、互斥的静止／程序化动画／分页进度状态、动画时钟与接管起点；输出同一帧的指示器几何、内容偏移及进度 |
 | `SPTabBarLayout` / `SPTabContentConfiguration` | 既有宽度分配、RTL 排列、可见属性查询，以及可兼容内容视图的复用、点击和无障碍呈现 |
 
 呈现协调器不保存第二份已提交选择。点击候选可以先显示预览，逻辑选择、无障碍选中和 `didSelect` 仍遵守容器提交契约；程序化选择不发送点击事件。动画和分页共用帧计算，应用偏移期间避免滚动代理重复更新指示器；中断后的旧动画不能结束新一代动画。候选宽度测量与当前显示配置分离，内容几何不变时保留动画、分页进度和手动偏移。
 
-属性通知通过内部 `SPTabBarChange` 区分内容、装饰、无障碍、单项呈现和指示器变化，并携带 Item 身份。仅对 `.standard` 中依赖明确的装饰、无障碍和角标颜色采用轻量刷新；仍复核业务指示器端点几何。选中 Item 的 Appearance 是整栏外观，字体等变化继续完整刷新；`.custom` 的代理可读取整个栏及其他 Item，因此不做单项依赖推断。内部 `refreshStatistics` 提供累计测量批次、内容代理调用与 Cell 配置次数，供诊断前后增量；这些计数不等于耗时或布局次数。未引入逐项测量缓存、延迟提交或新的公开 API。
+属性通知通过内部 `SPTabBarChange` 区分内容、装饰、无障碍、单项呈现和指示器变化，并携带 Item 身份。仅对 `.standard` 中依赖明确的装饰、无障碍和角标颜色采用轻量刷新；仍复核业务指示器端点几何。选中 Item 的 Appearance 是整栏外观，字体等变化继续完整刷新；`.custom` 的代理使用单项与环境快照，框架按身份管理有界配置与测量缓存，外部依赖变化使用 `reloadContent()`。内部 `refreshStatistics` 提供累计测量批次、内容代理调用与 Cell 配置次数，供诊断前后增量；这些计数不等于耗时或布局次数。P4B 引入逐项复用与内容代理契约调整，未增加延迟提交。
 
-布局提交按视口与附件、内容测量与 Collection View 几何、运动状态与偏移、最终指示器与边缘渐隐的顺序执行。提交中途的同步滚动回调不提前呈现指示器或边缘遮罩；切页入口仍同步完成待处理布局，并保留 `layoutSubviews` 的 override 分发。内容与视口同时变化时沿用内容刷新策略：没有动画或对齐请求则保留并限制手动偏移；仅视口变化时继续对齐选中项。候选宽度测量不提交当前显示几何，未增加异步布局队列或改变内容代理契约。
+布局提交按视口与附件、内容测量与 Collection View 几何、运动状态与偏移、最终指示器与边缘渐隐的顺序执行。提交中途的同步滚动回调不提前呈现指示器或边缘遮罩；切页入口仍同步完成待处理布局，并保留 `layoutSubviews` 的 override 分发。内容与视口同时变化时沿用内容刷新策略：没有动画或对齐请求则保留并限制手动偏移；仅视口变化时继续对齐选中项。候选宽度测量不提交当前显示几何，未增加异步布局队列；P4B 的内容代理契约调整独立于布局提交阶段。
 
-该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。内容样式仍按分页进度过半离散切换，未新增连续文字／颜色插值；刷新分类和布局提交顺序的后续调整均保持公开 API，不据此承诺耗时或帧率提升。
+该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。内容样式仍按分页进度过半离散切换，未新增连续文字／颜色插值；P3 与 P4A 保持公开 API，P4B 按上述迁移说明调整内容代理，不据此承诺耗时或帧率提升。
 
 ## 目录
 

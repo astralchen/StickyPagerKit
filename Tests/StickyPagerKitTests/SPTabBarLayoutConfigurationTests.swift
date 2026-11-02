@@ -223,13 +223,11 @@ final class SPTabBarLayoutConfigurationTests: XCTestCase {
 @MainActor
 private final class LayoutContentSource: SPTabBarContentDelegate {
     var fallback = false
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
-        guard !fallback || index != 0 else {
+        guard !fallback || context.index != 0 else {
             return nil
         }
         var configuration = UIListContentConfiguration.cell()

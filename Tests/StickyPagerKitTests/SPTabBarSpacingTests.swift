@@ -212,12 +212,11 @@ private final class SpacingContentSource: SPTabBarContentDelegate {
     let widths: [CGFloat] = [200, 40, 40]
     var fallbackIndex: Int?
     var calls = 0
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
+        let index = context.index
         calls += 1
         guard index != fallbackIndex else {
             return nil

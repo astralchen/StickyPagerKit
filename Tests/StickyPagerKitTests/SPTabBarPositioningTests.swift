@@ -428,12 +428,11 @@ final class SPTabBarPositioningTests: XCTestCase {
 private final class PositioningSource: SPTabBarContentDelegate {
     var widths: [CGFloat] = [200, 40, 40]
     var fallbackIndex: Int?
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
+        let index = context.index
         guard index != fallbackIndex else {
             return nil
         }

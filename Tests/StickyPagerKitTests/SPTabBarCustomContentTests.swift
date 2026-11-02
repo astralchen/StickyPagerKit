@@ -650,12 +650,11 @@ final class CustomContentSource: SPTabBarContentDelegate {
     var calls = 0
     var creations = 0
     var context: SPTabBarContentContext?
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
+        let index = context.index
         calls += 1
         self.context = context
         if index == omittedIndex {

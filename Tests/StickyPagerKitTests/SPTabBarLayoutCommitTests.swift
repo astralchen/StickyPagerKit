@@ -163,10 +163,8 @@ final class SPTabBarLayoutCommitTests: XCTestCase {
 @MainActor
 private final class CommitContentSource: SPTabBarContentDelegate {
     var width: CGFloat = 80
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
         var configuration = UIListContentConfiguration.cell()

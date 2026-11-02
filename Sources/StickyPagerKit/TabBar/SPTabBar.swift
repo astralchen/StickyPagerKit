@@ -137,9 +137,9 @@ open class SPTabBar: UIView {
         refreshContentLayout()
     }
 
-    private func refreshContentLayout() {
+    private func refreshContentLayout(invalidating item: SPTabBarItem? = nil) {
         let previous = appliedContentMeasurement
-        invalidateContentMeasurements()
+        invalidateContentMeasurements(item: item)
         applyContentMeasurement(width: contentViewport.width)
         contentGeometryChanged = contentGeometryChanged || metricsDiffer(from: previous)
         updateVisibleCells()
@@ -298,7 +298,20 @@ open class SPTabBar: UIView {
         presentation.setPendingSelection(pending)
     }
 
-    internal func itemDidChange(_ item: SPTabBarItem? = nil, reason: SPTabBarChange = .content) {
+    internal func itemDidChange(
+        _ item: SPTabBarItem? = nil,
+        reason: SPTabBarChange = .content,
+        affectsEnvironment: Bool = false
+    ) {
+        if contentStyle == .custom {
+            // 快照契约只允许单项和显式环境依赖；选中项外观仍是整栏环境。
+            refreshContentLayout(invalidating: affectsEnvironment && item === selectedItem ? nil : item)
+            updateAppearance()
+            if reason == .indicatorGeometry {
+                reloadIndicator()
+            }
+            return
+        }
         switch reason {
         case .indicatorAppearance:
             renderIndicator()
@@ -318,7 +331,6 @@ open class SPTabBar: UIView {
             // 自定义指示器代理可读取 Item 属性，保留端点几何校验与呈现更新。
             setNeedsLayout()
         default:
-            // 自定义内容能依赖整个栏、其他 Item 及完整 Appearance，继续完整解析。
             refreshContentLayout()
             updateAppearance()
         }
@@ -637,6 +649,7 @@ open class SPTabBar: UIView {
             return
         }
         let oldSelection = selectedItem
+        let previousAppearance = appearance
         cancelUserSelection()
         stopSelectionAnimation()
         collectionView.setContentOffset(collectionView.contentOffset, animated: false)
@@ -646,7 +659,7 @@ open class SPTabBar: UIView {
         selectedIndex = oldSelection.flatMap { old in items.firstIndex { $0 === old } }
         presentation.resetMotion()
         updateAppearance()
-        updateMetrics()
+        updateMetrics(preservingContentCache: previousAppearance === appearance)
         collectionView.reloadData()
         invalidateIntrinsicContentSize()
         superview?.setNeedsLayout()
@@ -661,6 +674,7 @@ open class SPTabBar: UIView {
         }
         cancelUserSelection()
         synchronizeLayoutBeforeTransition()
+        let previousAppearance = appearance
         isPreparingSelection = true
         // 中断时从当前实际呈现的位置继续，不回跳到上次动画的起点或终点。
         stopSelectionAnimation()
@@ -670,7 +684,7 @@ open class SPTabBar: UIView {
         selectedIndex = index.flatMap { items.indices.contains($0) ? $0 : nil }
         presentation.resetMotion()
         needsSelectionAlignment = false
-        updateMetrics()
+        updateMetrics(preservingContentCache: previousAppearance === appearance)
         updateAppearance()
         collectionView.layoutIfNeeded()
         superview?.setNeedsLayout()
@@ -908,8 +922,8 @@ open class SPTabBar: UIView {
     private func measureContents(width: CGFloat) -> SPTabBarContentResolver.Measurement? {
         // 回调只在本次解析中使用；解析器不持有代理或公开容器。
         let provider = contentDelegate
-        return contentResolver.measure(width: width, environment: contentEnvironment) { item, index, context in
-            provider?.tabBar(self, contentFor: item, at: index, context: context)
+        return contentResolver.measure(width: width, environment: contentEnvironment) { item, context in
+            provider?.content(for: item, context: context)
         }
     }
 
@@ -928,17 +942,17 @@ open class SPTabBar: UIView {
         contentResolver.metricsDiffer(from: previous)
     }
 
-    private func invalidateContentMeasurements() {
+    private func invalidateContentMeasurements(item: SPTabBarItem? = nil, preservingContentCache: Bool = false) {
         indicatorContentFrames.removeAll()
-        contentResolver.invalidate()
+        contentResolver.invalidate(item: item, preservingContentCache: preservingContentCache)
     }
 
     private func customContent(at index: Int) -> SPTabBarContent? {
         contentStyle == .custom ? contentResolver.content(at: index) : nil
     }
 
-    private func updateMetrics() {
-        invalidateContentMeasurements()
+    private func updateMetrics(preservingContentCache: Bool = false) {
+        invalidateContentMeasurements(preservingContentCache: preservingContentCache)
         applyContentMeasurement(width: contentViewport.width)
     }
 

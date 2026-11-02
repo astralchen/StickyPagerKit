@@ -21,10 +21,30 @@ internal final class SPTabBarContentResolver {
     private var candidate: Measurement?
     private var contentRevision: UInt = 0
     private var resolvingCustomContents = false
+    private struct ContentKey: Equatable {
+        let width: CGFloat
+        let direction: UIUserInterfaceLayoutDirection
+        let delegateIdentity: ObjectIdentifier?
+        let index: Int
+        let count: Int
+        let selected: Bool
+    }
+
+    private struct ContentEntry {
+        weak var item: SPTabBarItem?
+        let key: ContentKey
+        var content: SPTabBarContent?
+        var automatic: Bool
+        var allocatedWidth: CGFloat?
+    }
+
+    // 每项最多保存两个输入组合；不保留测量视图，删除项及代理变化立即淘汰。
+    private var contentCache: [ObjectIdentifier: [ContentEntry]] = [:]
+    private var cachedDelegateIdentity: ObjectIdentifier?
     func measure(
         width: CGFloat,
         environment: SPTabBarContentEnvironment,
-        provider: (SPTabBarItem, Int, SPTabBarContentContext) -> SPTabBarContent?
+        provider: (SPTabBarContentItem, SPTabBarContentContext) -> SPTabBarContent?
     ) -> Measurement? {
         let items = environment.items
         let selectedIndex = environment.selectedIndex
@@ -41,6 +61,12 @@ internal final class SPTabBarContentResolver {
         let width = width.isFinite ? max(0, width - contentInsets.leading - contentInsets.trailing) : 0
         let identity = environment.delegateIdentity
         let direction = environment.contentDirection
+        if cachedDelegateIdentity != identity {
+            contentCache.removeAll()
+            cachedDelegateIdentity = identity
+        }
+        let identities = Set(items.map(ObjectIdentifier.init))
+        contentCache = contentCache.filter { identities.contains($0.key) && $0.value.contains { $0.item != nil } }
         for snapshot in [applied, candidate] {
             if let snapshot, snapshot.revision == contentRevision, snapshot.width == width,
                snapshot.direction == direction, snapshot.delegateIdentity == identity {
@@ -59,22 +85,64 @@ internal final class SPTabBarContentResolver {
         var measuringViews: [Int: UIView] = [:]
         var measuringContainers: [UIView] = []
         defer { measuringContainers.forEach { $0.removeFromSuperview() } }
+        var entries: [Int: ContentEntry] = [:]
+        func state(at index: Int) -> UICellConfigurationState {
+            var value = UICellConfigurationState(traitCollection: traitCollection)
+            value.isSelected = index == selectedIndex
+            value.isDisabled = !items[index].isEnabled
+            return value
+        }
+        func measuringView(for content: SPTabBarContent, at index: Int) -> UIView {
+            let view = content.configuration.updated(for: state(at: index)).makeContentView()
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.semanticContentAttribute = measurementHost.semanticContentAttribute
+            let container = UIView()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            measurementHost.addSubview(container)
+            container.addSubview(view)
+            measuringContainers.append(container)
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                view.topAnchor.constraint(equalTo: container.topAnchor),
+                view.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            ])
+            if #available(iOS 17, *) {
+                view.updateTraitsIfNeeded()
+            }
+            measuringViews[index] = view
+            return view
+        }
         var result = items.enumerated().map { index, item -> SPTabBarContent? in
             guard environment.contentStyle == .custom else {
                 return nil
             }
-            var state = UICellConfigurationState(traitCollection: traitCollection)
-            state.isSelected = index == selectedIndex
-            state.isDisabled = !item.isEnabled
+            let key = ContentKey(
+                width: width,
+                direction: direction,
+                delegateIdentity: identity,
+                index: index,
+                count: items.count,
+                selected: index == selectedIndex
+            )
+            if let cached = contentCache[ObjectIdentifier(item)]?.first(where: { $0.item === item && $0.key == key }) {
+                entries[index] = cached
+                return cached.content
+            }
             let context = SPTabBarContentContext(
-                state: state,
+                index: index,
+                itemCount: items.count,
+                layoutConfiguration: layoutConfiguration,
+                defaultContentLayout: defaultContentLayout,
+                state: state(at: index),
                 tintColor: tintColor,
                 layoutDirection: direction,
                 availableWidth: width,
-                appearance: SPTabBarAppearance(barAppearance: appearance)
+                storedAppearance: SPTabBarAppearance(barAppearance: appearance)
             )
             contentRequests &+= 1
-            guard var content = provider(item, index, context) else {
+            entries[index] = ContentEntry(item: item, key: key, content: nil, automatic: false)
+            guard var content = provider(SPTabBarContentItem(item), context) else {
                 return nil
             }
             if let size = content.size {
@@ -82,24 +150,8 @@ internal final class SPTabBarContentResolver {
                     return nil
                 }
             } else {
-                let view = content.configuration.updated(for: state).makeContentView()
-                view.translatesAutoresizingMaskIntoConstraints = false
-                view.semanticContentAttribute = measurementHost.semanticContentAttribute
-                let container = UIView()
-                container.translatesAutoresizingMaskIntoConstraints = false
-                measurementHost.addSubview(container)
-                container.addSubview(view)
-                measuringContainers.append(container)
-                NSLayoutConstraint.activate([
-                    view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                    view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                    view.topAnchor.constraint(equalTo: container.topAnchor),
-                    view.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-                ])
-                // 新系统延迟传播 traits；测量必须在配置与视图环境一致后进行。
-                if #available(iOS 17, *) {
-                    view.updateTraitsIfNeeded()
-                }
+                let view = measuringView(for: content, at: index)
+                let container = view.superview!
                 let natural = view.systemLayoutSizeFitting(
                     UIView.layoutFittingCompressedSize,
                     withHorizontalFittingPriority: .fittingSizeLevel,
@@ -125,13 +177,23 @@ internal final class SPTabBarContentResolver {
                     view.removeFromSuperview()
                     return nil
                 }
-                measuringViews[index] = view
+                entries[index]?.automatic = true
                 content.size = CGSize(width: ceil(constrained.width), height: 0)
             }
             return content
         }
-        let defaultSizes = items.map { environment.measuredSize($0) }
+        // 有效自定义项不测量内置回退内容；自动测量失败时按需补齐，并在本次布局内复用。
+        var defaultSizes: [Int: CGSize] = [:]
+        func defaultSize(at index: Int) -> CGSize {
+            if let size = defaultSizes[index] {
+                return size
+            }
+            let size = environment.measuredSize(items[index])
+            defaultSizes[index] = size
+            return size
+        }
         var widths: [CGFloat] = []
+        var allocated: [CGFloat] = []
         // 某项测量失败回退后，宽度分配可能改变，需要重新测量其余自动内容的高度。
         while true {
             widths = result.indices.map {
@@ -139,22 +201,27 @@ internal final class SPTabBarContentResolver {
                     layoutConfiguration.minimumItemWidth,
                     result[$0]?.size?
                         .width ??
-                        (defaultSizes[$0]
+                        (defaultSize(at: $0)
                             .width +
                             (defaultContentLayout.contentInsets.leading + defaultContentLayout.contentInsets.trailing))
                 )
             }
-            let allocated = SPTabBarLayout.resolvedWidths(
+            allocated = SPTabBarLayout.resolvedWidths(
                 widths,
                 viewportWidth: width,
                 itemSpacing: layoutConfiguration.itemSpacing,
                 configuration: layoutConfiguration
             )
             var failed = false
-            for index in measuringViews.keys.sorted() {
-                guard let view = measuringViews[index] else {
+            for index in result.indices where entries[index]?.automatic == true {
+                guard let content = result[index] else {
                     continue
                 }
+                // 配置及最终分配宽度都未改变时，复用该项高度；邻项变宽仍须重新定宽测高。
+                if entries[index]?.allocatedWidth == allocated[index] {
+                    continue
+                }
+                let view = measuringViews[index] ?? measuringView(for: content, at: index)
                 // 系统内容视图可能忽略软宽度；有限宽度策略通过普通宿主求解高度。
                 let fittingView = layoutConfiguration.constrainsContentWidth ? (view.superview ?? view) : view
                 let fitted = fittingView.systemLayoutSizeFitting(
@@ -168,10 +235,12 @@ internal final class SPTabBarContentResolver {
                     view.removeFromSuperview()
                     measuringViews[index] = nil
                     result[index] = nil
+                    entries[index]?.automatic = false
                     failed = true
                     continue
                 }
                 result[index]?.size?.height = ceil(fitted.height)
+                entries[index]?.allocatedWidth = allocated[index]
             }
             if !failed {
                 break
@@ -179,6 +248,15 @@ internal final class SPTabBarContentResolver {
         }
         guard revision == contentRevision else {
             return nil
+        }
+        // 只发布完整且仍属于当前版本的结果，回调重入失效时不污染逐项缓存。
+        for (index, var entry) in entries {
+            entry.content = result[index]
+            let identity = ObjectIdentifier(items[index])
+            var retained = contentCache[identity, default: []]
+                .filter { $0.item === items[index] && $0.key != entry.key }
+            retained.insert(entry, at: 0)
+            contentCache[identity] = Array(retained.prefix(2))
         }
         let measurement = Measurement(
             revision: revision,
@@ -190,7 +268,7 @@ internal final class SPTabBarContentResolver {
             layoutConfiguration: layoutConfiguration,
             // 只对默认图文保留原有高度规则；自定义内容不承担容器的最小栏高策略。
             height: result.indices.map {
-                result[$0]?.size?.height ?? defaultContentLayout.height(for: defaultSizes[$0].height)
+                result[$0]?.size?.height ?? defaultContentLayout.height(for: defaultSize(at: $0).height)
             }.max() ?? defaultContentLayout.height(for: ceil(titleFont.lineHeight))
         )
         candidate = measurement
@@ -214,9 +292,14 @@ internal final class SPTabBarContentResolver {
         return true
     }
 
-    func invalidate() {
+    func invalidate(item: SPTabBarItem? = nil, preservingContentCache: Bool = false) {
         contentRevision &+= 1
         candidate = nil
+        if let item {
+            contentCache[ObjectIdentifier(item)] = nil
+        } else if !preservingContentCache {
+            contentCache.removeAll()
+        }
     }
 
     func content(at index: Int) -> SPTabBarContent? {

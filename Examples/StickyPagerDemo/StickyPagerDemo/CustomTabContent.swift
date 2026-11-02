@@ -10,6 +10,14 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
     var usesWideContent = false
     var fixedHeight: CGFloat?
 
+    /// 内容快照与指示器上下文共用的展示值，不保存 Item 或标签栏引用。
+    private struct ContentValues {
+        let title: String?
+        let accessibilityLabel: String?
+        let badgeValue: String?
+        let isEnabled: Bool
+    }
+
     /// 更新业务配置后只刷新一次；切入自定义模式时由属性 setter 完成刷新。
     func showCustomContent(on bar: SPTabBar) {
         if bar.contentStyle == .custom {
@@ -19,15 +27,20 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
         }
     }
 
-    func tabBar(
-        _ tabBar: SPTabBar,
-        contentFor item: SPTabBarItem,
-        at index: Int,
+    func content(
+        for item: SPTabBarContentItem,
         context: SPTabBarContentContext
     ) -> SPTabBarContent? {
-        makeContent(
-            on: tabBar,
-            item: item,
+        let index = context.index
+        return makeContent(
+            layout: context.layoutConfiguration,
+            itemCount: context.itemCount,
+            item: ContentValues(
+                title: item.title,
+                accessibilityLabel: item.accessibilityLabel,
+                badgeValue: item.badgeValue,
+                isEnabled: item.isEnabled
+            ),
             index: index,
             traits: context.state.traitCollection,
             tintColor: context.tintColor,
@@ -37,8 +50,9 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
     }
 
     private func makeContent(
-        on tabBar: SPTabBar,
-        item: SPTabBarItem,
+        layout: SPTabBarLayoutConfiguration,
+        itemCount: Int,
+        item: ContentValues,
         index: Int,
         traits: UITraitCollection,
         tintColor: UIColor,
@@ -60,7 +74,7 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
         let subtitle = item.isEnabled ? (item.badgeValue.map { $0.isEmpty ? "有新内容" : "\($0) 条更新" } ?? self.subtitle) : "暂不可用"
         // 固定栏高不足时收起编号和说明，优先保留标题；恢复内容策略后自动回到完整卡片。
         let fullHeight = max(76, 2 * titleFont.lineHeight + 2 * subtitleFont.lineHeight + 34)
-        let insets = tabBar.layoutConfiguration.contentInsets
+        let insets = layout.contentInsets
         // 栏高包含外围留白；内容只使用 Item 高度，留白变化时由标签栏重新获取配置。
         let availableHeight = fixedHeight.map { max(0, $0 - insets.top - insets.bottom) }
         if let availableHeight, availableHeight < fullHeight {
@@ -73,12 +87,12 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
             ))
         }
         // equal 的公开分配规则可在配置阶段确定项宽，测量与实际显示使用同一布局。
-        let count = CGFloat(max(1, tabBar.items.count))
+        let count = CGFloat(max(1, itemCount))
         let equalWidth = max(
-            tabBar.layoutConfiguration.minimumItemWidth,
-            (width - max(0, count - 1) * tabBar.layoutConfiguration.itemSpacing) / count
+            layout.minimumItemWidth,
+            (width - max(0, count - 1) * layout.itemSpacing) / count
         )
-        let compact = tabBar.layoutConfiguration.itemSizing == .equal && equalWidth < max(160, titleFont.lineHeight * 6)
+        let compact = layout.itemSizing == .equal && equalWidth < max(160, titleFont.lineHeight * 6)
         let configuration = DemoCardConfiguration(
             number: "\(index + 1)",
             title: title,
@@ -97,8 +111,14 @@ final class DemoTabContentProvider: SPTabBarContentDelegate {
     func indicatorContentFrame(on bar: SPTabBar, context: SPTabBarIndicatorLayoutContext) -> CGRect {
         let insets = bar.layoutConfiguration.contentInsets
         let content = makeContent(
-            on: bar,
-            item: context.item,
+            layout: bar.layoutConfiguration,
+            itemCount: bar.items.count,
+            item: ContentValues(
+                title: context.item.title,
+                accessibilityLabel: context.item.accessibilityLabel,
+                badgeValue: context.item.badgeValue,
+                isEnabled: context.item.isEnabled
+            ),
             index: context.index,
             traits: context.traitCollection,
             tintColor: bar.tintColor,

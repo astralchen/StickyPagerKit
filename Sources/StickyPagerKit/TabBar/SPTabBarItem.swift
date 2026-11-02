@@ -54,7 +54,7 @@ public final class SPTabBarItem: UIBarItem {
             storedAppearance?.detach(self)
             storedAppearance = newValue.map { SPTabBarAppearance(barAppearance: $0) }
             storedAppearance?.attach(self)
-            changed()
+            changed(affectsEnvironment: true)
         }
     }
 
@@ -70,10 +70,14 @@ public final class SPTabBarItem: UIBarItem {
     private var storedTag = 0
     public override var tag: Int {
         get { storedTag }
-        set { storedTag = newValue }
+        set { storedTag = newValue; changed() }
     }
 
     private var titleAttributes: [UInt: [NSAttributedString.Key: Any]] = [:]
+    internal var contentTitleAttributes: [UInt: [NSAttributedString.Key: Any]] {
+        titleAttributes
+    }
+
     public override init() {
         super.init()
     }
@@ -182,21 +186,21 @@ public final class SPTabBarItem: UIBarItem {
     }
 
     internal func indicatorDidChange() {
-        changed(.indicatorGeometry)
+        changed(.indicatorGeometry, affectsEnvironment: true)
     }
 
     internal func indicatorAppearanceDidChange() {
-        changed(.indicatorAppearance)
+        changed(.indicatorAppearance, affectsEnvironment: true)
     }
 
     internal func appearanceDidChange(_ reason: SPTabBarChange = .content) {
         // 选中 Item 的 Appearance 是整栏外观，不能按单项显示属性处理。
-        changed(reason)
+        changed(reason, affectsEnvironment: true)
     }
 
-    private func changed(_ reason: SPTabBarChange = .content) {
+    private func changed(_ reason: SPTabBarChange = .content, affectsEnvironment: Bool = false) {
         for bar in hosts.allObjects {
-            bar.itemDidChange(self, reason: reason)
+            bar.itemDidChange(self, reason: reason, affectsEnvironment: affectsEnvironment)
         }
     }
 }
