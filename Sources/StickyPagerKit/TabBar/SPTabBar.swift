@@ -29,6 +29,26 @@ open class SPTabBar: UIView {
         }
     }
 
+    private var storedVisualStyle = SPTabBarVisualStyle.standard
+    /// 内置视觉预设，默认 standard；适用于内置图文、自定义内容及回退项。
+    /// 不重新请求内容或测量。运行中更改会结束程序动画，保留分页进度与手动偏移。
+    /// 同一归一化值不触发刷新；与 Appearance 的颜色、字体和指示器布局独立。
+    public var visualStyle: SPTabBarVisualStyle {
+        get { storedVisualStyle }
+        set {
+            let value = newValue.normalized
+            guard value != storedVisualStyle else {
+                return
+            }
+            storedVisualStyle = value
+            reloadIndicator()
+        }
+    }
+
+    private var indicatorMotion: SPTabBarVisualStyle.IndicatorMotion {
+        visualStyle.motion(reduceMotion: UIAccessibility.isReduceMotionEnabled)
+    }
+
     /// 内容展示方式，与 indicatorStyle 的指示器展示方式独立。
     public enum ContentStyle: Int, Sendable {
         /// 内置图文内容；不调用内容代理。
@@ -695,8 +715,8 @@ open class SPTabBar: UIView {
         let targetOffset = centeredOffset(for: selectedIndex)
         isPreparingSelection = false
         let canInterpolateIndicator = !fromIndicator.isEmpty && !targetIndicator.isEmpty
-        let animatesContent = appliedContentMeasurement?.contents
-            .contains { $0?.tracksSelectionProgress == true } == true
+        let animatesContent = (visualStyle.unselectedAlpha < 1 || appliedContentMeasurement?.contents
+            .contains { $0?.tracksSelectionProgress == true } == true)
             && contentOrigin != (selectedIndex.map { [$0: CGFloat(1)] } ?? [:])
         if animated, !UIAccessibility.isReduceMotionEnabled, window != nil, bounds.width > 0, bounds.height > 0,
            animatesContent || (canInterpolateIndicator && fromIndicator != targetIndicator) ||
@@ -712,7 +732,7 @@ open class SPTabBar: UIView {
                 fromOffset: fromOffset,
                 toOffset: targetOffset,
                 startTime: CACurrentMediaTime()
-            ), contentOrigin: contentOrigin)
+            ), contentOrigin: contentOrigin, indicatorMotion: indicatorMotion)
         } else {
             presentation.prepareContentProgress(nil)
             updateIndicator()
@@ -744,7 +764,8 @@ open class SPTabBar: UIView {
             fromIndicator: transitionOrigin?.indicator ?? indicatorFrame(fromIndex),
             toIndicator: indicatorFrame(toIndex),
             fromOffset: transitionOrigin?.offset ?? centeredOffset(for: fromIndex),
-            toOffset: centeredOffset(for: toIndex)
+            toOffset: centeredOffset(for: toIndex),
+            indicatorMotion: indicatorMotion
         )
         applyPresentationFrame(frame)
     }
@@ -978,6 +999,12 @@ open class SPTabBar: UIView {
             }
             self?.requestSelection(of: item)
         }
+        cell.contentView.alpha = visualStyle.alpha(
+            progress: selected.map { $0 ? 1 : 0 }
+                ?? presentation.contentWeights(selectedIndex: selectedIndex)[index, default: 0],
+            enabled: item.isEnabled,
+            reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
+        )
     }
 
     private func updateVisibleCells() {
@@ -1063,13 +1090,18 @@ open class SPTabBar: UIView {
     }
 
     private func updateContentProgress() {
-        guard contentStyle == .custom else {
-            return
-        }
         let weights = presentation.contentWeights(selectedIndex: selectedIndex)
         for path in collectionView.indexPathsForVisibleItems {
-            (collectionView.cellForItem(at: path)?.contentView as? SPTabContentProgressDisplaying)?
-                .updateSelectionProgress(weights[path.item, default: 0])
+            guard items.indices.contains(path.item), let cell = collectionView.cellForItem(at: path) else {
+                continue
+            }
+            let progress = weights[path.item, default: 0]
+            cell.contentView.alpha = visualStyle.alpha(
+                progress: progress,
+                enabled: items[path.item].isEnabled,
+                reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
+            )
+            (cell.contentView as? SPTabContentProgressDisplaying)?.updateSelectionProgress(progress)
         }
     }
 
@@ -1086,7 +1118,8 @@ open class SPTabBar: UIView {
                 fromIndicator: transitionOrigin?.indicator ?? indicatorFrame(transition.from),
                 toIndicator: indicatorFrame(transition.to),
                 fromOffset: collectionView.contentOffset.x,
-                toOffset: collectionView.contentOffset.x
+                toOffset: collectionView.contentOffset.x,
+                indicatorMotion: indicatorMotion
             )
         } else {
             // 静止状态只解析一次端点，保持几何代理的既有调用语义。

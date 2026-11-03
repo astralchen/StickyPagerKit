@@ -89,7 +89,8 @@ public struct SPTabBarIndicatorLayout: Codable, Equatable, Sendable {
         underline(width: .automatic)
     }
 
-    /// 下划线预设；固定宽度分页时只移动，跟随内容时同时插值位置和宽度。
+    /// 下划线端点预设；默认线性插值下固定宽度只移动，跟随内容时同时插值位置和宽度。
+    /// visualStyle 的拉伸效果允许中间帧变宽，起终点仍采用本配置。
     public static func underline(width: Width) -> Self {
         var value = Self()
         value.reference = .title

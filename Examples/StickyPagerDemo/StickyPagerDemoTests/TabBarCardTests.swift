@@ -80,6 +80,31 @@ final class TabBarCardTests: XCTestCase {
         }
     }
 
+    func testBuiltInVisualStylesComposeWithCardsAndRestoreWithoutResizing() throws {
+        for rtl in [false, true] {
+            try withBar(count: 2, rtl: rtl, largeText: true) { bar, list in
+                bar.layoutConfiguration.itemSizing = .equal
+                bar.frame.size.height = bar.sizeThatFits(bar.bounds.size).height
+                bar.layoutIfNeeded()
+                let size = bar.sizeThatFits(bar.bounds.size)
+                let first = try XCTUnwrap(list.cellForItem(at: IndexPath(item: 0, section: 0)))
+                let second = try XCTUnwrap(list.cellForItem(at: IndexPath(item: 1, section: 0)))
+                let frame = first.frame
+                bar.visualStyle = .fadeAndStretch
+                bar.setTransitionProgress(from: 0, to: 1, progress: 0.25)
+                XCTAssertEqual(first.contentView.alpha, 0.8875, accuracy: 0.001)
+                XCTAssertEqual(second.contentView.alpha, 0.6625, accuracy: 0.001)
+                XCTAssertEqual(bar.sizeThatFits(bar.bounds.size), size)
+                XCTAssertEqual(first.frame, frame)
+                bar.visualStyle = .standard
+                XCTAssertEqual(first.contentView.alpha, 1)
+                XCTAssertEqual(second.contentView.alpha, 1)
+                bar.setSelectedIndex(0, animated: false)
+                XCTAssertEqual(bar.selectedIndex, 0)
+            }
+        }
+    }
+
     private func settle(_ window: UIWindow) {
         window.layoutIfNeeded()
         CATransaction.flush()

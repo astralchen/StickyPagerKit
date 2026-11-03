@@ -4,6 +4,27 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-02：内置视觉预设与指示器拉伸（P4D）
+
+在 `codex/container-architecture-refactor`、HEAD `d7cb859` 上实施。新增值类型 `SPTabBarVisualStyle` 与 `SPTabBar.visualStyle`，提供 standard、fade、stretch、fadeAndStretch 四种预设。默认保持现有外观；淡化作用于框架内容容器，覆盖内置图文、自定义内容和回退项，不覆盖业务内部 alpha。拉伸通过同一归一化进度计算前后边缘，按物理端点适配 RTL，最终端点仍由既有 IndicatorLayout 决定。没有业务字段、私有 UIKit 访问、第三方运行时依赖、额外计时器或布局测量路径。
+
+减少动态效果时交互指示器使用原有几何插值，程序选择沿用直接完成；降低透明度时关闭额外淡化，禁用项保留原外观。运行中切换预设让程序动画收敛，保留分页进度和手动偏移；归一化等值赋值不刷新。Demo 独立标签栏与分页容器均加入“视觉与动画”菜单及 `--visual-effects` 验证入口。未修改工程或开发团队配置，未暂存、提交或推送。
+
+对照 Tabman 固定版本 `b666020935dbd1c3fb5a97ad96f0fe7444c907a6` 的 [Button 连续 alpha](https://github.com/uias/Tabman/blob/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar/BarButton/TMBarButton.swift)及 [Indicator 职责](https://github.com/uias/Tabman/blob/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar/BarIndicator/TMBarIndicator.swift)，保留本库的统一进度、选中提交和缓存边界，未复制源码。核对 Apple 的 [hitTest](https://developer.apple.com/documentation/uikit/uiview/hittest(_:with:))、[Reduce Motion](https://developer.apple.com/documentation/uikit/uiaccessibility/isreducemotionenabled) 和 [Reduce Transparency](https://developer.apple.com/documentation/uikit/uiaccessibility/isreducetransparencyenabled) 公开说明；0.2 的淡化下限是本库配置约束，不是 Apple 指定的透明度阈值。
+
+环境为 Xcode 27.2（27B52）/ Swift 6.4.2、iPhone 18 Pro Max / iOS 27.2 Simulator、Debug，批次串行。官方 MCP 确认当前 Demo／Package scheme；库使用脚本提供 UIKit application host，Demo 测试接口不能关闭 scheme 的并行配置，因此使用脚本与 `-parallel-testing-enabled NO`，未切换其他工作区的运行目标。
+
+- **首轮聚焦失败并保留：56/57 通过**，1 项工作量断言失败，四类运行诊断为 0、xcresult 运行时警告为空。夹具在修改手动偏移后尚未完成 Cell 复用就读取计数，导致随后布局产生的 6 次 Cell 配置被计入预设赋值；测量和代理请求次数均未增加。修正为先完成滚动布局再读取基线，保留统计快照完全相等的严格断言，未修改框架实现。该批编译后另增加 1 项自定义指示器用例及 Demo 测试，源码差异如实保留。[首轮摘要](Results/20261102-tabbar-p4d-focused/summary.json)。
+
+- **聚焦复验通过：58/58**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空。覆盖新增 8 项视觉预设用例及既有内容进度、缓存、指示器与布局回归。复验结束时 `sourceChangedSinceRun=[]`；随后仅补充指示器的公开文档注释。[聚焦复验摘要](Results/20261102-tabbar-p4d-focused-verified/summary.json)。
+- **完整库回归通过：421/421**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空。新增实际窗口用例覆盖淡化命中与禁用项、内置／自定义／回退内容、LTR／RTL 拉伸端点及中间帧、反向拖动与取消、跨页跳转和多次动画接管、尺寸变化、无指示器内容动画、复用／重排／手动偏移、自定义指示器及无障碍降级。运行后唯一源码差异为 `SPTabBarIndicator.swift` 的两行 `///` 注释：补明拉伸允许固定宽度指示器的中间帧变宽；核对原文件哈希与 HEAD 一致，排除文档注释后内容完全相同，其余源码哈希一致，不覆盖原始快照或把差异写成空数组。[完整库摘要](Results/20261102-tabbar-p4d-library/summary.json)、[源码与静态核对](Results/20261102-tabbar-p4d-library/static-audit.json)。
+
+- **Demo 串行验证通过：18/18**，全部 15 项 Demo 单元测试及 3 项真实触摸测试，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。UI 覆盖四种预设切换、默认／自定义内容点击和禁用项、栏高不变、RTL 短拖取消／分页／横竖屏对齐、恢复标准效果，以及既有自定义标签按住横拖。新增 Demo 实际窗口用例验证大字体 LTR／RTL 卡片组合淡化时尺寸不变及重置恢复。RTL 用例打开“页面”菜单时出现 2 次 XCTest `App animations complete notification not received`，随后继续并通过全部断言；保留等待异常，不宣称其原因已确认或修复，未关闭动画或放宽等待预算。[Demo 摘要](Results/20261102-tabbar-p4d-demo/summary.json)、[所选测试](Results/20261102-tabbar-p4d-demo/requested-tests.json)、[原始日志](Results/20261102-tabbar-p4d-demo/xcodebuild.log)。
+- **截图核对：** 导出 5 张截图，检查标准、淡化与拉伸组合及自定义卡片的静止画面，选中项保持正常透明度，未选中内容淡化，禁用项保留既有外观。截图只对应静止时刻；指示器拉伸中间帧由库测试断言覆盖，不据此宣称动画流畅度或性能通过。[截图清单](Results/20261102-tabbar-p4d-demo/attachments/manifest.json)、[标准效果](Results/20261102-tabbar-p4d-demo/attachments/04F6693E-F072-4E1D-9805-EB3EB2CA6124.png)、[组合效果](Results/20261102-tabbar-p4d-demo/attachments/8B6A07A8-A755-4543-858D-78EA6FF5E032.png)、[自定义卡片](Results/20261102-tabbar-p4d-demo/attachments/56E244AC-491D-4EAA-A224-43D1BF5660E2.png)。
+- **静态检查通过：** SwiftFormat 0.64.0 对 10 个改动 Swift 文件 lint，0 文件需要格式化；Demo 原有格式化阶段为 0/89 文件变化、2 文件跳过。`git diff --check` 通过。无工程、scheme 或开发团队配置改动，未暂存、提交或推送。编译日志保留现有 UIKit 弃用／测试辅助函数 actor 隔离、测试框架最低版本链接及 App Intents 元数据提示；未为消除工具链警告调整部署目标。[静态核对](Results/20261102-tabbar-p4d-library/static-audit.json)。
+
+**未执行：** Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、减少动态效果／降低透明度系统设置的端到端切换、耗时／内存／帧率基准及长期压力测试。无障碍降级的纯函数与通知分支已覆盖，不等于系统设置操作已验收。本阶段未新增缩放、弹簧动画或默认图文连续字体／颜色插值。历史失败和等待记录继续保留；本轮无剩余环境阻塞项。
+
 ## 2026-11-02：自定义内容连续选择进度与 Demo 视觉过渡（P4C）
 
 在 `codex/container-architecture-refactor`、HEAD `d899241` 上继续实施。新增可选 `SPTabBarContent.tracksSelectionProgress`（默认 false）及只读 `UICellConfigurationState.spSelectionProgress`，通过 UIKit 公开的自定义配置状态键传递 0...1 的视觉程度。内容、指示器与横向偏移共用现有动画时钟；每帧只更新显式开启且进度变化的可见内容，不重新请求代理、测量或重建兼容视图。未使用 UIKit 私有视图、系统内部 Scroll View 或业务专用依赖。

@@ -117,6 +117,7 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 | `SPPageLayout` | Header 总高度、保留高度、标签栏高度 |
 | `SPHeaderState` | `expanded`、`collapsing`、`collapsed` |
 | `SPTabBar` / `SPTabBarItem` | 可滚动标签栏与继承 UIBarItem 的动态标签对象 |
+| `SPTabBarVisualStyle` | 与内容和布局独立的淡化、指示器拉伸及组合预设 |
 | `SPTabBarContentDelegate` / `SPTabBarContent` / `SPTabBarContentItem` / `SPTabBarContentContext` | 自定义标签 UI 的配置、尺寸、单项快照及显式环境 |
 
 数据源和代理均为弱引用；需要由业务方持有。选择与分页事件代理提供默认实现；自定义内容代理需要实现内容提供方法。
@@ -349,7 +350,7 @@ tabs.invalidateAccessoryLayout()
 
 `SPTabBar.IndicatorStyle` 定义在标签栏中，包含 `.capsule`、`.underline`、`.custom`、`.none`，默认 `.underline`。它与 `ContentStyle` 独立：两种内置样式直接提供默认布局和颜色；`.custom` 启用几何代理与自定义视图；`.none` 表示不使用指示器，跳过几何计算和渲染，不调用自定义扩展点，标签选择、文字状态和分页照常工作。
 
-未显式覆盖时，胶囊在标签四周内缩 4 pt，使用 `.tertiarySystemFill`；默认线条与当前标题等宽、在 Item 底部对齐、高 3 pt，颜色跟随 `SPTabBar.tintColor`；纯图标项回退到图标区域，自定义内容使用 `indicatorContentRect` 的水平范围（未声明时回退到整项），并限制到 Item 内。显式 `indicatorLayout = .underline` 与默认频道线条一致，也可使用 `.underline(width: .fixed(20))` 固定宽度并居中对齐文字；固定宽度不受文字宽度限制。同一固定宽度用于所有 Item 时，分页只移动、不伸缩。自定义模式缺少几何代理时使用布局配置或胶囊几何，缺少视图时使用内置绘制，默认颜色跟随选中文字。切回内置样式或 `.none` 保留自定义对象，但不调用代理或视图更新。
+未显式覆盖时，胶囊在标签四周内缩 4 pt，使用 `.tertiarySystemFill`；默认线条与当前标题等宽、在 Item 底部对齐、高 3 pt，颜色跟随 `SPTabBar.tintColor`；纯图标项回退到图标区域，自定义内容使用 `indicatorContentRect` 的水平范围（未声明时回退到整项），并限制到 Item 内。显式 `indicatorLayout = .underline` 与默认频道线条一致，也可使用 `.underline(width: .fixed(20))` 固定宽度并居中对齐文字；固定宽度不受文字宽度限制。同一固定宽度用于所有 Item 时，默认线性插值的分页只移动、不伸缩；显式启用拉伸预设后允许中间帧变宽。自定义模式缺少几何代理时使用布局配置或胶囊几何，缺少视图时使用内置绘制，默认颜色跟随选中文字。切回内置样式或 `.none` 保留自定义对象，但不调用代理或视图更新。
 
 Appearance 的 `indicatorLayout` 和 `indicatorColor` 默认均为 nil，表示采用当前样式的默认值；显式配置优先于样式，切换样式不会清除配置，设回 nil 恢复当前样式默认值。下划线颜色不随 Item 标题属性或 `selected.titleColor` 改变；优先级为显式 `indicatorColor` → 栏 `tintColor`，运行时更新主题色立即生效。指示器是否启用统一由 `SPTabBar.indicatorStyle` 控制；`.none` 表示不需要指示器，切回其他模式时按当前选择或分页进度恢复显示。
 
@@ -461,6 +462,29 @@ tabs.indicatorView = customIndicatorView
 独立“标签外观”和分页“页面”菜单的“指示器”子菜单展示七种效果：默认下划线、固定 20 pt 下划线、胶囊、顶部固定线条、跟随内容宽度、内容背景、自由布局与自定义视图；另提供不使用指示器的隐藏选项，以及自动圆角、直角、固定 1 pt 圆角设置。自定义渐变视图使用框架解析后的 `state.cornerRadius`，与内置指示器遵循相同设置。
 
 默认使用系统材质背景和文字等宽下划线。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中指示器支持布局预设、自定义几何，并通过 `.none` 关闭。图标默认保持比例放入 24 pt 区域，可通过 `defaultContentLayout.iconSize` 修改，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
+
+P4D 的内置视觉预设通过 `visualStyle` 独立配置，默认 `.standard` 保持既有外观。它不改变 `contentStyle`、Item、Appearance、标签测量或指示器端点布局：
+
+```swift
+pager.tabBar.visualStyle = .fadeAndStretch
+// 或仅开启一类效果：.fade / .stretch；恢复默认使用 .standard。
+var style = SPTabBarVisualStyle.fadeAndStretch
+style.unselectedAlpha = 0.7
+pager.tabBar.visualStyle = style
+```
+
+| 预设 | 内容呈现 | 指示器中间帧 |
+| --- | --- | --- |
+| `.standard` | 原样 | 原有线性几何插值 |
+| `.fade` | 未选中 alpha 为 0.55，按连续选择程度过渡到 1 | 原有插值 |
+| `.stretch` | 原样 | 水平前缘先行、后缘跟进 |
+| `.fadeAndStretch` | 连续淡化 | 拉伸跟随 |
+
+- 淡化适用于内置图文、角标、自定义内容及回退项，作用于框架内容容器，与业务内部 alpha 叠加，不改写业务视图的透明度。禁用项保留自己的禁用外观。`unselectedAlpha` 的有限值归一化到 0.2...1，非有限值回退到 1；选中 alpha 固定为 1。文字、字体、图标及颜色仍遵守既有外观与离散预览契约。
+- 拉伸按物理端点判断方向，自动适配 RTL、反向拖动及跨多项跳转；起终点严格采用既有几何，中间可拉长，仍裁剪到标签视口。没有弹簧越界或第二个计时器。自定义指示器接收拉伸后的 `state.frame`，`state.progress` 仍是与内容和滚动共用的逻辑动画进度。`.none` 不绘制指示器，淡化动画仍可独立工作。
+- 运行中切换不同预设会让程序动画收敛到已选项；交互分页保留进度并重新计算端点，手动滚动偏移保留。归一化值未变化时不刷新。预设不会触发内容代理或尺寸测量，不更改点击、无障碍或分页选择的提交语义。
+- 减少动态效果启用时，程序化选择沿用直接完成策略，交互分页不做拉伸形变；降低透明度启用时，不叠加内容淡化。状态读取使用 UIKit 公开的 [Reduce Motion](https://developer.apple.com/documentation/uikit/uiaccessibility/isreducemotionenabled) 与 [Reduce Transparency](https://developer.apple.com/documentation/uikit/uiaccessibility/isreducetransparencyenabled) API。
+- Demo 的“标签外观 → 配置 → 视觉与动画”及“页面 → 视觉与动画”可切换全部预设；`--visual-effects` 启动参数用于直接进入淡化与拉伸。自定义内容无需开启 `tracksSelectionProgress` 即可使用外层淡化；若同时开启，P4C 内部效果与外层效果组合呈现。
 
 默认文字和模板图标采用 UITabBar 风格：未选中为 `.secondaryLabel`，选中跟随标签栏的 `tintColor`（包括从父视图继承的颜色），禁用为 `.tertiaryLabel`。显式状态颜色优先；`titleColor`、`iconColor` 设为 nil 时恢复该状态的默认颜色。默认模式下，运行时改变 tint 会立即刷新可见标签，不改变滚动位置和选中动画。深浅色使用动态颜色解析。
 
@@ -848,7 +872,7 @@ python3 Scripts/run_external_rotation.py \
 
 布局提交按视口与附件、内容测量与 Collection View 几何、运动状态与偏移、最终指示器与边缘渐隐的顺序执行。提交中途的同步滚动回调不提前呈现指示器或边缘遮罩；切页入口仍同步完成待处理布局，并保留 `layoutSubviews` 的 override 分发。内容与视口同时变化时沿用内容刷新策略：没有动画或对齐请求则保留并限制手动偏移；仅视口变化时继续对齐选中项。候选宽度测量不提交当前显示几何，未增加异步布局队列；P4B 的内容代理契约调整独立于布局提交阶段。
 
-该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。默认内容样式仍按分页进度过半离散切换；P4C 为自定义配置提供显式开启的连续选择进度，Demo 使用其呈现描边与背景变化，未新增默认文字／颜色插值。P3 与 P4A 保持公开 API，P4B 按上述迁移说明调整内容代理，P4C 增加兼容的可选呈现能力；不据此承诺耗时或帧率提升。
+该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。默认内容样式仍按分页进度过半离散切换；P4C 为自定义配置提供显式开启的连续选择进度，Demo 使用其呈现描边与背景变化，P4D 增加内置淡化与指示器拉伸预设，未增加默认文字／颜色插值。P3 与 P4A 保持公开 API，P4B 按上述迁移说明调整内容代理，P4C／P4D 增加兼容的可选呈现能力；不据此承诺耗时或帧率提升。
 
 ## 目录
 

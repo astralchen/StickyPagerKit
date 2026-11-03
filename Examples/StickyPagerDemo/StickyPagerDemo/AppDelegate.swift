@@ -137,6 +137,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
                 trailing: 16
             )
         }
+        DemoTabBarVisualStyles.installLaunchStyle(on: tabBar)
         tabBar.contentDelegate = customTabProvider
         indicatorProvider.contentProvider = customTabProvider
         if ProcessInfo.processInfo.arguments.contains("--custom-tabs") {
@@ -157,6 +158,7 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         let height = UIBarButtonItem(title: "高度", primaryAction: heightAction)
         height.accessibilityIdentifier = "demo.height"
         let pages = UIBarButtonItem(title: "页面", menu: UIMenu(children: [
+            DemoTabBarVisualStyles.menu(for: tabBar),
             DemoTabBarPositioning.menu(for: tabBar),
             DemoTabBarPositioning.contentMenu(for: tabBar),
             DemoTabBarAccessories.menu(for: tabBar, owner: self),

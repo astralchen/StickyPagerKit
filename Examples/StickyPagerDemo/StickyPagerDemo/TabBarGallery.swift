@@ -31,6 +31,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         if ProcessInfo.processInfo.arguments.contains("--rtl") {
             bar.semanticContentAttribute = .forceRightToLeft
         }
+        DemoTabBarVisualStyles.installLaunchStyle(on: bar)
         bar.items = tabs
         bar.selectedItem = tabs[0]
         bar.delegate = self
@@ -54,6 +55,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         status.text = "独立使用：点击标签可选择；拖动可浏览更多标签。右上角可切换布局、样式和动态内容。"
         view.addSubview(status)
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "配置", menu: UIMenu(children: [
+            DemoTabBarVisualStyles.menu(for: bar),
             DemoTabBarPositioning.menu(for: bar),
             DemoTabBarPositioning.contentMenu(for: bar),
             DemoTabBarAccessories.menu(for: bar, owner: self),

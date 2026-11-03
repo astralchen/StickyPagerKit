@@ -1636,6 +1636,65 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(favorites.isSelected)
     }
 
+    func testBuiltInVisualPresetsSwitchAndKeepDefaultAndCustomTabsInteractive() {
+        openGallery()
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let height = tabs.frame.height
+        for preset in ["内容淡化", "指示器拉伸", "淡化与拉伸", "标准效果"] {
+            app.buttons["配置"].tap()
+            app.buttons["视觉与动画"].tap()
+            app.buttons[preset].tap()
+            select(1)
+            XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+            select(0)
+            XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+            XCTAssertEqual(tabs.frame.height, height, accuracy: 1)
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "visual-preset-\(preset)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        app.buttons["配置"].tap()
+        app.buttons["自定义卡片"].tap()
+        app.buttons["配置"].tap()
+        app.buttons["视觉与动画"].tap()
+        app.buttons["淡化与拉伸"].tap()
+        select(1)
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        select(3)
+        XCTAssertFalse(app.buttons["sp.tab.3"].isEnabled)
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+    }
+
+    func testBuiltInVisualPresetRTLPagingCancellationAndRotation() {
+        app.terminate()
+        app.launchArguments = ["--open-demo", "--window-regression", "--rtl", "--visual-effects", "--custom-tabs"]
+        app.launch()
+        XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+        let grid = app.collectionViews["demo.grid"]
+        let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: grid.frame.width * 0.12, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
+        expect("page=grid")
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        grid.swipeRight()
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        select(3); expect("page=empty")
+        rotate(to: .landscapeLeft)
+        expectSelectedTabAlignment(3)
+        rotate(to: .portrait)
+        select(0); expect("page=grid")
+        app.buttons["demo.pages"].tap()
+        app.buttons["视觉与动画"].tap()
+        app.buttons["标准效果"].tap()
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+    }
+
     func testCustomTabGallerySwitchesModeAndUpdatesContent() {
         openGallery()
         let tabs = app.collectionViews["sp.tabBar.collection"]

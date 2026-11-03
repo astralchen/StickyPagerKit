@@ -44,6 +44,7 @@ internal final class SPTabBarPresentationCoordinator {
     // 稀疏权重只保存呈现，不保存 Item，也不改变已提交选择。
     private var contentProgress: [Int: CGFloat]?
     private var animationContentOrigin: [Int: CGFloat] = [:]
+    private var animationIndicatorMotion = SPTabBarVisualStyle.IndicatorMotion.linear
     private var pagingContentOrigin: [Int: CGFloat]?
 
     func contentWeights(selectedIndex: Int?) -> [Int: CGFloat] {
@@ -160,9 +161,14 @@ internal final class SPTabBarPresentationCoordinator {
         generation &+= 1
     }
 
-    func startAnimation(_ animation: Animation, contentOrigin: [Int: CGFloat] = [:]) {
+    func startAnimation(
+        _ animation: Animation,
+        contentOrigin: [Int: CGFloat] = [:],
+        indicatorMotion: SPTabBarVisualStyle.IndicatorMotion = .linear
+    ) {
         resetMotion()
         animationContentOrigin = contentOrigin
+        animationIndicatorMotion = indicatorMotion
         motion = .selection(animation)
         let current = generation
         advance(to: 0)
@@ -200,7 +206,8 @@ internal final class SPTabBarPresentationCoordinator {
             fromIndicator: animation.fromIndicator,
             toIndicator: animation.toIndicator,
             fromOffset: animation.fromOffset,
-            toOffset: animation.toOffset
+            toOffset: animation.toOffset,
+            indicatorMotion: animationIndicatorMotion
         ))
         if p == 1, current == generation {
             stopAnimation()
@@ -215,16 +222,12 @@ internal final class SPTabBarPresentationCoordinator {
         fromIndicator: CGRect,
         toIndicator: CGRect,
         fromOffset: CGFloat,
-        toOffset: CGFloat
+        toOffset: CGFloat,
+        indicatorMotion: SPTabBarVisualStyle.IndicatorMotion = .linear
     ) -> Frame {
         let a = fromIndicator, b = toIndicator, p = progress
         return Frame(
-            indicator: CGRect(
-                x: a.minX + (b.minX - a.minX) * p,
-                y: a.minY + (b.minY - a.minY) * p,
-                width: a.width + (b.width - a.width) * p,
-                height: a.height + (b.height - a.height) * p
-            ),
+            indicator: SPTabBarVisualStyle.indicatorFrame(from: a, to: b, progress: p, motion: indicatorMotion),
             offset: fromOffset + (toOffset - fromOffset) * p,
             from: from,
             to: to,
