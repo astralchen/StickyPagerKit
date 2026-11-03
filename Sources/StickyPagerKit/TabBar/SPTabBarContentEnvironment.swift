@@ -83,6 +83,7 @@ internal struct SPTabBarContentEnvironment {
         selected: Bool,
         content: SPTabBarContent?,
         selectionProgress: CGFloat? = nil,
+        interpolatesDefaultColors: Bool = false,
         onTap: @escaping @MainActor () -> Void
     ) -> SPTabContentConfiguration {
         let isSelected = selected
@@ -171,6 +172,8 @@ internal struct SPTabBarContentEnvironment {
         }
         return SPTabContentConfiguration.standard(SPDefaultTabContentConfiguration(
             buttonConfiguration: configuration,
+            colors: interpolatesDefaultColors && item.isEnabled ? defaultColors(for: item) : nil,
+            selectionProgress: selectionProgress ?? (isSelected ? 1 : 0),
             layoutDirection: contentDirection,
             iconColor: iconColor,
             isEnabled: item.isEnabled,
@@ -186,5 +189,23 @@ internal struct SPTabBarContentEnvironment {
             badgeBackgroundColor: item.badgeColor ?? state.badgeBackgroundColor,
             onTap: onTap
         ))
+    }
+
+    private func defaultColors(for item: SPTabBarItem) -> SPDefaultTabColors {
+        func colors(selected: Bool) -> (UIColor, UIColor) {
+            let state: UIControl.State = selected ? .selected : .normal
+            let style = selected ? appearance.itemAppearance.selected : appearance.itemAppearance.normal
+            let fallback: UIColor = selected ? tintColor : .secondaryLabel
+            let attributes = item.titleTextAttributes(for: state) ?? item.titleTextAttributes(for: .normal)
+            return (
+                attributes?[.foregroundColor] as? UIColor ?? style.titleColor ?? fallback,
+                style.iconColor ?? fallback
+            )
+        }
+        let normal = colors(selected: false), selected = colors(selected: true)
+        return SPDefaultTabColors(
+            title: SPTabColorTransition(from: normal.0, to: selected.0, traits: traitCollection),
+            icon: SPTabColorTransition(from: normal.1, to: selected.1, traits: traitCollection)
+        )
     }
 }

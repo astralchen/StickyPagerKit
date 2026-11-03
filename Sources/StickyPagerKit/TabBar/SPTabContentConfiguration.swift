@@ -33,6 +33,8 @@ internal enum SPTabBadgeMetrics {
 /// 已按标签栏选中项、外观和 traits 解析的内容快照，不持有可变的 Item 或 Appearance。
 internal struct SPDefaultTabContentConfiguration {
     let buttonConfiguration: UIButton.Configuration
+    let colors: SPDefaultTabColors?
+    let selectionProgress: CGFloat
     let layoutDirection: UIUserInterfaceLayoutDirection
     let iconColor: UIColor
     let isEnabled: Bool
@@ -80,6 +82,7 @@ internal protocol SPTabIndicatorContentGeometry: AnyObject {
 @MainActor
 internal protocol SPTabContentProgressDisplaying: AnyObject {
     func updateSelectionProgress(_ progress: CGFloat)
+    func updateContentScale(_ scale: CGFloat, enabled: Bool)
 }
 
 @MainActor
@@ -108,6 +111,7 @@ SPTabContentProgressDisplaying {
                 button.isHighlighted = false
             }
             applyConfiguration()
+            synchronizeActivationOverlay()
             applyingConfiguration = false
         }
     }
@@ -117,6 +121,8 @@ SPTabContentProgressDisplaying {
     private var applyingConfiguration = false
     private var displayedSelectionProgress: CGFloat?
     private let badge = UILabel()
+    private var visualHost: UIView?
+    private var activationOverlay: ActivationButton?
 
     init(configuration: SPTabContentConfiguration) {
         storedConfiguration = configuration
@@ -170,6 +176,7 @@ SPTabContentProgressDisplaying {
         badge.font = value.badgeFont
         badge.textColor = value.badgeTextColor
         badge.backgroundColor = value.badgeBackgroundColor
+        updateDefaultColors(progress: value.selectionProgress)
         setNeedsLayout()
     }
 
@@ -202,12 +209,39 @@ SPTabContentProgressDisplaying {
     }
 
     func updateSelectionProgress(_ progress: CGFloat) {
+        if case .standard = storedConfiguration {
+            updateDefaultColors(progress: progress)
+            return
+        }
         guard case let .custom(value) = storedConfiguration, value.tracksSelectionProgress,
               progress != (displayedSelectionProgress ?? value.state.spSelectionProgress) else {
             return
         }
         displayedSelectionProgress = progress
         updateCustomContent()
+    }
+
+    /// 连续呈现仅修改颜色；基础配置、图片与布局仍由离散配置持有。
+    private func updateDefaultColors(progress: CGFloat) {
+        guard case let .standard(value) = storedConfiguration, let colors = value.colors,
+              progress != displayedSelectionProgress else {
+            return
+        }
+        displayedSelectionProgress = progress
+        var configuration = value.buttonConfiguration
+        if let title = colors.title.color(at: progress) {
+            let base = configuration.titleTextAttributesTransformer
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var result = base?(attributes) ?? attributes
+                result.foregroundColor = title
+                return result
+            }
+        }
+        if configuration.image?.renderingMode == .alwaysTemplate, let icon = colors.icon.color(at: progress) {
+            configuration.baseForegroundColor = icon
+            button.tintColor = icon
+        }
+        button.configuration = configuration
     }
 
     private func updateCustomContent() {
@@ -236,7 +270,11 @@ SPTabContentProgressDisplaying {
             customView?.removeFromSuperview()
             let view = content.makeContentView()
             customView = view
-            insertSubview(view, belowSubview: button)
+            if let visualHost {
+                visualHost.insertSubview(view, belowSubview: button)
+            } else {
+                insertSubview(view, belowSubview: button)
+            }
         }
         customView?.isUserInteractionEnabled = false
         customView?.accessibilityElementsHidden = true
@@ -250,12 +288,9 @@ SPTabContentProgressDisplaying {
         }
         // 栏高不足时保留测得的内容高度并从顶部裁切，避免强压业务内部 required 约束。
         // 点击与无障碍入口仍使用外层 Item 的 bounds；宽度继续遵循项宽分配。
-        customView?.frame = CGRect(
-            x: bounds.minX,
-            y: bounds.minY,
-            width: bounds.width,
-            height: max(bounds.height, value.measuredSize.height)
-        )
+        let size = CGSize(width: bounds.width, height: max(bounds.height, value.measuredSize.height))
+        customView?.bounds = CGRect(origin: .zero, size: size)
+        customView?.center = CGPoint(x: bounds.minX + size.width / 2, y: bounds.minY + size.height / 2)
     }
 
     override func systemLayoutSizeFitting(
@@ -272,6 +307,68 @@ SPTabContentProgressDisplaying {
             width: bounds.width > 0 ? bounds.width : value.measuredSize.width,
             height: bounds.height > 0 ? bounds.height : value.measuredSize.height
         )
+    }
+
+    /// 变换仅作用于框架拥有的视觉层；覆盖层继续使用未缩放的 Item bounds。
+    func updateContentScale(_ scale: CGFloat, enabled: Bool) {
+        if enabled, visualHost == nil {
+            let host = UIView()
+            host.isUserInteractionEnabled = false
+            host.accessibilityElementsHidden = true
+            host.accessibilityIdentifier = "sp.tab.visualHost"
+            insertSubview(host, at: 0)
+            if let customView {
+                host.addSubview(customView)
+            }
+            host.addSubview(button)
+            host.addSubview(badge)
+            visualHost = host
+            let overlay = ActivationButton(type: .custom)
+            overlay.addAction(UIAction { [weak self] _ in self?.storedConfiguration.onTap() }, for: .touchUpInside)
+            overlay.highlightDidChange = { [weak self, weak overlay] in
+                self?.button.isHighlighted = overlay?.isHighlighted ?? false
+            }
+            addSubview(overlay)
+            activationOverlay = overlay
+            synchronizeActivationOverlay()
+        } else if !enabled, let host = visualHost {
+            // 先解除变换再恢复原有层级，避免复用或关闭效果残留呈现状态。
+            host.transform = .identity
+            if let customView {
+                insertSubview(customView, belowSubview: host)
+            }
+            addSubview(button)
+            addSubview(badge)
+            button.isHighlighted = false
+            activationOverlay?.removeFromSuperview()
+            activationOverlay = nil
+            host.removeFromSuperview()
+            visualHost = nil
+        }
+        layoutVisualHost()
+        visualHost?.transform = CGAffineTransform(scaleX: scale, y: scale)
+    }
+
+    private func synchronizeActivationOverlay() {
+        guard let overlay = activationOverlay else {
+            return
+        }
+        overlay.isEnabled = button.isEnabled
+        overlay.accessibilityIdentifier = button.accessibilityIdentifier
+        overlay.accessibilityLabel = button.accessibilityLabel
+        overlay.accessibilityHint = button.accessibilityHint
+        overlay.accessibilityValue = button.accessibilityValue
+        overlay.accessibilityTraits = button.accessibilityTraits
+        overlay.largeContentTitle = button.largeContentTitle
+        overlay.largeContentImage = button.largeContentImage
+        overlay.largeContentImageInsets = button.largeContentImageInsets
+    }
+
+    private func layoutVisualHost() {
+        visualHost?.clipsToBounds = clipsToBounds
+        visualHost?.bounds = bounds
+        visualHost?.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        activationOverlay?.frame = bounds
     }
 
     private final class ActivationButton: UIButton {
@@ -300,7 +397,7 @@ SPTabContentProgressDisplaying {
               !label.isHidden, !label.bounds.isEmpty else {
             return nil
         }
-        return label.convert(label.bounds, to: self)
+        return label.convert(label.bounds, to: visualHost ?? self)
     }
 
     var indicatorContentRect: CGRect {
@@ -310,13 +407,14 @@ SPTabContentProgressDisplaying {
             guard let view, !view.isHidden, !view.bounds.isEmpty else {
                 return nil
             }
-            return view.convert(view.bounds, to: self)
+            return view.convert(view.bounds, to: visualHost ?? self)
         }
         return frames.reduce(CGRect.null) { $0.union($1) }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        layoutVisualHost()
         button.frame = bounds
         button.layoutIfNeeded()
         layoutCustomContent()
@@ -332,10 +430,10 @@ SPTabContentProgressDisplaying {
         // 上下图文跟随图标；纯文字与横向图文跟随整体内容。尾端角标在 RTL 下镜像到左上角。
         var anchor = CGRect.null
         if let title = button.titleLabel, !(button.configuration?.title ?? "").isEmpty {
-            anchor = title.convert(title.bounds, to: self)
+            anchor = title.convert(title.bounds, to: visualHost ?? self)
         }
         if let icon = button.imageView, button.configuration?.image != nil {
-            let imageFrame = icon.convert(icon.bounds, to: self)
+            let imageFrame = icon.convert(icon.bounds, to: visualHost ?? self)
             anchor = button.configuration?.imagePlacement == .top ? imageFrame : anchor.union(imageFrame)
         }
         if anchor.isNull || anchor.isEmpty {

@@ -117,7 +117,8 @@ final class PagesController: SPPageViewController, SPPageViewControllerDataSourc
 | `SPPageLayout` | Header 总高度、保留高度、标签栏高度 |
 | `SPHeaderState` | `expanded`、`collapsing`、`collapsed` |
 | `SPTabBar` / `SPTabBarItem` | 可滚动标签栏与继承 UIBarItem 的动态标签对象 |
-| `SPTabBarVisualStyle` | 与内容和布局独立的淡化、指示器拉伸及组合预设 |
+| `SPTabBarVisualStyle` | 与业务内容和布局独立的淡化、缩放、连续颜色与指示器拉伸预设 |
+| `SPTabBarAnimationStyle` | 程序选择的平滑／弹簧运动方式，独立于视觉预设 |
 | `SPTabBarContentDelegate` / `SPTabBarContent` / `SPTabBarContentItem` / `SPTabBarContentContext` | 自定义标签 UI 的配置、尺寸、单项快照及显式环境 |
 
 数据源和代理均为弱引用；需要由业务方持有。选择与分页事件代理提供默认实现；自定义内容代理需要实现内容提供方法。
@@ -463,13 +464,15 @@ tabs.indicatorView = customIndicatorView
 
 默认使用系统材质背景和文字等宽下划线。`.automatic` 在常规垂直尺寸类中上下排列图文，在紧凑垂直尺寸类中左右排列；`.stacked`、`.inline` 可显式指定。纯文字和纯图标项仅布局实际内容。选中指示器支持布局预设、自定义几何，并通过 `.none` 关闭。图标默认保持比例放入 24 pt 区域，可通过 `defaultContentLayout.iconSize` 修改，紧凑高度可使用 `landscapeImagePhone`，支持相应 imageInsets；保留基类的大内容图片属性供自定义呈现使用；默认栏已随 Dynamic Type 增高，不额外启用长按大内容查看手势。普通图片保留 renderingMode；默认 SF Symbol 在缩放后仍按模板着色，显式 `.alwaysOriginal` 保留原色。
 
-P4D 的内置视觉预设通过 `visualStyle` 独立配置，默认 `.standard` 保持既有外观。它不改变 `contentStyle`、Item、Appearance、标签测量或指示器端点布局：
+内置视觉预设通过 `visualStyle` 独立配置，默认 `.standard` 保持既有外观。它不改变 `contentStyle`、Item、Appearance、标签测量或指示器端点布局：
 
 ```swift
 pager.tabBar.visualStyle = .fadeAndStretch
-// 或仅开启一类效果：.fade / .stretch；恢复默认使用 .standard。
+// 或仅开启一类效果：.fade / .stretch / .colorTransition / .scale；恢复默认使用 .standard。
 var style = SPTabBarVisualStyle.fadeAndStretch
 style.unselectedAlpha = 0.7
+style.interpolatesDefaultColors = true // 可与淡化、拉伸组合
+style.unselectedScale = 0.94 // 未选中略小，选中恢复原尺寸
 pager.tabBar.visualStyle = style
 ```
 
@@ -479,12 +482,29 @@ pager.tabBar.visualStyle = style
 | `.fade` | 未选中 alpha 为 0.55，按连续选择程度过渡到 1 | 原有插值 |
 | `.stretch` | 原样 | 水平前缘先行、后缘跟进 |
 | `.fadeAndStretch` | 连续淡化 | 拉伸跟随 |
+| `.colorTransition` | 默认标题与模板图标连续颜色 | 原有插值 |
+| `.scale` | 未选中为 0.94 倍，连续恢复到原尺寸 | 原有插值 |
 
-- 淡化适用于内置图文、角标、自定义内容及回退项，作用于框架内容容器，与业务内部 alpha 叠加，不改写业务视图的透明度。禁用项保留自己的禁用外观。`unselectedAlpha` 的有限值归一化到 0.2...1，非有限值回退到 1；选中 alpha 固定为 1。文字、字体、图标及颜色仍遵守既有外观与离散预览契约。
-- 拉伸按物理端点判断方向，自动适配 RTL、反向拖动及跨多项跳转；起终点严格采用既有几何，中间可拉长，仍裁剪到标签视口。没有弹簧越界或第二个计时器。自定义指示器接收拉伸后的 `state.frame`，`state.progress` 仍是与内容和滚动共用的逻辑动画进度。`.none` 不绘制指示器，淡化动画仍可独立工作。
+- 淡化适用于内置图文、角标、自定义内容及回退项，作用于框架内容容器，与业务内部 alpha 叠加，不改写业务视图的透明度。禁用项保留自己的禁用外观。`unselectedAlpha` 的有限值归一化到 0.2...1，非有限值回退到 1；选中 alpha 固定为 1。未开启连续颜色时仍遵守既有离散外观契约。
+- `interpolatesDefaultColors` 默认 false；开启后，默认内容及自定义模式的回退项按连续选择权重插值标题与模板图标颜色。颜色端点仍遵守标题属性、状态 Appearance 和自动 tint 的既有优先级；动态颜色按当前 traits 解析，在环境或 tint 改变时刷新。使用 extended sRGB 分量插值，精确保留端点；无法转换的颜色保留既有离散配置。原色图片、禁用项、字体、图片切换、阴影及角标仍按离散配置呈现；自定义内容内部颜色由其自身决定。每帧复用基础配置和图标，不请求代理、重新测量或生成图片；UIKit 内部配置更新成本仍需性能采样评估。
+- `unselectedScale` 默认 1，有限值归一化到 0.8...1，非有限值回退到 1。开启缩放时框架视觉层包裹图文、角标或自定义内容，独立激活按钮保留完整 Item 点击及无障碍区域；指示器仍使用未缩放的布局几何。自定义内容自己的 transform 不被覆盖，固定高度模式在视觉层内部先按原范围裁切再缩放。禁用项或减少动态效果启用时恢复原尺寸，关闭预设会移除额外视觉层和激活按钮。不会增大布局占位；默认动画不放大，显式弹簧允许下文描述的轻微回弹。
+- 拉伸按物理端点判断方向，自动适配 RTL、反向拖动及跨多项跳转；起终点严格采用既有几何，中间可拉长，仍裁剪到标签视口。拉伸本身不引入弹簧越界或第二个计时器；可另设下文的程序选择动画。自定义指示器接收拉伸后的 `state.frame`，`state.progress` 仍是与内容和滚动共用的逻辑动画进度。`.none` 不绘制指示器，淡化动画仍可独立工作。
 - 运行中切换不同预设会让程序动画收敛到已选项；交互分页保留进度并重新计算端点，手动滚动偏移保留。归一化值未变化时不刷新。预设不会触发内容代理或尺寸测量，不更改点击、无障碍或分页选择的提交语义。
 - 减少动态效果启用时，程序化选择沿用直接完成策略，交互分页不做拉伸形变；降低透明度启用时，不叠加内容淡化。状态读取使用 UIKit 公开的 [Reduce Motion](https://developer.apple.com/documentation/uikit/uiaccessibility/isreducemotionenabled) 与 [Reduce Transparency](https://developer.apple.com/documentation/uikit/uiaccessibility/isreducetransparencyenabled) API。
-- Demo 的“标签外观 → 配置 → 视觉与动画”及“页面 → 视觉与动画”可切换全部预设；`--visual-effects` 启动参数用于直接进入淡化与拉伸。自定义内容无需开启 `tracksSelectionProgress` 即可使用外层淡化；若同时开启，P4C 内部效果与外层效果组合呈现。
+- Demo 的“标签外观 → 配置 → 视觉与动画”及“页面 → 视觉与动画”可切换全部预设；`--visual-effects` 启动参数用于直接进入淡化与拉伸，`--color-transition` 用于默认图文连续颜色，`--scale-effects` 用于缩放与默认颜色组合。自定义内容无需开启 `tracksSelectionProgress` 即可使用外层淡化；若同时开启，P4C 内部效果与外层效果组合呈现。
+
+程序化选择的运动方式通过 `selectionAnimationStyle` 独立设置，默认 `.standard` 保持原有 0.25 秒平滑插值：
+
+```swift
+pager.tabBar.selectionAnimationStyle = .spring
+pager.tabBar.visualStyle = .scale // 可选：同时让内容缩放回弹
+```
+
+`.spring` 使用同一时钟驱动指示器中心和内容缩放，最多 0.5 秒，末段平滑收敛到零速度；指示器宽高仍按既有有界几何插值，允许与拉伸组合。颜色、透明度、自定义内容的 `spSelectionProgress`、自定义指示器的 `state.progress` 及标签栏偏移仍在 0.25 秒内有界完成；`state.progress` 不再代表弹簧中心几何的插值比例。默认样式不受影响。内容的装饰性缩放权重限制在 -0.15...1.15：例如 `.scale` 的比例约束为 0.931...1.009；布局和命中区域不变，视觉仍受标签视口裁切。这个内部权重不传给业务内容配置。
+
+连续程序改选保留指示器内容坐标中的中心位置与速度、各项缩放状态与速度；滚动偏移仍采用原有有界插值，不承诺其速度连续。手指分页接管保留当前呈现位置，随后直接跟随分页进度，不保留程序速度或额外松手回弹。交互取消、尺寸／布局变化、重排和减少动态效果通知继续使用现有收敛规则；程序动画中切换动画方式会落到当前选中项，保留手动偏移。没有新增公开完成回调，也不改变选中提交时机。阻尼参数当前固定，未开放质量／刚度或手势速度接口。
+
+Demo 的“视觉与动画 → 选择动画”可切换平滑／弹簧；`--spring-effects` 开启弹簧、内容缩放和连续颜色组合。减少动态效果时程序选择仍直接完成；静止内容尺寸不因弹簧改变。
 
 默认文字和模板图标采用 UITabBar 风格：未选中为 `.secondaryLabel`，选中跟随标签栏的 `tintColor`（包括从父视图继承的颜色），禁用为 `.tertiaryLabel`。显式状态颜色优先；`titleColor`、`iconColor` 设为 nil 时恢复该状态的默认颜色。默认模式下，运行时改变 tint 会立即刷新可见标签，不改变滚动位置和选中动画。深浅色使用动态颜色解析。
 
@@ -784,6 +804,20 @@ UIKit 库测试需要真实 `UIApplication` 生命周期。直接在 Xcode 中�
 
 `SP_SCOPE=library Scripts/validate.sh build-for-testing` 也会准备宿主和测试包，保存 `Build.xcresult`、`Hosted.xctestrun` 及独立的 `host-build.log`；完整 `test` 另保存 `Result.xcresult`。冻结的宿主／测试包位于忽略的 `Validation/Products/LibraryHosted/<运行名>/`，运行名应唯一。`-only-testing:` 和 `-skip-testing:` 参数继续生效；Release 库测试仍需 `ENABLE_TESTABILITY=YES`。
 
+`SPTabBarPerformanceTests` 提供默认图文／通用自定义内容与标准／组合效果四组呈现基准。每轮使用 6 个可见项、360×64 pt、LTR 和默认 traits，执行 12 次程序选择，每次手动推进 30 个进度点并同步布局；记录 5 轮，另丢弃首轮预热。窗口和配置初始化、每轮复位不计入测量，选中提交、同步布局及 autoreleasepool 释放计入批次。测量前检查布局后仍存在动画中间态，避免误测静止路径。
+
+```sh
+# 先按上文设置实际 SP_DEVELOPER_DIR、SP_SIMULATOR_ID；每次使用新的运行名。
+export SP_RUN_NAME="<新的性能运行名>"
+SP_SCOPE=library SP_CONFIGURATION=Release Scripts/validate.sh test ENABLE_TESTABILITY=YES \
+  -only-testing:StickyPagerKitTests/SPTabBarPerformanceTests
+DEVELOPER_DIR="$SP_DEVELOPER_DIR" xcrun xcresulttool export metrics \
+  --path "Validation/Results/$SP_RUN_NAME/Result.xcresult" \
+  --output-path "Validation/Results/$SP_RUN_NAME/metrics"
+```
+
+基准使用 `XCTClockMetric` 和 `XCTMemoryMetric`，保存整批墙钟耗时、宿主物理内存峰值及内存变化；内存指标不是分配次数或单个标签栏独占内存。当前只建立样本记录，不预设历史回归阈值，不将通过状态视为性能预算达标。比较时需保持设备、工具链、配置和工作量一致，保留全部样本及波动；自定义夹具只代表本测试配置，标准／组合效果的差值也不代表架构优化前后差值。手动进度不经过真实显示节拍，不能据此推导 FPS、GPU 成本、卡顿率或真机表现。指标定义参考 Apple 的[性能测试说明](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests)和[内存回归测量说明](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions)。
+
 验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，不兼容 content configuration 引起的整个 Cell 内容视图替换提示，以及 Auto Layout 的 `Unable to simultaneously satisfy constraints.` 冲突，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
 
 同次触摸折返的两项 `ReversingNativePaging` 回归需要连续 HID 路径。普通 XCTest 单段 `press/drag` 无法表达中途反向，因此这两项在没有桥接时明确 skip，不计为通过。使用开发工具 `serve-sim@0.1.48`（不进入库或 Demo 运行时依赖），固定目标 iPad，先完成当前源码的 Demo `build-for-testing`，再在另一终端保持桥接运行：
@@ -872,7 +906,7 @@ python3 Scripts/run_external_rotation.py \
 
 布局提交按视口与附件、内容测量与 Collection View 几何、运动状态与偏移、最终指示器与边缘渐隐的顺序执行。提交中途的同步滚动回调不提前呈现指示器或边缘遮罩；切页入口仍同步完成待处理布局，并保留 `layoutSubviews` 的 override 分发。内容与视口同时变化时沿用内容刷新策略：没有动画或对齐请求则保留并限制手动偏移；仅视口变化时继续对齐选中项。候选宽度测量不提交当前显示几何，未增加异步布局队列；P4B 的内容代理契约调整独立于布局提交阶段。
 
-该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。默认内容样式仍按分页进度过半离散切换；P4C 为自定义配置提供显式开启的连续选择进度，Demo 使用其呈现描边与背景变化，P4D 增加内置淡化与指示器拉伸预设，未增加默认文字／颜色插值。P3 与 P4A 保持公开 API，P4B 按上述迁移说明调整内容代理，P4C／P4D 增加兼容的可选呈现能力；不据此承诺耗时或帧率提升。
+该拆分参考了 [Tabman 的组件分工与统一进度更新方式](https://github.com/uias/Tabman/tree/b666020935dbd1c3fb5a97ad96f0fe7444c907a6/Sources/Tabman/Bar)，未引入 Tabman／Pageboy 依赖。默认内容样式仍按分页进度过半离散切换；P4C 为自定义配置提供显式开启的连续选择进度，Demo 使用其呈现描边与背景变化，P4D 增加内置淡化与指示器拉伸预设，P4E-A／B 增加默认图文可选连续颜色，P4E-C 增加与命中和布局几何分离的内容缩放，P4E-D 增加独立程序动画方式及有界状态与弹簧呈现的分离，字体与图片仍离散切换。P3 与 P4A 保持公开 API，P4B 按上述迁移说明调整内容代理，P4C／P4D／P4E 增加兼容的可选呈现能力；不据此承诺耗时或帧率提升。
 
 ## 目录
 

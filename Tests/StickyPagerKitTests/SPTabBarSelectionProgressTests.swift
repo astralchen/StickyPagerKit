@@ -39,7 +39,9 @@ final class SPTabBarSelectionProgressTests: XCTestCase {
 
     private func probe(_ bar: SPTabBar, _ index: Int) throws -> ProgressView {
         let cell = try XCTUnwrap(list(bar).cellForItem(at: IndexPath(item: index, section: 0)))
-        return try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? ProgressView }.first)
+        let root = cell.contentView.subviews.first { $0.accessibilityIdentifier == "sp.tab.visualHost" }
+            ?? cell.contentView
+        return try XCTUnwrap(root.subviews.compactMap { $0 as? ProgressView }.first)
     }
 
     private func assertWeights(
@@ -50,6 +52,51 @@ final class SPTabBarSelectionProgressTests: XCTestCase {
     ) throws {
         for (index, value) in values.enumerated() {
             XCTAssertEqual(try probe(bar, index).value.progress, value, accuracy: 0.0001, file: file, line: line)
+        }
+    }
+
+    func testSpringScaleDoesNotLeakOvershootIntoCustomConfigurationAndRetargetsWithoutRebuilding() throws {
+        for rtl in [false, true] {
+            let source = ProgressSource()
+            let bar = mount(source, rtl: rtl)
+            bar.visualStyle = .scale
+            bar.visualStyle.unselectedAlpha = 0.55
+            bar.selectionAnimationStyle = .spring
+            bar.setSelectedIndex(2, animated: true)
+            let views = try (0 ..< 3).map { try probe(bar, $0) }
+            let requests = source.requests, stats = bar.refreshStatistics
+            bar.advanceSelectionAnimation(to: 0.25)
+            try assertWeights(bar, [0.5, 0, 0.5])
+            bar.advanceSelectionAnimation(to: 0.45)
+            try assertWeights(bar, [0.028, 0, 0.972])
+            let visual = try XCTUnwrap(views[2].superview)
+            XCTAssertGreaterThan(visual.transform.a, 1)
+            XCTAssertEqual(source.requests, requests)
+            XCTAssertEqual(bar.refreshStatistics, stats)
+            bar.setSelectedIndex(1, animated: true)
+            try assertWeights(bar, [0.028, 0, 0.972])
+            // 改选可更新离散配置；逐帧呈现不重新请求内容或测量。
+            let retargetRequests = source.requests, retargetStats = bar.refreshStatistics
+            for p: CGFloat in [0.1, 0.25, 0.45, 0.5, 0.7, 1] {
+                bar.advanceSelectionAnimation(to: p)
+                for (index, view) in views.enumerated() {
+                    XCTAssertTrue(try probe(bar, index) === view)
+                    XCTAssertTrue((0 ... 1).contains(view.value.progress))
+                }
+            }
+            try assertWeights(bar, [0, 1, 0])
+            XCTAssertEqual(source.requests, retargetRequests)
+            XCTAssertEqual(bar.refreshStatistics, retargetStats)
+            bar.setSelectedIndex(nil, animated: true)
+            bar.advanceSelectionAnimation(to: 0.25)
+            try assertWeights(bar, [0, 0.5, 0])
+            bar.advanceSelectionAnimation(to: 1)
+            try assertWeights(bar, [0, 0, 0])
+            for view in views {
+                XCTAssertEqual(try XCTUnwrap(view.superview).transform.a, 0.94, accuracy: 0.0001)
+            }
+            bar.removeFromSuperview()
+            withExtendedLifetime(source) {}
         }
     }
 

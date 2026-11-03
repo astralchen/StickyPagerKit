@@ -35,6 +35,21 @@ internal final class SPTabBarPresentationCoordinator {
         let progress: CGFloat
     }
 
+    struct SpringSnapshot {
+        var weights: [Int: SPTabSpringValue]
+        var centerX: SPTabSpringValue
+        var centerY: SPTabSpringValue
+    }
+
+    private(set) var springSnapshot: SpringSnapshot?
+    private var springOrigin: SpringSnapshot?
+    private var pagingSpringWeights: [Int: SPTabSpringValue]?
+    private var animationStyle = SPTabBarAnimationStyle.standard
+
+    func scaleWeight(at index: Int, fallback: CGFloat) -> CGFloat {
+        springSnapshot?.weights[index]?.position ?? fallback
+    }
+
     private enum Motion {
         case idle
         case selection(Animation)
@@ -51,8 +66,9 @@ internal final class SPTabBarPresentationCoordinator {
         contentProgress ?? selectedIndex.map { [$0: 1] } ?? [:]
     }
 
-    func prepareContentProgress(_ origin: [Int: CGFloat]?) {
+    func prepareContentProgress(_ origin: [Int: CGFloat]?, spring: SpringSnapshot? = nil) {
         contentProgress = origin
+        springSnapshot = spring
     }
 
     private func interpolateContent(from origin: [Int: CGFloat], to index: Int?, progress: CGFloat) {
@@ -77,7 +93,9 @@ internal final class SPTabBarPresentationCoordinator {
             guard let self, link === self.displayLink, let animation = self.animation else {
                 return
             }
-            self.advance(to: CGFloat((link.timestamp - animation.startTime) / 0.25))
+            self
+                .advance(to: CGFloat((link.timestamp - animation.startTime) /
+                        (self.animationStyle == .spring ? 0.5 : 0.25)))
         }
     }
 
@@ -139,6 +157,9 @@ internal final class SPTabBarPresentationCoordinator {
         motion = .idle
         contentProgress = nil
         pagingContentOrigin = nil
+        springSnapshot = nil
+        springOrigin = nil
+        pagingSpringWeights = nil
         generation &+= 1
     }
 
@@ -146,6 +167,8 @@ internal final class SPTabBarPresentationCoordinator {
         if let transition {
             motion = .paging(transition, nil)
             pagingContentOrigin = nil
+            pagingSpringWeights = nil
+            springSnapshot = nil
             interpolateContent(from: [transition.from: 1], to: transition.to, progress: transition.progress)
         }
     }
@@ -154,7 +177,16 @@ internal final class SPTabBarPresentationCoordinator {
         let sameTransition = transition?.from == from && transition?.to == to
         let retainedOrigin = sameTransition ? origin : takeoverOrigin
         let retainedContent = sameTransition ? pagingContentOrigin : (animation == nil ? nil : contentProgress)
+        let retainedSpring = sameTransition ? pagingSpringWeights : (animation == nil ? nil : springSnapshot?.weights)
         stopAnimation()
+        pagingSpringWeights = retainedSpring
+        springSnapshot = nil
+        if let retainedSpring {
+            let p = min(1, max(0, progress))
+            var weights = retainedSpring.mapValues { SPTabSpringValue(position: $0.position * (1 - p)) }
+            weights[to, default: SPTabSpringValue(position: 0)].position += p
+            springSnapshot = SpringSnapshot(weights: weights, centerX: .init(position: 0), centerY: .init(position: 0))
+        }
         pagingContentOrigin = retainedContent
         interpolateContent(from: retainedContent ?? [from: 1], to: to, progress: min(1, max(0, progress)))
         motion = .paging(Transition(from: from, to: to, progress: min(1, max(0, progress))), retainedOrigin)
@@ -164,9 +196,20 @@ internal final class SPTabBarPresentationCoordinator {
     func startAnimation(
         _ animation: Animation,
         contentOrigin: [Int: CGFloat] = [:],
-        indicatorMotion: SPTabBarVisualStyle.IndicatorMotion = .linear
+        indicatorMotion: SPTabBarVisualStyle.IndicatorMotion = .linear,
+        style: SPTabBarAnimationStyle = .standard,
+        spring: SpringSnapshot? = nil
     ) {
         resetMotion()
+        animationStyle = style
+        springOrigin = style == .spring ? (spring ?? SpringSnapshot(
+            weights: contentOrigin.mapValues { SPTabSpringValue(position: $0) },
+            centerX: .init(position: animation.fromIndicator.midX),
+            centerY: .init(position: animation.fromIndicator.midY)
+        )) : nil
+        // 几何可能在接管前重算；位置以实际 frame 为准，速度只在程序动画之间延续。
+        springOrigin?.centerX.position = animation.fromIndicator.midX
+        springOrigin?.centerY.position = animation.fromIndicator.midY
         animationContentOrigin = contentOrigin
         animationIndicatorMotion = indicatorMotion
         motion = .selection(animation)
@@ -186,6 +229,8 @@ internal final class SPTabBarPresentationCoordinator {
         displayLink = nil
         if animation != nil {
             contentProgress = nil
+            springSnapshot = nil
+            springOrigin = nil
             motion = .idle
             generation &+= 1
         }
@@ -197,9 +242,10 @@ internal final class SPTabBarPresentationCoordinator {
         }
         let current = generation
         let p = min(1, max(0, progress))
-        let eased = p * p * (3 - 2 * p)
+        let bounded = animationStyle == .spring ? min(1, p * 2) : p
+        let eased = bounded * bounded * (3 - 2 * bounded)
         interpolateContent(from: animationContentOrigin, to: animation.toIndex, progress: eased)
-        onFrame?(Self.frame(
+        var frame = Self.frame(
             from: animation.fromIndex,
             to: animation.toIndex,
             progress: eased,
@@ -208,7 +254,40 @@ internal final class SPTabBarPresentationCoordinator {
             fromOffset: animation.fromOffset,
             toOffset: animation.toOffset,
             indicatorMotion: animationIndicatorMotion
-        ))
+        )
+        if let origin = springOrigin {
+            var weights: [Int: SPTabSpringValue] = [:]
+            let indices = Set(origin.weights.keys).union(animation.toIndex.map { [$0] } ?? [])
+            for index in indices {
+                let target: CGFloat = index == animation.toIndex ? 1 : 0
+                weights[index] = p == 1 ? .init(position: target) :
+                    (origin.weights[index] ?? .init(position: 0)).value(
+                        toward: target,
+                        time: p * 0.5,
+                        limits: -0.15 ... 1.15
+                    )
+            }
+            let x = p == 1 ? SPTabSpringValue(position: animation.toIndicator.midX) :
+                origin.centerX.value(toward: animation.toIndicator.midX, time: p * 0.5)
+            let y = p == 1 ? SPTabSpringValue(position: animation.toIndicator.midY) :
+                origin.centerY.value(toward: animation.toIndicator.midY, time: p * 0.5)
+            springSnapshot = SpringSnapshot(weights: weights, centerX: x, centerY: y)
+            if !animation.fromIndicator.isEmpty, !animation.toIndicator.isEmpty {
+                frame = Frame(
+                    indicator: p == 0 ? animation.fromIndicator : (p == 1 ? animation.toIndicator : CGRect(
+                        x: x.position - frame.indicator.width / 2,
+                        y: y.position - frame.indicator.height / 2,
+                        width: frame.indicator.width,
+                        height: frame.indicator.height
+                    )),
+                    offset: frame.offset,
+                    from: frame.from,
+                    to: frame.to,
+                    progress: frame.progress
+                )
+            }
+        }
+        onFrame?(frame)
         if p == 1, current == generation {
             stopAnimation()
         }

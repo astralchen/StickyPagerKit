@@ -1636,11 +1636,36 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(favorites.isSelected)
     }
 
+    func testSpringDefaultLargeTextRTLSafeAreaAndRotation() {
+        verifySafeAreaTabs(rtl: true, largeText: true, spring: true)
+    }
+
+    func testSpringCustomLargeTextRTLSafeAreaAndRotation() {
+        verifySafeAreaTabs(rtl: true, largeText: true, custom: true, spring: true)
+    }
+
+    func testSpringMenuRestoresStandardAnimationAndKeepsSelection() {
+        openGallery()
+        app.buttons["配置"].tap()
+        app.buttons["视觉与动画"].tap()
+        app.buttons["内容缩放"].tap()
+        for title in ["弹簧动画", "平滑动画"] {
+            app.buttons["配置"].tap()
+            app.buttons["视觉与动画"].tap()
+            app.buttons["选择动画"].tap()
+            app.buttons[title].tap()
+            select(1)
+            XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+            select(0)
+            XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        }
+    }
+
     func testBuiltInVisualPresetsSwitchAndKeepDefaultAndCustomTabsInteractive() {
         openGallery()
         let tabs = app.collectionViews["sp.tabBar.collection"]
         let height = tabs.frame.height
-        for preset in ["内容淡化", "指示器拉伸", "淡化与拉伸", "标准效果"] {
+        for preset in ["内容淡化", "图文颜色过渡", "内容缩放", "指示器拉伸", "淡化与拉伸", "标准效果"] {
             app.buttons["配置"].tap()
             app.buttons["视觉与动画"].tap()
             app.buttons[preset].tap()
@@ -1664,6 +1689,81 @@ final class StickyPagerDemoUITests: XCTestCase {
         select(3)
         XCTAssertFalse(app.buttons["sp.tab.3"].isEnabled)
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+    }
+
+    func testDefaultColorTransitionPagingCancellationAndRotation() {
+        app.terminate()
+        app.launchArguments = ["--open-demo", "--window-regression", "--rtl", "--color-transition"]
+        app.launch()
+        XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+        let grid = app.collectionViews["demo.grid"]
+        let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: grid.frame.width * 0.12, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
+        expect("page=grid")
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        grid.swipeRight()
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        select(3); expect("page=empty")
+        rotate(to: .landscapeLeft)
+        expectSelectedTabAlignment(3)
+        rotate(to: .portrait)
+        select(0); expect("page=grid")
+    }
+
+    func testScaledDefaultPagingCancellationAndRotation() {
+        app.terminate()
+        app.launchArguments = ["--open-demo", "--window-regression", "--rtl", "--scale-effects"]
+        app.launch()
+        XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+        let grid = app.collectionViews["demo.grid"]
+        let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: grid.frame.width * 0.12, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
+        expect("page=grid")
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        grid.swipeRight()
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        select(3); expect("page=empty")
+        rotate(to: .landscapeLeft)
+        expectSelectedTabAlignment(3)
+        rotate(to: .portrait)
+        select(0); expect("page=grid")
+    }
+
+    func testSpringDefaultPagingCancellationAndRotation() {
+        app.terminate()
+        app.launchArguments = ["--open-demo", "--window-regression", "--rtl", "--spring-effects"]
+        app.launch()
+        XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+        let grid = app.collectionViews["demo.grid"]
+        let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: grid.frame.width * 0.12, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
+        expect("page=grid")
+        XCTAssertTrue(app.buttons["sp.tab.0"].isSelected)
+        grid.swipeRight()
+        expect("page=list")
+        XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
+        select(3); expect("page=empty")
+        rotate(to: .landscapeLeft)
+        expectSelectedTabAlignment(3)
+        rotate(to: .portrait)
+        select(0); expect("page=grid")
     }
 
     func testBuiltInVisualPresetRTLPagingCancellationAndRotation() {
@@ -1714,6 +1814,22 @@ final class StickyPagerDemoUITests: XCTestCase {
         app.buttons["默认内容"].tap()
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
         XCTAssertEqual(tabs.frame.height, defaultHeight, accuracy: 1)
+    }
+
+    func testScaledCustomTabPagingAndHeldDragPreserveInteraction() {
+        app.terminate()
+        app.launchArguments = ["--window-regression", "--open-demo", "--scale-effects"]
+        app.launch()
+        XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+        testCustomTabPagingAndHeldDragPreserveInteraction()
+    }
+
+    func testSpringCustomTabPagingAndHeldDragPreserveInteraction() {
+        app.terminate()
+        app.launchArguments = ["--window-regression", "--open-demo", "--spring-effects"]
+        app.launch()
+        XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
+        testCustomTabPagingAndHeldDragPreserveInteraction()
     }
 
     func testCustomTabPagingAndHeldDragPreserveInteraction() {
@@ -2123,11 +2239,14 @@ final class StickyPagerDemoUITests: XCTestCase {
         }
     }
 
-    private func verifySafeAreaTabs(rtl: Bool, largeText: Bool, custom: Bool = false) {
+    private func verifySafeAreaTabs(rtl: Bool, largeText: Bool, custom: Bool = false, spring: Bool = false) {
         app.terminate()
         app.launchArguments = ["--open-demo", "--window-regression"] + (rtl ? ["--rtl"] : [])
         if custom {
             app.launchArguments.append("--custom-tabs")
+        }
+        if spring {
+            app.launchArguments.append("--spring-effects")
         }
         if largeText {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]

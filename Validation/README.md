@@ -1,8 +1,124 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-11-02。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-11-03。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
+
+## 2026-11-03：P4E 完整 Debug 回归收尾
+
+在 `codex/container-architecture-refactor`、HEAD `1b82c29` 与此前未提交的 P4E 上继续。本轮复核程序动画接续、分页接管、效果关闭、连续颜色和缩放的状态边界，未发现需要新增修复的问题；未修改框架、Demo、测试源码、公开 API 或工程配置，仅更新验证记录。当前缩放、弹簧及默认图文连续颜色功能已实现，本轮补齐加入性能用例后的完整 Debug 库回归。
+
+官方 Xcode MCP 确认当前 Demo 工作区；根 Package 测试仍使用仓库脚本提供独立 UIKit application host，显式禁用并行。环境为 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator、Debug；只使用目标设备，不重启全局服务或操作其他工作区。
+
+- **完整库回归通过：445/445**，0 失败、0 跳过，包含全部既有 441 项及 4 项性能用例。四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。记录的 115 项源码／配置指纹与当前文件匹配，检查当前输入清单无遗漏新增文件。[终态摘要](Results/20261103-tabbar-p4e-final-debug/summary.json)、[请求清单](Results/20261103-tabbar-p4e-final-debug/requested-tests.json)、[原始日志](Results/20261103-tabbar-p4e-final-debug/xcodebuild.log)。本轮没有重试或失败批次。
+- **性能证据边界：** 4 项性能用例在完整 Debug 套件中完成采集，仅证明当前构建的固定工作量可运行，不与前轮 Release 数值作性能倍率比较，也不替换 Release 基线。此前 Release 441 项完整库回归、4 项独立性能采样与 iPhone／iPad UI 批次继续分别保留；不将这些批次改写为一次完整 Release 445 项测试。
+- **静态检查通过：** `git diff --check` 通过，暂存区为空。本轮无 Swift 改动，未重复格式化；前轮 14 个改动 Swift 文件的 SwiftFormat 0.64.0 lint 记录对应的源码仍未变化。编译中的 AppIntents 元数据提取跳过提示和运行日志中的系统 API 提示保留，不将其隐去或表述为零日志警告。[静态核对](Results/20261103-tabbar-p4e-final-debug/static-audit.json)。未暂存、提交或推送，不包含开发团队配置变动。
+
+**未执行：** 本轮未重跑完整 Release 445 项、Demo 单元／UI 套件或 iPad 测试；未覆盖完整 UI 矩阵、iPad 分屏／自由窗口、iOS 15 实际运行、真机、VoiceOver 全流程、系统减少动态效果端到端切换、真实 FPS／卡顿／GPU、分配次数与长期压力测试。既有 Runner 启动失败、模拟器关闭和动画等待异常保留在对应历史阶段，不因本轮全库通过注销。P4E 当前实现的完整 Debug 验证已收尾，无剩余环境阻塞；后续性能优化应先在固定环境取得可重复的采样与热点证据。
+
+## 2026-11-03：呈现性能基线与 iPad 组合验证
+
+在 `codex/container-architecture-refactor`、HEAD `1b82c29` 与尚未提交的 P4E 上继续。本轮新增 `SPTabBarPerformanceTests` 四组固定工作量基准，README 补运行／导出方式；不修改框架实现、Demo 实现、公开 API、工程或开发团队配置。性能测试与 iPad UI 回归串行；官方 MCP 确认当前 Demo 工作区，沿用脚本显式选择 Release／Debug、UIKit host 和禁用并行。
+
+**采样口径：** Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator、Release、`ENABLE_TESTABILITY=YES`。6 个可见项、360×64 pt、LTR、默认 traits；每轮 12 次程序选择、每次 30 个手动进度点并同步布局，记录 5 轮并丢弃首轮预热。初始化与每轮复位排除，选中提交及 autoreleasepool 释放计入。组合效果为淡化、拉伸、0.94 缩放、默认连续颜色与 spring；自定义内容使用通用单 UILabel 配置并消费连续进度，不代表真实业务。`XCTClockMetric` 测整批墙钟耗时，`XCTMemoryMetric` 测宿主物理内存，非分配次数；说明依据 Apple [性能测试](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests)、[内存测量](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions)与本机 XCTest 头文件。
+
+- **首轮采样：4/4 通过**，四类运行诊断为 0，xcresult 运行时警告为空。随后增加测量前动画中间态断言并将附件说明改为中文，阶段摘要如实保留该测试文件差异，不作为最终源码结果。[首轮摘要](Results/20261103-tabbar-performance-release/summary.json)、[首轮指标](Results/20261103-tabbar-performance-release/metrics/manifest.json)。
+- **最终基准：4/4 通过**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。四种场景在手动推进与同步布局后均存在区别于起终点的指示器中间态；未将静止更新误算为动画。本轮未设历史回归阈值，通过仅表示用例与采集完成，不表示性能预算达标。[终态摘要](Results/20261103-tabbar-performance-release-verified/summary.json)、[CSV 清单](Results/20261103-tabbar-performance-release-verified/metrics/manifest.json)、[样本统计](Results/20261103-tabbar-performance-release-verified/metrics/sample-summary.json)。本机 xcresulttool 清单的文件名多附加一次 `.csv`，原始文件和清单均保留，样本统计按实际文件名映射测试标识。
+
+| 场景 | 平均批次耗时 | 中位数 | 最小—最大 | 样本相对标准差 | 平均宿主峰值 | 平均宿主内存变化 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 默认图文／标准 | 228.98 ms | 250.95 ms | 158.40—285.20 ms | 22.53% | 30,814.29 kB | 1,258.29 kB |
+| 默认图文／组合 | 294.94 ms | 289.87 ms | 215.91—372.22 ms | 22.17% | 30,729.10 kB | 1,346.76 kB |
+| 通用自定义／标准 | 48.72 ms | 47.93 ms | 45.93—53.50 ms | 6.49% | 20,269.55 kB | 3.28 kB |
+| 通用自定义／组合 | 51.54 ms | 55.21 ms | 41.96—58.65 ms | 14.32% | 16,183.31 kB | 3.28 kB |
+
+以上为 360 个手动进度点及 12 次提交的整批结果，不能换算为实时帧率。样本标准差使用 n−1；运行日志的百分比使用另一统计口径，原值保留。默认图文波动约 22%，标准／组合区间重叠，不据此给出稳定性能倍率。自定义夹具更简单，不能据两类内容差异宣称自定义方案普遍更快。物理内存受宿主、执行顺序和 UIKit 缓存影响，正增长不直接等于泄漏，零增长也不等于无分配；不得将不同场景的峰值差直接解释为效果内存开销。
+
+- **iPad 首批：15 项 Demo 单元测试通过，UI Runner 准备阶段失败。** 使用 iPad Pro 13-inch (M5)／iOS 27.2、Debug。xcresult 汇总为 15 通过、1 Runner 错误，不能解释为 17 项用例已执行；两项 UI 均未进入测试方法。错误为 `XCTWaiter(StallHandling) handleStalledWait:`，崩溃现场主线程位于 dyld 加载系统 Accessibility bundle 的调用链，非已确认的框架缺陷。四类运行诊断为 0，`sourceChangedSinceRun=[]`；保留 [摘要](Results/20261103-tabbar-ipad-combined/summary.json)、[Runner 崩溃](Results/20261103-tabbar-ipad-combined/runner-startup.ips) 与 [设备日志](Results/20261103-tabbar-ipad-combined/device-state.log)。测试结束后是本次 xcodebuild 关闭原先未启动的设备；针对已关闭设备的截图请求因等待 screen surfaces 超时，不作为 UI 证据。仅预启动同一 iPad 并等待 bootstatus 就绪，再补跑两项 UI，不改用例、不重启全局服务、不重复已通过单元测试。
+
+- **iPad UI 补跑通过：2/2**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。默认图文与自定义卡片均完成大字体、RTL、组合效果下的竖屏 → 左横屏 → 右横屏 → 竖屏，覆盖跨页选择、指示器对齐、安全区域及从标签栏开始的 Header 折叠／恢复。补跑未修改源码、断言或测试预算。[补跑摘要](Results/20261103-tabbar-ipad-ui-recovery/summary.json)、[请求清单](Results/20261103-tabbar-ipad-ui-recovery/requested-tests.json)。本轮所选 17 项 iPad 用例均取得通过证据，分别来自首批 15 项单元测试与补跑 2 项 UI；首批仍保留失败状态，不合称单批全绿，Runner 启动失败的根因尚未确认。
+- **截图核对：** 两项 UI 共导出 18 张截图，检查自定义卡片横屏展开与默认图文竖屏折叠画面，选中项、指示器／卡片边框和标签与正文衔接符合对应静态状态。实际视口为竖屏 1032×1376 pt、横屏 1376×1032 pt，默认栏高 81 pt、自定义栏高 149 pt；数值仅对应本次设备配置。截图不代表动画流畅度验收。[截图清单](Results/20261103-tabbar-ipad-ui-recovery/attachments/manifest.json)、[自定义横屏](Results/20261103-tabbar-ipad-ui-recovery/attachments/37E4BABC-BBA8-48B8-9F84-75668A6DB785.png)、[默认竖屏折叠](Results/20261103-tabbar-ipad-ui-recovery/attachments/972EBBBC-2AF3-4274-BF93-5F4ED2F6DC42.png)。
+- **静态检查通过：** 包含此前未提交 P4E 在内的 14 个改动 Swift 文件经 SwiftFormat 0.64.0 lint，0 文件需要格式化；`git diff --check` 通过。最终性能、iPad 首批与 UI 补跑的 115 项源码／配置指纹逐项匹配当前文件，并检查当前输入清单无遗漏新增文件。本轮仅新增性能测试及更新 README、验证记录；未修改工程、scheme 或开发团队配置，未暂存、提交或推送。[静态核对](Results/20261103-tabbar-performance-release-verified/static-audit.json)、[格式检查](Results/20261103-tabbar-performance-release-verified/swiftformat-lint.log)。
+
+**未执行：** 新增 4 项性能测试后的 445 项完整库重跑、完整 UI 套件、其他 iPad 机型／分屏／自由窗口尺寸、iOS 15 实际运行、真机、VoiceOver 全流程、系统减少动态效果设置端到端切换、真实显示节拍的 FPS／卡顿／GPU 测量、分配次数与长期压力测试。前阶段 441 项完整 Release 结果保留为对应阶段证据，不改写为当前 445 项全量通过。当前选定范围无剩余环境阻塞；首次性能采样、Runner 启动失败及补跑证据全部保留。
+
+## 2026-11-03：组合效果与 Release 收口（P4E）
+
+在 `codex/container-architecture-refactor`、HEAD `1b82c29` 与未提交的 P4E-A／B／C／D 上继续。本轮补组合契约测试，框架与 Demo 实现相对 P4E-D 终态不变，不新增公开 API：自定义配置实际收到的进度与弹簧缩放超调分离、连续改选与取消选择、逐帧配置复用；默认图文颜色保持有界、运行中关闭效果收敛、分页中重新开启效果保留当前进度。Demo 新增默认图文／自定义卡片在弹簧与缩放组合、辅助最大字体、RTL 下的安全区域、横竖屏和 Header 拖动 UI 用例，复用既有严格断言。
+
+官方 MCP 确认 Demo 工作区与 scheme；库需要 UIKit host，测试使用仓库脚本显式关闭并行、指定 Debug／Release。沿用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator，不修改其他工作区或已启动设备设置，不修改工程与开发团队配置，未暂存、提交或推送。
+
+- **首轮聚焦失败并保留：25/26 通过**，1 项新增用例在 LTR／RTL 各出现一次相同计数断言失败；四类运行诊断为 0，xcresult 运行时警告为空。失败断言跨越 `setSelectedIndex` 比较测量批次，但程序改选按既有契约更新布局输入。修正测试统计范围：分别在每次改选后采样，严格检查两段逐帧动画均不增加内容请求、测量或 Cell 配置；未修改框架实现或放宽逐帧不变量。[首轮摘要](Results/20261103-tabbar-p4e-integration-focused/summary.json)、[原始日志](Results/20261103-tabbar-p4e-integration-focused/xcodebuild.log)。
+- **Debug 聚焦复验通过：26/26**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。覆盖连续选择进度、默认颜色、缩放和弹簧；本轮新增 2 项组合测试，包含实际 UIContentConfiguration 的有界进度、视图复用、多次改选／清空选择、默认颜色与缩放的独立时间进度、效果关闭与分页中重新开启。[聚焦复验摘要](Results/20261103-tabbar-p4e-integration-focused-verified/summary.json)。
+
+- **Release 完整库回归通过：441/441**，使用 `ENABLE_TESTABILITY=YES`，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。完整覆盖库测试，包含本轮新增 2 项组合用例及此前 439 项回归；不能从 Release 测试通过推导帧率或分配成本改善。[Release 摘要](Results/20261103-tabbar-p4e-integration-release/summary.json)、[请求清单](Results/20261103-tabbar-p4e-integration-release/requested-tests.json)。
+
+- **组合 UI 首批发生环境中断：** 自定义卡片用例执行至恢复竖屏后的最终状态查询时，2026-11-03 11:26:51 CoreSimulator 收到来自 `CoreDeviceService` 的设备关闭请求，同时涉及多个模拟器。目标 iPhone 18 Pro Max 进入 Shutdown，App／Runner 退出，原 xcodebuild 等待后自动重启设备并继续默认图文用例。用户确认没有维护并允许继续；更上游触发原因尚未确认。本任务未发出 shutdown，也未重启全局服务；保存 [中断记录](Results/20261103-tabbar-p4e-integration-demo/interruption.json) 与 [系统日志摘录](Results/20261103-tabbar-p4e-integration-demo/simulator-interruption.log)。该用例已执行步骤不算整项通过；批次收尾后单独补跑，结果见下。
+
+- **Demo 首批终态：16 通过、1 失败**。全部 15 项 Demo 单元测试及默认图文大字体 RTL UI 用例通过；自定义卡片用例报 `Test crashed with signal term.`，与上述设备关闭时间对应。0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。不将整个失败批次写为通过；单独补跑中断用例。[首批摘要](Results/20261103-tabbar-p4e-integration-demo/summary.json)、[请求清单](Results/20261103-tabbar-p4e-integration-demo/requested-tests.json)。
+
+- **自定义卡片补跑通过：1/1**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。完整执行竖屏 → 左横屏 → 右横屏 → 竖屏的跨页选择、指示器对齐、左右安全区域、标签栏起始的 Header 折叠／恢复，并通过首轮中断位置的最终状态查询。补跑未修改源码、断言或测试预算。[补跑摘要](Results/20261103-tabbar-p4e-integration-custom-recovery/summary.json)、[补跑请求](Results/20261103-tabbar-p4e-integration-custom-recovery/requested-tests.json)。本轮所选 17 项 Demo 用例均取得通过证据，分别来自首批 16 项和补跑 1 项；首批仍保留失败状态，不将两个批次合称为单批全绿。
+- **截图核对：** 默认图文通过用例与自定义卡片补跑各导出 9 张截图；检查两种内容的横屏展开和竖屏折叠画面，大字体选中项、指示器／卡片边框及标签与正文衔接正常。测试测得默认栏高 81 pt、自定义栏高 149 pt，横屏视口左右各避让 62 pt；这些数值对应本次设备与配置，不是通用布局常量。截图只证明静止布局，不代表动态帧率验收。[默认截图清单](Results/20261103-tabbar-p4e-integration-demo/attachments/manifest.json)、[默认横屏](Results/20261103-tabbar-p4e-integration-demo/attachments/37442EA2-6C78-4538-B3A1-A78EDD738617.png)、[自定义截图清单](Results/20261103-tabbar-p4e-integration-custom-recovery/attachments/manifest.json)、[自定义横屏](Results/20261103-tabbar-p4e-integration-custom-recovery/attachments/2410B6E4-1437-4B32-BA1E-B15947ED015E.png)。
+- **静态检查通过：** 包含此前未提交 P4E 在内的 13 个改动 Swift 文件经 SwiftFormat 0.64.0 lint，0 文件需要格式化；两次 Demo 构建格式化阶段均为 0/94 文件变化、2 文件跳过。`git diff --check` 通过，最终聚焦、Release、Demo 首批及补跑源码哈希一致。相对 P4E-D 的源码变化仅有两份库测试和一份 UI 测试，无框架、Demo 实现、工程、scheme 或开发团队配置变动，未暂存、提交或推送。本次两批 UI 未记录菜单动画通知超时，不据此注销前阶段历史；既有编译提示及模拟器 Accessibility 重复类日志保留。[静态核对](Results/20261103-tabbar-p4e-integration-release/static-audit.json)。
+
+**未执行：** 新增用例以外的完整 Debug 库重跑、完整 UI 套件、iPad 独立运行、iOS 15 实际运行、真机、VoiceOver 全流程、系统减少动态效果设置端到端切换、耗时／分配／帧率基准与长期压力测试。新增两项库用例已在 Debug 聚焦和 Release 全库中通过；前轮 Debug 439 项历史结果不改写为当前 441 项全量 Debug 结果。本轮组合验证收口，无剩余测试阻塞项；首轮测试统计边界失败、模拟器关闭中断及补跑证据全部保留，未宣称关闭请求的上游原因已查明。
+
+## 2026-11-03：程序选择弹簧动效（P4E-D）
+
+在 `codex/container-architecture-refactor`、HEAD `1b82c29` 与未提交的 P4E-A／B／C 上继续。新增 `SPTabBarAnimationStyle` 和 `SPTabBar.selectionAnimationStyle`，默认 standard 保持 0.25 秒平滑插值。显式 spring 使用原有 CADisplayLink 驱动指示器中心与内容缩放，最多 0.5 秒；最后 0.1 秒平滑收敛，起终状态精确返回端点。指示器宽高、颜色、alpha、自定义内容状态及标签栏偏移仍按原有有界 0.25 秒进度完成，不将弹簧值传给业务配置或滚动偏移。
+
+装饰性缩放权重限制在 -0.15...1.15，允许轻微超出静止尺寸；命中、无障碍、测量仍保持原几何。程序改选保存当前位置与速度，分页接管只保留呈现位置并跟随手指，后续程序动画从当前 frame 接续；没有额外松手回弹或手势速度接口。模式切换、尺寸变化、重排及减少动态效果沿用已有收敛行为。固定阻尼为本库选择，不声称与 UIKit 系统弹簧曲线完全相同，也未引入第二个动画器或第三方依赖。
+
+Demo “视觉与动画 → 选择动画”提供平滑／弹簧切换；`--spring-effects` 用于弹簧、缩放与连续颜色组合。官方 MCP 确认工作区，沿用仓库脚本的 UIKit host 和显式禁用并行；Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator、Debug，各批次串行。未修改工程与开发团队配置，未暂存、提交或推送。
+
+- **首轮聚焦失败并保留：47/49 通过**，2 项精确边界断言失败，四类运行诊断为 0，xcresult 运行时警告为空。分页转程序动画重建中心坐标产生约 2.8e-14 的 frame 差异；0.5 秒求值残留约 1.2e-17 的速度。修复为精确保留起终 frame，并在求值时间边界返回初始状态／目标零速度；未放宽断言。首轮运行期间另补 Demo UI 与公开注释，阶段摘要保留源码差异。[首轮摘要](Results/20261103-tabbar-p4ed-focused/summary.json)、[日志](Results/20261103-tabbar-p4ed-focused/xcodebuild.log)。
+
+- **聚焦复验通过：49/49**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。包含新增 5 项弹簧求值／实际窗口用例，以及缩放、连续选择进度和指示器回归；首轮严格边界断言全部通过。[聚焦复验摘要](Results/20261103-tabbar-p4ed-focused-verified/summary.json)。
+
+- **完整库回归通过：439/439**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。包含新增 5 项弹簧求值／实际窗口用例：确定性求值与精确终点、程序改选位置和速度接续、有界逻辑进度、LTR／RTL 缩放回弹与分页接管、无指示器内容动画、模式切换／尺寸变化／重排及减少动态效果通知收敛；全部既有库回归同时通过。[完整库摘要](Results/20261103-tabbar-p4ed-library/summary.json)。
+
+- **Demo 串行验证通过：18/18**，全部 15 项 Demo 单元测试与 3 项真实触摸测试，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。覆盖平滑／弹簧菜单切换与选中恢复、默认图文组合效果下 RTL 短拖取消／分页／跨页／横竖屏恢复，以及自定义标签点击、禁用项、按住横拖、内容刷新保留偏移和纵向 Header 输入。自定义用例打开“页面”菜单及选择“切换自定义标签”时出现 2 次 XCTest 动画完成通知超时，随后继续并通过；原因未确认，保留原日志，未关闭动画或放宽断言。[Demo 摘要](Results/20261103-tabbar-p4ed-demo/summary.json)、[请求清单](Results/20261103-tabbar-p4ed-demo/requested-tests.json)、[原始日志](Results/20261103-tabbar-p4ed-demo/xcodebuild.log)。
+- **截图核对：** 导出默认图文 RTL 用例的 1 张终态截图，核对旋转后恢复竖屏时标签排列、选中项、指示器和 Header／正文衔接；静态截图不替代弹簧中间帧、流畅度或性能验收。[截图清单](Results/20261103-tabbar-p4ed-demo/attachments/manifest.json)、[RTL 终态](Results/20261103-tabbar-p4ed-demo/attachments/52BAB712-0143-40FC-818D-822CEBE2551F.png)。
+- **静态检查通过：** 包含未提交 P4E-A／B／C 在内累计 12 个改动 Swift 文件的 SwiftFormat 0.64.0 lint 通过；Demo 格式化阶段 0/94 文件变化、2 文件跳过。`git diff --check` 通过，最终库与 Demo 源码哈希一致。无工程、scheme 或开发团队配置改动，未暂存、提交或推送。既有测试辅助函数 actor 隔离、测试框架链接、App Intents 元数据提示及模拟器 Accessibility 重复类诊断保留，不据此宣称所有环境日志无警告。[静态核对](Results/20261103-tabbar-p4ed-library/static-audit.json)。
+
+**未执行：** Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、系统减少动态效果设置端到端切换、缩放／弹簧与辅助大字体组合的独立 UI 验证、耗时／分配／帧率基准及长期压力测试。通知和计算分支通过不等于系统设置流程已验收；当前证据也不构成动画流畅度或性能提升结论。指示器中心在内容坐标内与缩放保留程序改选速度，标签栏滚动偏移仍采用既有平滑曲线，不承诺滚动速度连续。本轮最终测试无失败或剩余环境阻塞项，首轮精确边界失败和菜单等待证据保留。
+
+## 2026-11-03：内容缩放与独立激活区域（P4E-C）
+
+在 `codex/container-architecture-refactor`、HEAD `1b82c29` 与尚未提交的 P4E-A／B 工作区上继续，保留上一阶段全部改动。新增 `SPTabBarVisualStyle.unselectedScale`（默认 1、有限值归一化至 0.8...1）及 `.scale` 预设（0.94 → 1）。复用既有连续权重与时钟，可与颜色、淡化及指示器拉伸组合；禁用项和减少动态效果启用时恢复原尺寸。
+
+仅开启缩放时创建框架视觉承载层与不缩放的激活按钮。图文、角标、自定义内容一起缩放；点击和无障碍区域保持 Item bounds，指示器采用承载层内未变换坐标。激活按钮转发高亮、点击及无障碍激活，关闭时移除额外层级。自定义根视图使用 bounds／center 布局，保留业务 transform；固定高度在视觉承载层内部先裁切再缩放。未开启效果时保留原有默认视图路径。弹簧、放大越界和字体连续插值仍留待后续阶段。
+
+官方 MCP 确认 Demo 工作区；沿用仓库脚本的 UIKit 宿主及显式关闭并行的批次，iPhone 18 Pro Max／iOS 27.2 Simulator、Xcode 27.2、Debug。未修改工程或开发团队配置，未暂存、提交或推送。
+
+- **聚焦批次通过：45/45**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空。包含首批 5 项缩放测试及既有颜色、视觉、自定义内容和角标用例。此后补充滚动复用与关闭恢复检查、Demo UI 用例；阶段摘要保留这两处测试源码差异，不作为最终源码完整验收。[聚焦摘要](Results/20261103-tabbar-p4ec-focused/summary.json)。
+
+- **完整库回归通过：434/434**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。新增 6 项缩放用例覆盖：LTR／RTL 未缩放命中与无障碍激活、指示器几何和尺寸；无指示器的内容动画、多次改选／分页接管／取消；自定义 transform、裁切、高亮及缓存；禁用、重排、模式切换；滚动复用／手动偏移／关闭恢复；归一化和减少动态效果计算降级。[完整库摘要](Results/20261103-tabbar-p4ec-library/summary.json)。
+
+- **Demo 串行验证通过：18/18**，全部 15 项 Demo 单元测试与 3 项真实触摸测试，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。六种预设菜单切换、默认／自定义内容点击和禁用项、栏高检查通过；缩放与颜色组合下的 RTL 短拖取消／分页／跨页／旋转，以及缩放自定义标签的按住横拖、刷新保留偏移、纵向 Header 输入和切回默认内容均通过。自定义缩放用例在打开“页面”菜单后出现 2 次 XCTest 动画完成通知超时，随后继续并通过；保留原始等待记录，原因未确认，未关闭动画或放宽断言。[Demo 摘要](Results/20261103-tabbar-p4ec-demo/summary.json)、[请求清单](Results/20261103-tabbar-p4ec-demo/requested-tests.json)、[原始日志](Results/20261103-tabbar-p4ec-demo/xcodebuild.log)。
+- **截图核对：** 导出菜单用例 7 张截图，检查缩放预设静止画面，选中项保持原尺寸、普通项略小、禁用项保留原外观，图文和角标布局正常；不以静态截图代替动画流畅度或性能验收。[截图清单](Results/20261103-tabbar-p4ec-demo/attachments/manifest.json)、[缩放效果](Results/20261103-tabbar-p4ec-demo/attachments/E29C80FE-D09D-48D9-A628-B56C777F1255.png)。
+- **静态检查通过：** 包含前轮 A／B 在内累计 9 个改动 Swift 文件的 SwiftFormat 0.64.0 lint 通过；Demo 格式化阶段 0/92 文件变化、2 文件跳过。`git diff --check` 通过，最终库与 Demo 源码哈希一致。无工程、scheme 或开发团队配置改动，未暂存、提交或推送；既有测试辅助函数 actor 隔离和测试框架链接等工具链提示保留。[静态核对](Results/20261103-tabbar-p4ec-library/static-audit.json)。
+
+**未执行：** Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、系统减少动态效果设置端到端切换、缩放与辅助大字体组合的独立 UI 验证、耗时／分配／帧率基准及长期压力测试。默认大字体既有回归通过不等于缩放组合矩阵已验收；降级计算断言也不等于系统设置流程已验收。本轮无失败测试或剩余环境阻塞项，历史失败与菜单等待证据保留。弹簧仍未实施。
+
+## 2026-11-03：默认图文连续颜色与呈现入口（P4E-A／B）
+
+在 `codex/container-architecture-refactor`、HEAD `1b82c29` 上实施。默认内容基础配置与颜色端点快照分离，通过既有连续进度入口更新颜色。新增 `SPTabBarVisualStyle.interpolatesDefaultColors`（默认 false）及 `.colorTransition` 预设，可与淡化、拉伸组合。端点按当前 traits 解析并转换到 extended sRGB，保留标题属性、Appearance 与自动 tint 的优先级；转换失败保留离散配置。自定义内容及禁用项不被接管，原色图片、字体、图片切换、阴影和角标仍按既有离散规则呈现。逐帧复用基础配置与图片，不新增计时器或业务依赖；UIKit 内部更新成本不据此宣称已优化。
+
+Demo 共享“视觉与动画”菜单加入“图文颜色过渡”，增加 `--color-transition` 启动入口。参考前轮已核对的 Apple UIColor 动态解析／颜色空间转换及 UIButton.Configuration 公开接口；未复制第三方源码。缩放视觉承载层、弹簧运动模型和额外回弹仍属后续阶段，本轮未修改其行为，也未新增未使用的通用动画抽象。
+
+官方 Xcode MCP 确认当前 Demo／Package scheme；库需要 UIKit application host，Demo 接口不能覆盖 scheme 并行配置，因此用仓库脚本显式 `-parallel-testing-enabled NO` 串行执行。使用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator、Debug，不干预其他已启动设备。不修改工程与开发团队配置，未提交或推送。
+
+- **首轮聚焦失败并保留：19/20 通过**，1 项用例的两处颜色分量断言失败；同时出现 5 条 appearance 不平衡诊断。新夹具在异步 setUp 显示窗口，违反 `SPTestWindow` 的挂载约定；改为测试实际 mount 时显示。颜色断言错误地预期禁用 Appearance 覆盖显式普通标题属性，修正为分别验证普通属性回退和显式禁用属性的既有优先级，未改框架规则。该批编译后另补充自定义回退／重排及 Demo UI 用例，源码差异保留。[首轮摘要](Results/20261103-tabbar-p4e-focused/summary.json)、[原始日志](Results/20261103-tabbar-p4e-focused/xcodebuild.log)。
+- **聚焦复验通过：21/21**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。包含 7 项颜色用例、8 项 P4D 视觉预设及 6 项连续选择进度回归。实际窗口验证 25%／49%／51%／75% 配置及 UILabel 显示色、模板图标着色、逻辑与无障碍选择保持；检查逐帧图片身份与框架统计不变，高亮恢复、无指示器动画、重定向与分页接管、取消、显式属性／禁用／原色图片、动态颜色／tint、自定义回退／重排及不可转换颜色回退。[聚焦复验摘要](Results/20261103-tabbar-p4e-focused-verified/summary.json)。
+
+- **完整库回归通过：428/428**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。包含全部既有容器、绑定、生命周期、布局、缓存和标签交互契约及新增 7 项颜色用例。[完整库摘要](Results/20261103-tabbar-p4e-library/summary.json)。
+
+- **Demo 串行验证通过：18/18**，全部 15 项 Demo 单元测试和 3 项真实触摸测试，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。覆盖五种预设菜单、默认／自定义内容点击与禁用项、栏高、既有按住横拖，以及默认颜色模式下 RTL 短拖取消、分页、跨页选择、横竖屏对齐与恢复。该批未出现 XCTest 动画完成通知超时，不据此注销 P4C／P4D 历史等待记录。[Demo 摘要](Results/20261103-tabbar-p4e-demo/summary.json)、[所选测试](Results/20261103-tabbar-p4e-demo/requested-tests.json)。
+- **截图核对：** 导出预设用例 6 张截图，检查“图文颜色过渡”的静止画面，选中标题、普通图文、角标与禁用项保持原有端点外观。静态截图不替代中间颜色数值、连续动画流畅度或性能验收。[截图清单](Results/20261103-tabbar-p4e-demo/attachments/manifest.json)、[颜色预设](Results/20261103-tabbar-p4e-demo/attachments/69439AB3-1003-40C8-A61C-C6C78DD73209.png)。
+- **静态检查通过：** 本次 8 个 Swift 文件 SwiftFormat 0.64.0 lint 通过；Demo 原有格式化阶段 0/91 文件变化、2 文件跳过。`git diff --check` 通过，最终库与 Demo 源码哈希一致，无工程、scheme 或开发团队配置改动，未暂存、提交或推送。既有测试辅助函数 actor 隔离、测试框架最低版本链接和 App Intents 元数据提示保留。[静态核对](Results/20261103-tabbar-p4e-library/static-audit.json)。
+
+**未执行：** Release、iPad 独立运行、完整 UI 套件、iOS 15 实际运行、真机、VoiceOver 全流程、系统无障碍设置端到端切换、耗时／分配／帧率基准和长期压力测试。框架计数及图片身份断言通过不等于 UIKit 配置内部没有布局或分配；本轮不作性能提升结论。缩放及弹簧留待 P4E-C／D，字体、图片、阴影及角标仍无连续插值。首轮失败证据完整保留，本轮无剩余环境阻塞项。
 
 ## 2026-11-02：内置视觉预设与指示器拉伸（P4D）
 
