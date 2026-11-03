@@ -87,7 +87,8 @@ internal protocol SPTabContentProgressDisplaying: AnyObject {
 
 @MainActor
 private final class SPTabContentView: UIView, UIContentView, SPTabIndicatorContentGeometry,
-SPTabContentProgressDisplaying {
+SPTabContentProgressDisplaying, SPTabColorDiagnosing {
+    var colorDiagnostics: SPTabColorDiagnostics?
     private var storedConfiguration: SPTabContentConfiguration
     var configuration: UIContentConfiguration {
         get { storedConfiguration }
@@ -161,6 +162,7 @@ SPTabContentProgressDisplaying {
         semanticContentAttribute = value.layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
         button.semanticContentAttribute = semanticContentAttribute
         button.tintColor = value.iconColor
+        colorDiagnostics?.statistics.baseConfigurationAssignments &+= 1
         button.configuration = value.buttonConfiguration
         button.isEnabled = value.isEnabled
         button.accessibilityIdentifier = value.accessibilityIdentifier
@@ -223,24 +225,32 @@ SPTabContentProgressDisplaying {
 
     /// 连续呈现仅修改颜色；基础配置、图片与布局仍由离散配置持有。
     private func updateDefaultColors(progress: CGFloat) {
+        colorDiagnostics?.statistics.colorUpdateAttempts &+= 1
         guard case let .standard(value) = storedConfiguration, let colors = value.colors,
               progress != displayedSelectionProgress else {
             return
         }
         displayedSelectionProgress = progress
+        colorDiagnostics?.statistics.colorPasses &+= 1
         var configuration = value.buttonConfiguration
+        colorDiagnostics?.statistics.titleColorEvaluations &+= 1
         if let title = colors.title.color(at: progress) {
             let base = configuration.titleTextAttributesTransformer
+            colorDiagnostics?.statistics.titleTransformerCreations &+= 1
             configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
                 var result = base?(attributes) ?? attributes
                 result.foregroundColor = title
                 return result
             }
         }
-        if configuration.image?.renderingMode == .alwaysTemplate, let icon = colors.icon.color(at: progress) {
-            configuration.baseForegroundColor = icon
-            button.tintColor = icon
+        if configuration.image?.renderingMode == .alwaysTemplate {
+            colorDiagnostics?.statistics.iconColorEvaluations &+= 1
+            if let icon = colors.icon.color(at: progress) {
+                configuration.baseForegroundColor = icon
+                button.tintColor = icon
+            }
         }
+        colorDiagnostics?.statistics.colorConfigurationAssignments &+= 1
         button.configuration = configuration
     }
 
@@ -414,6 +424,7 @@ SPTabContentProgressDisplaying {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        colorDiagnostics?.statistics.contentLayoutPasses &+= 1
         layoutVisualHost()
         button.frame = bounds
         button.layoutIfNeeded()

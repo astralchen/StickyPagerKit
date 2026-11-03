@@ -4,6 +4,41 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-03：P5A 默认颜色单因素基线与工作量诊断
+
+在 `codex/container-architecture-refactor`、HEAD `c34461c` 上实施。仅增加内部按需颜色诊断、通用测试夹具、十组性能对照及 CSV 汇总工具；不实施 P5B 优化，不改变公开 API、颜色算法、按钮渲染方案或业务内容契约。诊断对象未附加时不创建、不累计；`baseConfigurationAssignments` 与 `colorConfigurationAssignments` 分别记录默认基础配置和颜色配置赋值，`contentLayoutPasses` 只统计框架内容视图，不代表 UIButton 内部布局。采样期间不启用计数器。
+
+官方 MCP 确认当前 Demo 工作区；测试仍通过脚本提供独立 UIKit host、禁用并行。Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator；本轮构建／测试串行，不修改工程、scheme 或开发团队配置，不重启全局服务。以下耗时均为固定批次，非真实 FPS 或性能预算验收。
+
+- **首轮构建失败并保留：** 新诊断测试中的 `.red` 被推断到 SwiftUI 属性作用域，链接出现 SwiftUI 符号缺失；改为显式 `UIColor.red` 后通过，未增加运行时依赖。首轮未进入测试执行。[首轮日志](Results/20261103-tabbar-p5a-focused/xcodebuild.log)。
+- **阶段聚焦通过：23/23**，包含新增 4 项诊断及既有颜色、缩放、弹簧回归；四类运行诊断为 0。此后补充了性能夹具、按钮布局对照和汇总工具，摘要保留源码变化，不冒充最终全库验收。[聚焦摘要](Results/20261103-tabbar-p5a-focused-verified/summary.json)、[诊断附件](Results/20261103-tabbar-p5a-focused-verified/attachments/manifest.json)。
+- **首轮 Release 指标采集失败并保留：0/8 通过。** `XCTCPUMetric(limitingToCurrentThread: true)` 在 `MXMCPUMetric harvestData:error:` 内触发断言，随后 XCTest 报 `stopMeasuring wasn't called`。采集异常根因未确认，未放宽功能断言；移除该指标，保留墙钟和物理内存，CPU 热点改由独立采集分析。[失败摘要](Results/20261103-tabbar-p5a-release-forward/summary.json)、[原始日志](Results/20261103-tabbar-p5a-release-forward/xcodebuild.log)。
+- **八组阶段采样通过：8/8**；后续增加显式刷新六个按钮布局的两项对照，保留此阶段样本但不合入最终十组基线。[阶段摘要](Results/20261103-tabbar-p5a-release-forward-verified/summary.json)。
+- **最终 Release 正向轮通过：10/10，反向轮通过：10/10**，各自 0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。反向轮复用同一冻结 Release 包，通过复制的 xctestrun 设置 `SP_TAB_COLOR_REVERSE=1`；逐项附件确认 `reversed=true` 及实际颜色开关，未依赖测试名猜测。[正向摘要](Results/20261103-tabbar-p5a-release-forward-final/summary.json)、[正向样本](Results/20261103-tabbar-p5a-release-forward-final/metrics/color-performance.json)、[反向摘要](Results/20261103-tabbar-p5a-release-reverse/summary.json)、[反向样本](Results/20261103-tabbar-p5a-release-reverse/metrics/color-performance.json)、[反向契约附件](Results/20261103-tabbar-p5a-release-reverse/attachments/manifest.json)。
+
+**采样口径：** 6 个可见默认图文项，360×64 pt、LTR、浅色、固定红蓝端点，每项 10 个记录样本，另丢弃首轮预热。First／Second 在正向轮依次关／开颜色，反向轮依次开／关。Frames 是单次标准选择的 360 个手动进度点，Flushed 再逐点调用六个按钮的 `layoutIfNeeded` 并检查实际标题终态颜色；两者均排除初始选择提交。Commit 是 12 次程序选择及提交布局；Complete 是 12 次选择、每次 30 个进度点；Combined 固定其他组合效果，仅对照颜色开关。所有路径计入区间内 autoreleasepool 释放，不测真实显示事务或 GPU；不同路径不能直接相减拆解总成本。
+
+| 路径 | 正向：颜色关 | 正向：颜色开 | 反向：颜色关 | 反向：颜色开 |
+| --- | ---: | ---: | ---: | ---: |
+| Frames | 8.81 ms | 187.79 ms | 7.77 ms | 121.71 ms |
+| Commit | 151.90 ms | 99.27 ms | 93.81 ms | 136.97 ms |
+| Complete | 109.38 ms | 379.12 ms | 99.05 ms | 224.19 ms |
+| Combined | 212.04 ms | 350.86 ms | 145.18 ms | 209.96 ms |
+| Flushed | 8.66 ms | 230.87 ms | 8.26 ms | 107.33 ms |
+
+以上为平均整批墙钟时间。两轮逐帧颜色开销方向一致，但绝对耗时明显漂移；样本相对标准差约 11%—38%，提交组差值随顺序改变方向，不据此宣称开启颜色反而更快或给出稳定性能倍率。内存指标保留于原始 CSV／JSON，测整个宿主的物理内存，不能代替分配次数或泄漏判断。当前没有历史阈值；通过表示用例及采集完成。
+
+**确定性诊断：** 六个可见项、30 个标准动画进度点产生 180 次颜色更新入口，颜色开启时仅两个变化项合计 60 次颜色配置赋值、60 次标题 transformer 创建；基础配置赋值及框架测量／Cell 配置增量均为 0。相同进度没有新的按钮配置赋值。无标题场景仍创建标题 transformer，等色端点仍发生颜色配置赋值；这些冗余次数作为附件记录，不固化为必须保留的契约。原色图片未执行图标颜色求值。`beginSelection` 附件包括复位到 0 和选择 1 两次调用，其 12 次基础配置赋值不能写成一次提交成本。连续改选再分页接管时出现 3 个变化项，后续不能只按固定来源／目标两项更新。
+
+- **CPU 采集失败／无效阶段保留：** Time Profiler 两次附加均报找不到目标进程，未取得有效 trace；不将测试通过视作采集通过。[首次采集摘要](Results/20261103-tabbar-p5a-cpu-profile/summary.json)、[附加失败记录](Results/20261103-tabbar-p5a-cpu-profile/host-attach-attempt.json)。随后系统 `sample` 首次正常退出，但采样落在测试方法开始前的 dyld 启动阶段，不作为颜色热点证据；追加采样时进程已退出，失败日志保留。[启动阶段样本](Results/20261103-tabbar-p5a-cpu-sample/sample.txt)。
+- **有效 CPU 调用栈采样：** 等待目标测试开始后，对同一 `UIKitTestHost` 进程运行系统 `sample`，扩展测试 1/1 通过，源码一致。观察到 `SPTabColorFixture.frames` → `SPTabContentView.updateDefaultColors` → UIButton 配置设置 → UIKit 配置应用及标题／图像更新的调用链。系统私有符号只用来解释采样，不被库访问或依赖；样本计数包含嵌套调用，不能相加作为独占 CPU 百分比。[终态摘要](Results/20261103-tabbar-p5a-cpu-sample-verified/summary.json)、[原始调用树](Results/20261103-tabbar-p5a-cpu-sample-verified/sample.txt)、[带行号摘录](Results/20261103-tabbar-p5a-cpu-sample-verified/hotspot-excerpts.json)。
+- **Allocations 采集及导出通过：** 扩展测试 1/1 通过，采集工具退出码 0，目标为本次 `UIKitTestHost`。记录窗口 15:25:16.073—15:26:05.634，共 49.560919 秒，导出 284 类统计行。窗口内 Heap 总分配计数 12,985,166、累计分配 1,756,909,760 bytes；主要高频类型包括属性字典存储、`UIBackgroundConfiguration`、`UIImageSymbolConfiguration`。这些是颜色开启的 flushed 扩展负载及宿主／XCTest／复位等活动的窗口合计，**不是标签栏独占成本、实时驻留量或每帧分配**；没有关闭侧分配对照，不宣称净增量或泄漏。18 个分类的 persistent 字段出现负值，保留工具原值，不据此推断对象存活数。[测试摘要](Results/20261103-tabbar-p5a-allocations-profile/summary.json)、[trace 目录](Results/20261103-tabbar-p5a-allocations-profile/trace-toc.xml)、[原始统计](Results/20261103-tabbar-p5a-allocations-profile/allocation-statistics.xml)、[范围与统计摘要](Results/20261103-tabbar-p5a-allocations-profile/allocation-summary.json)。原始 `Profile.trace` 留在忽略目录，未加入 Git；带采集器的 200 轮样本不合入正常基线。
+
+- **最终完整 Debug 库回归通过：459/459**，0 失败、0 跳过，包含既有 445 项及本轮 4 项诊断、10 项颜色性能测试。四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。Debug 套件中的性能数字不合入 Release 基线。[终态摘要](Results/20261103-tabbar-p5a-final-debug/summary.json)、[请求清单](Results/20261103-tabbar-p5a-final-debug/requested-tests.json)、[原始日志](Results/20261103-tabbar-p5a-final-debug/xcodebuild.log)。
+- **静态核对通过：** 120 项源码／配置指纹一致，当前输入清单无遗漏；5 个改动 Swift 文件通过 SwiftFormat 0.64.0 lint，0 文件需要格式化。沙盒下格式工具写缓存失败的 warning 保留，不影响 lint 结果；既有系统及构建提示亦不删除。汇总脚本用真实 CSV 验证，并验证反向映射、缺失对照拒绝、重复行拒绝、profiling 拒绝四项检查。`git diff --check` 通过，暂存区为空，工程／scheme／开发团队配置无改动，未提交或推送。[静态核对](Results/20261103-tabbar-p5a-final-debug/static-audit.json)、[格式检查](Results/20261103-tabbar-p5a-final-debug/swiftformat-lint.log)、[汇总工具检查](Results/20261103-tabbar-p5a-release-forward-final/script-checks.json)。
+
+**未执行与结论边界：** 本轮未重跑完整 Release 459 项、Demo 单元／UI 套件或 iPad；未覆盖真机、iOS 15 运行、真实显示节拍 FPS／卡顿／GPU、VoiceOver 全流程及长期压力测试。Allocations 仅采集开启侧窗口，未取得开／关净分配对照或泄漏验收。测试通过不代表性能预算达标，独立采集耗时不进入正常基线。P5A 已完成，无剩余环境阻塞；源码证据与采样支持下一步先验证无标题／等色端点及相同呈现颜色的冗余写入消除，保持动态颜色失效、字体／图片属性与连续接管语义。尚未实施 P5B，也未宣称性能已提升。
+
 ## 2026-11-03：P4E 完整 Debug 回归收尾
 
 在 `codex/container-architecture-refactor`、HEAD `1b82c29` 与此前未提交的 P4E 上继续。本轮复核程序动画接续、分页接管、效果关闭、连续颜色和缩放的状态边界，未发现需要新增修复的问题；未修改框架、Demo、测试源码、公开 API 或工程配置，仅更新验证记录。当前缩放、弹簧及默认图文连续颜色功能已实现，本轮补齐加入性能用例后的完整 Debug 库回归。

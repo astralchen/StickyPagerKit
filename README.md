@@ -818,6 +818,34 @@ DEVELOPER_DIR="$SP_DEVELOPER_DIR" xcrun xcresulttool export metrics \
 
 基准使用 `XCTClockMetric` 和 `XCTMemoryMetric`，保存整批墙钟耗时、宿主物理内存峰值及内存变化；内存指标不是分配次数或单个标签栏独占内存。当前只建立样本记录，不预设历史回归阈值，不将通过状态视为性能预算达标。比较时需保持设备、工具链、配置和工作量一致，保留全部样本及波动；自定义夹具只代表本测试配置，标准／组合效果的差值也不代表架构优化前后差值。手动进度不经过真实显示节拍，不能据此推导 FPS、GPU 成本、卡顿率或真机表现。指标定义参考 Apple 的[性能测试说明](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests)和[内存回归测量说明](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions)。
 
+`SPTabBarColorPerformanceTests` 在默认图文夹具上提供 P5A 颜色单因素基准，每个路径各有 `First`／`Second` 两项，默认依次关闭／开启连续颜色；其余参数一致。6 个可见项、360×64 pt、LTR、浅色和固定红蓝端点，记录 10 轮并丢弃首轮预热。不同路径的工作量不同，不将批次直接相减分解总成本。
+
+| 路径 | 计时范围 |
+| --- | --- |
+| `Frames` | 一次标准程序选择的 360 个手动进度点与标签栏同步布局；初始选择提交在计时外 |
+| `Commit` | 12 次程序选择及提交布局，连续接管但不手动推进动画 |
+| `Complete` | 12 次标准选择，每次推进 30 个进度点并布局 |
+| `Combined` | 与完整路径相同，固定开启淡化、拉伸、缩放和弹簧，仅对照颜色开关 |
+| `Flushed` | 与逐帧路径相同，逐点再对六个按钮执行 `layoutIfNeeded`，检查实际标题终态颜色 |
+
+所有路径计入测量区间内的 autoreleasepool 释放；按钮同步布局仍不等于完整显示事务或 GPU 呈现。测量期间不启用工作量计数器。`SPTabBarColorDiagnosticsTests` 另通过内部、按需附加的诊断对象记录基础按钮配置、颜色配置赋值、颜色求值、标题 transformer 创建及框架内容视图布局次数；它们不等于 UIKit 内部布局或堆分配次数。未附加时不创建诊断对象，不影响公开 API。
+
+```sh
+export SP_RUN_NAME="<新的颜色性能运行名>"
+SP_SCOPE=library SP_CONFIGURATION=Release Scripts/validate.sh test ENABLE_TESTABILITY=YES \
+  -only-testing:StickyPagerKitTests/SPTabBarColorPerformanceTests
+DEVELOPER_DIR="$SP_DEVELOPER_DIR" python3 Scripts/summarize_validation.py "Validation/Results/$SP_RUN_NAME"
+DEVELOPER_DIR="$SP_DEVELOPER_DIR" xcrun xcresulttool export metrics \
+  --path "Validation/Results/$SP_RUN_NAME/Result.xcresult" \
+  --output-path "Validation/Results/$SP_RUN_NAME/metrics"
+printf '%s\n' '{"reversed":false,"profiling":false}' > "Validation/Results/$SP_RUN_NAME/sampling-contract.json"
+python3 Scripts/summarize_color_performance.py "Validation/Results/$SP_RUN_NAME"
+```
+
+反向轮使用同一冻结测试包、单独结果目录和复制的 `Hosted.xctestrun`，在 `TestConfigurations[].TestTargets[].EnvironmentVariables` 中设置 `SP_TAB_COLOR_REVERSE=1`，并在采样契约中写入 `reversed:true`；此时 First 开启颜色、Second 关闭。保留构建时的源码指纹，执行前确认当前源码仍匹配，串行使用 `xcodebuild test-without-building -parallel-testing-enabled NO`。不要仅在命令行设置普通环境变量后假定它已传入测试宿主。汇总脚本按契约映射实际颜色开关，保留原始 CSV 与全部样本，兼容部分 xcresulttool 清单重复 `.csv` 后缀；缺少对照、重复环境、非有限值或非 10 样本均报错，不静默合并。
+
+独立 Instruments 采集可在复制的 xctestrun 同一环境字典中设置 `SP_TAB_COLOR_PROFILE=1`：每项测量前等待 8 秒供采集器附加宿主，并延长到 200 轮；附件标记 profiling，采样契约必须写入 `profiling:true`，该轮不得合入基线。测试输出 `StickyPagerKit.Validation / DefaultColors / DefaultColorBatch` signpost 标记，包含工作路径和颜色开关，仅用于定位区间，不自动产生动画卡顿指标。本机 P5A 首次 `XCTCPUMetric` 采集出现内部断言，现有基准使用墙钟与物理内存，CPU 调用栈与分配统计另用系统采样工具／Instruments 分开采集，具体成功范围和失败证据保留在验证记录。
+
 验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，不兼容 content configuration 引起的整个 Cell 内容视图替换提示，以及 Auto Layout 的 `Unable to simultaneously satisfy constraints.` 冲突，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
 
 同次触摸折返的两项 `ReversingNativePaging` 回归需要连续 HID 路径。普通 XCTest 单段 `press/drag` 无法表达中途反向，因此这两项在没有桥接时明确 skip，不计为通过。使用开发工具 `serve-sim@0.1.48`（不进入库或 Demo 运行时依赖），固定目标 iPad，先完成当前源码的 Demo `build-for-testing`，再在另一终端保持桥接运行：
