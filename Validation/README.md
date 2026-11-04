@@ -1,8 +1,149 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-11-03。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-11-04。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
+
+## 2026-11-04：重复点击标签用例的动画与 RunLoop 时序诊断
+
+在 `codex/container-architecture-refactor`、HEAD `cfa0095` 与已有未提交 P5B 基础上继续。针对前阶段完整回归中的 `testRepeatedTabClicksDuringAnimationPreserveProgressAndCommitOnce` 失败，先保留原断言记录时序，再进行受控复现和修复。新增测试侧 `SPSelectionTimingTrace`，以单调时钟记录 RunLoop 活动、每次等待的请求／实际时长、横向 offset、逻辑进度、选中索引、转场目标及页面／标签回调；代理转发到原有测试 spy，不接管分页 UIScrollView 的 delegate。JSON 附件在 LTR／RTL 每轮结束时写入，不在动画中打印日志。所有诊断和回归均串行运行，使用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator。
+
+**确认的缺陷与证据边界：** 旧用例在四次重复点击之间调用 `RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))`，却假定每次返回时动画必然还未提交。该前提不成立。[Apple 的 `run(until:)` 文档](https://developer.apple.com/documentation/foundation/runloop/run%28until%3A%29?changes=_2)说明此调用在截止时间内处理输入源、通过 `run(mode:before:)` 反复驱动默认模式；它不是“动画只推进 10 ms”的控制器。本轮实测和受控复现确认了等待超出请求时间、随后跨过动画提交点的失败机制。前阶段自然失败没有逐次时序记录，**无法还原当时具体耗时来源，也不把受控慢回调当作历史环境事实**。
+
+- **原断言自然诊断通过：1/1。** LTR／RTL 的四次 10 ms 等待实际为 10.28–18.84 ms，动画约 313–332 ms 提交；四次重复请求均在提交前，页面／标签各一次回调。说明本次未自然复现，不注销前阶段失败。[自然诊断终态](Results/20261104-repeated-tab-timing-natural/summary.json)、[时序附件](Results/20261104-repeated-tab-timing-natural/attachments/manifest.json)。
+- **受控复现失败并保留：0/1 通过。** 在第一次重复点击前，仅向测试主 RunLoop 加入一个 350 ms 慢 Timer 回调；动画和全部原断言保持不变。LTR／RTL 的首个 10 ms 等待分别实际持续 351.25／353.18 ms；第二次等待内页面提交，第三、第四次点击已在提交后，旧的 `selectedIndex == 0` 和点击回调总数 1 的断言失败。两种方向页面仍只提交一次，标签点击回调为三次，与“提交后的点击继续回调”的既有实现一致。没有记录到同目标动画被取消重启或额外页面提交。[受控失败终态](Results/20261104-repeated-tab-timing-delayed-red/summary.json)、[失败时序附件](Results/20261104-repeated-tab-timing-delayed-red/attachments/manifest.json)、[自然／失败／修复阶段时序对照](Results/20261104-repeated-tab-timing-focused/timing-comparison.json)。诊断阶段两份测试源码随各自结果目录存档，保留与阶段指纹的对应关系。
+
+**修复范围：** 修正测试输入的调度方式。在原 helper 确认真实原生动画已推进超过 10%、尚未达到 80% 后，同一主 actor 调用内连续发出四次重复请求，再交还 RunLoop。保留原有四次选择状态、位置不重置、全程单调不回跳、一次页面提交、一次点击回调、目标身份及 appearance 次数断言；新增每次转场目标仍为 1、页面与点击均未提前回调的断言。没有延长系统动画、修改进度／位置、跳过断言或吞掉提交后的点击。本轮未修改框架实现、公开 API、Demo、工程或签名配置。
+
+新增 `testRepeatedTabClicksRemainCoalescedAcrossDelayedRunLoopCallback`，同样覆盖 LTR／RTL，保留 350 ms 慢回调，要求它实际执行一次；验证四次动画中请求合并后页面与点击仍各提交一次，再单独点击已选标签，要求仅新增一次点击回调，页面提交及 appearance 不增加。库测试明确验证同一次未提交转场中的同步重复请求；真实跨事件触摸由既有 Demo 五连击 UI 用例补充，二者不互相替代。
+
+- **修复阶段聚焦通过：4/4。** 自然与慢回调两种输入、改选其他目标和程序化即时接管均通过；附件确认慢回调前四次请求已发出，首次提交仅一次，提交后下一次点击产生第二次标签回调。随后只增加“慢回调必须实际执行”的显式断言，最终验收使用下方新批次；阶段源码副本保留。[阶段聚焦终态](Results/20261104-repeated-tab-timing-focused/summary.json)、[阶段时序附件](Results/20261104-repeated-tab-timing-focused/attachments/manifest.json)。
+
+- **最终聚焦回归通过：4/4**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。包含慢回调实际执行断言。四份 LTR／RTL 附件核对均为四次请求全部处于未提交转场；自然场景页面／点击各一次，延迟场景含提交后的独立点击，页面一次／点击两次。[最终聚焦终态](Results/20261104-repeated-tab-timing-focused-final/summary.json)、[时序核对](Results/20261104-repeated-tab-timing-focused-final/timing-audit.json)、[原断言保留核对](Results/20261104-repeated-tab-timing-focused-final/assertion-audit.json)。逐表达式核对原有 12 个断言全部保留，当前 24 个，无删除或修改原表达式。
+- **完整 Debug 库回归通过：465/465**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。原重复点击用例、新增慢回调用例及其他分页、标签、滚动与生命周期回归均通过。前阶段 463/464 失败和本轮受控失败继续保留；本次是修改测试调度后的新源码验收，不重写历史结果。Debug 性能数字不并入 Release 基线。[完整回归终态](Results/20261104-repeated-tab-timing-full-debug/summary.json)、[请求清单](Results/20261104-repeated-tab-timing-full-debug/requested-tests.json)、[完整日志](Results/20261104-repeated-tab-timing-full-debug/xcodebuild.log)。
+
+时序记录存在观测开销，仅用于诊断事件顺序，不进入性能基线。
+
+- **官方 Xcode MCP 的 Demo UI 回归通过：2/2**，0 失败、0 跳过、0 未运行，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。`testRepeatedListTabTapsThenSelectOtherPages` 使用一次五连击真实触摸并继续切换短列表／网格；`testPagingAndRapidSelection` 验证手势翻页后连续改选。运行位于完整库回归终态之后，两个用例串行执行。导出并查看列表／网格两张终态截图，选中状态、指示器与页面边界正常；截图不代表逐帧动画或性能验收。完成后将 Demo 工作区运行目标从 iPhone 18 Pro Max 恢复为原来的 iPhone 13。[UI 终态](Results/20261104-repeated-tab-timing-ui-mcp/summary.json)、[MCP 返回结果](Results/20261104-repeated-tab-timing-ui-mcp/mcp-result.json)、[请求清单](Results/20261104-repeated-tab-timing-ui-mcp/requested-tests.json)、[附件清单](Results/20261104-repeated-tab-timing-ui-mcp/attachments/manifest.json)。
+
+- **MCP 结果副本导出失败及恢复：** MCP 返回 2/2 通过，但返回路径的副本仅含 `Data`／`Staging`，缺少 `Info.plist`，首次 `xcresulttool` 读取和附件导出失败。保留初次失败摘要和 `MCPPartial.xcresult`，从 Xcode DerivedData 下相同运行名的完整原生结果包归档；副本中 16 个不可变数据对象逐个 SHA-256 一致，完整包解析为同设备、同次运行、2/2 通过并成功导出截图。没有重跑 UI 测试，也没有自行补造结果包元数据。[首次读取失败](Results/20261104-repeated-tab-timing-ui-mcp/summary-initial-export-failure.json)、[原生结果来源核对](Results/20261104-repeated-tab-timing-ui-mcp/result-provenance.json)。
+
+- **静态核对通过：** 当前 122 项源码／配置输入无漂移或遗漏；两份本轮改动的 Swift 测试文件通过 SwiftFormat 0.64.0 lint，0 文件需要格式化；`git diff --check` 通过，暂存区为空。相对前阶段 P5B，框架源码没有变化；本轮仅修改原库测试、增加测试时序记录器、更新本验证文档。工作区合计 8 个相关未提交文件，包含此前 6 个 P5B 文件；无工程／scheme／开发团队配置改动，未提交或推送。[静态核对](Results/20261104-repeated-tab-timing-full-debug/static-audit.json)、[格式检查](Results/20261104-repeated-tab-timing-full-debug/swiftformat-lint.log)。
+
+**结论与未覆盖范围：** 用例将固定等待视为动画仍在进行的假设已通过实际时序和受控失败确认，并修复为在已确认的未提交动画内发送四次请求；最终聚焦、完整库回归和相关真实触摸验证通过。历史自然失败的具体延迟来源仍不可还原，历史失败保留。未执行完整 Release／Demo 套件、iPad、iOS 15、真机或长期压力测试；未重测 P5B Release 性能／Allocations／FPS。本轮不改变前阶段“普通持续变色尚未证明稳定加速或严格无回退”的性能结论。
+
+## 2026-11-03：P5B 后续逐帧开销收敛
+
+在 `codex/container-architecture-refactor`、HEAD `cfa0095` 与前阶段未提交 P5B 基础上继续。用户明确选择继续收敛普通持续变色性能疑问。保留前阶段全部结果和失败证据；前阶段结果对应当时源码，不替代本节终态。
+
+局部调整：颜色通道是否存在只在快照配置时判定；颜色端点相等性在解析 traits 时计算；RGBA 四分量直接插值，移除逐帧临时数组；完整按钮配置缓存改为标题 transformer 与颜色缓存。每次必要赋值仍从基础配置生成颜色覆盖，未变化的标题 transformer 复用，始终组合原始 transformer，避免形成闭包链。原有无标题、等色端点和相同呈现颜色的跳过规则保留；公开 API、颜色进度、traits 失效及单通道语义不变。
+
+新增一项四通道／透明度及非法进度测试；性能用例、夹具与采样预算不变。官方 MCP 确认 Demo 工作区，根 Package 仍通过独立 UIKit host 的脚本验证；Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator，所有测试串行。未修改工程、scheme 或开发团队配置，未提交或推送。
+
+- **聚焦回归通过：17/17**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。新增四通道／透明度及非法进度断言通过，既有动态 traits、单通道、属性保留和接管回归全部通过。本轮聚焦没有失败批次。[聚焦终态](Results/20261103-tabbar-p5b-hotpath-focused/summary.json)。
+- **诊断工作量保持：** 与上一轮 P5B 对照 10 份附件，基础／颜色配置赋值、标题 transformer 创建及标题／图标求值次数一致；等色端点仍为 0 次逐帧配置赋值，无标题仍不创建标题 transformer，普通持续变色与多项接管保留必要更新。本轮减少的是读取配置、固定判定和临时中间值等额外工作，不以这些计数宣称已证明耗时或分配收益。[工作量对照](Results/20261103-tabbar-p5b-hotpath-focused/work-comparison.json)、[诊断附件](Results/20261103-tabbar-p5b-hotpath-focused/attachments/manifest.json)。
+
+- **本轮 Release 十项基准通过：10/10**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。使用原有五组颜色关闭／开启路径，10 个记录样本、非 profiling；不变更夹具和测试预算。[Release 终态](Results/20261103-tabbar-p5b-hotpath-release/summary.json)、[全部原始样本](Results/20261103-tabbar-p5b-hotpath-release/metrics/color-performance.json)。
+
+| 路径 | 颜色关闭均值 | 颜色开启均值 | 关闭／开启样本相对标准差 |
+| --- | ---: | ---: | --- |
+| Frames | 11.21 ms | 259.02 ms | 25.41%／20.83% |
+| Commit | 179.32 ms | 223.04 ms | 17.66%／15.11% |
+| Complete | 164.45 ms | 389.90 ms | 19.69%／19.51% |
+| Combined | 186.82 ms | 442.74 ms | 23.03%／48.18% |
+| Flushed | 11.50 ms | 284.69 ms | 28.21%／7.57% |
+
+以上为固定批次墙钟均值；组合开启组包含 980.823 ms 的较慢样本，未筛除。该批样本相对标准差约 8%—48%，不能单独证明本轮实现相对历史版本改善。随后连续执行 P5A、前阶段 P5B、本轮 P5B、本轮 P5B、前阶段 P5B、P5A 六轮对照，每轮只测颜色开启的 Frames／Flushed；所有版本均使用对应冻结二进制，保存命令、输入及可执行文件指纹，旧版本不替代当前源码功能验收。
+
+- **三版本连续对照完成：六轮各 2/2 通过**，均 0 失败、0 跳过、四类运行诊断为 0。A 为 P5A，B 为前阶段 P5B，C 为本轮 P5B，按 A → B → C → C → B → A 串行执行。每项 10 个记录样本，非 profiling。所有历史包在执行前后核对可执行文件 SHA-256，A/B 还与前轮保存的二进制指纹一致；C 输入与当前源码一致。历史 A/B 的源码差异按预期保留，不作为当前功能验收。`otool -L` 核对 P5A 测试二进制没有动态链接到当前 StickyPagerKit 实现，避免混用工作区代码。[全部样本及顺序](Results/20261103-tabbar-p5b-hotpath-release/metrics/three-version-comparison.json)、[A 来源](Results/20261103-tabbar-p5b-hotpath-comparison-1-a/provenance.json)、[B 来源](Results/20261103-tabbar-p5b-hotpath-comparison-2-b/provenance.json)、[C 首轮](Results/20261103-tabbar-p5b-hotpath-comparison-3-c/summary.json)、[C 次轮](Results/20261103-tabbar-p5b-hotpath-comparison-4-c/summary.json)。
+
+| 顺序／冻结实现 | Frames 均值 | Flushed 均值 | Frames／Flushed 样本相对标准差 |
+| --- | ---: | ---: | --- |
+| 1／P5A | 125.29 ms | 134.48 ms | 14.49%／32.08% |
+| 2／前阶段 P5B | 316.32 ms | 281.09 ms | 14.68%／12.20% |
+| 3／本轮 P5B | 350.57 ms | 281.60 ms | 10.93%／18.63% |
+| 4／本轮 P5B | 311.03 ms | 325.46 ms | 20.28%／9.48% |
+| 5／前阶段 P5B | 317.36 ms | 252.45 ms | 8.13%／27.05% |
+| 6／P5A | 345.71 ms | 383.02 ms | 10.68%／9.26% |
+
+**本轮性能结论：** 未观察到可以稳定归因于本轮局部调整的耗时改善；两轮 C 相对 B 的 Frames／Flushed 变化没有一致方向。A 首轮明显较快、末轮却较慢，同一冻结二进制的漂移足以影响版本排序，因此也不能据此建立普通持续变色路径的严格无回退保证。此次收敛的是缓存范围和逐帧固定工作：保留冗余写入消除，将固定判定移出逐帧路径，从基础配置生成覆盖，不再缓存完整上一帧按钮配置。没有声称 UIKit 内部成本、UIColor 比较成本或环境漂移的具体根因已确认；没有用计数下降代替耗时结论，也不把整批数据换算为 FPS。若需要可用于发布的性能门槛，仍需稳定运行环境、目标设备和明确预算；不继续以当前波动样本为依据扩大渲染结构改造。
+
+- **完整 Debug 回归失败并保留：463/464 通过，1 项失败、0 跳过。** `testRepeatedTabClicksDuringAnimationPreserveProgressAndCommitOnce` 在重复点击循环中三次观测到 `selectedIndex == 1`，而断言预期仍为 0；最终标签点击回调计数为 4，预期 1。其余 463 项通过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。失败发生在既有用例，不修改或放宽其断言，也不以颜色聚焦通过覆盖完整回归失败。[完整回归终态](Results/20261103-tabbar-p5b-hotpath-final-debug/summary.json)、[完整日志](Results/20261103-tabbar-p5b-hotpath-final-debug/xcodebuild.log)、[请求清单](Results/20261103-tabbar-p5b-hotpath-final-debug/requested-tests.json)。
+
+失败用例在每次点击后调用 `RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))`，下一轮仍假定动画未提交；日志没有记录每次实际等待时长。**推断而非定论：** 等待可能跨过原生动画终点，后续点击成为已选页点击；目前不足以确定失败根因或排除产品问题。完整回归启动等待期间曾只读观察到其他 QuickLayoutKit 构建，并对本任务 xcodebuild 做短调用栈采样；没有中断其他工作或重启服务。这些观察不能反推前面性能批次负载或确定性能漂移原因。[环境观察](Results/20261103-tabbar-p5b-hotpath-final-debug/concurrent-process-observation.json)、[等待阶段调用栈](Results/20261103-tabbar-p5b-hotpath-final-debug/startup-wait-sample.txt)。随后使用同一冻结 Debug 包复核失败用例及两项关联用例，保留首次失败，不改变断言与动画时长。
+
+- **同包关联复核通过：3/3**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。原失败用例、重复点击后改选及程序化即时接管三个用例均通过，均保持原断言；冻结可执行文件执行前后 SHA-256 一致。这说明本次复核未重现失败，不足以确定首次失败根因，**不将完整回归改写为 464/464 通过**。[关联复核终态](Results/20261103-tabbar-p5b-hotpath-animation-recheck/summary.json)、[冻结包来源](Results/20261103-tabbar-p5b-hotpath-animation-recheck/provenance.json)、[请求清单](Results/20261103-tabbar-p5b-hotpath-animation-recheck/requested-tests.json)。
+
+- **Demo UI 回归通过：2/2**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。覆盖默认连续颜色与弹簧效果的 RTL 真实拖动取消、完成翻页、跨页点击及旋转对齐。导出并查看两张终态截图：回到网格页，选中标题为蓝色，指示器与选中标签对齐，Header／标签栏／正文边界无可见错位。截图仅为静态终态证据，不证明动画逐帧颜色、FPS 或流畅度。[UI 终态](Results/20261103-tabbar-p5b-hotpath-ui/summary.json)、[请求清单](Results/20261103-tabbar-p5b-hotpath-ui/requested-tests.json)、[附件清单](Results/20261103-tabbar-p5b-hotpath-ui/attachments/manifest.json)、[截图核对](Results/20261103-tabbar-p5b-hotpath-ui/visual-review.json)。
+
+- **静态核对通过：** 当前 121 项源码／配置指纹一致，无遗漏新增输入；4 个改动 Swift 文件通过 SwiftFormat 0.64.0 lint，0 文件需要格式化，格式缓存写入 warning 保留。Demo 构建未改变源码。性能测试、夹具与汇总脚本仍与 P5A 提交 `cfa0095` 一致；`git diff --check` 通过，暂存区为空，仅 6 个相关文件改动，无工程／scheme／开发团队配置改动，未提交或推送。[静态核对](Results/20261103-tabbar-p5b-hotpath-final-debug/static-audit.json)、[格式检查](Results/20261103-tabbar-p5b-hotpath-focused/swiftformat-lint.log)。日志中的既有系统与调试器查询提示保留，不将四类诊断为 0 表述为日志完全无提示。
+
+**终态与未覆盖范围：** 本轮局部实现、串行验证及证据整理完成，但综合验收未全部通过：完整 Debug 批次有 1 项失败，关联同包复核通过，根因未确认；没有再次运行完整 Debug 来覆盖首次失败。普通持续变色的稳定加速与严格无回退门槛仍未建立。未执行完整 Release 464 项、完整 Demo 套件、iPad、iOS 15 或真机；未重做本轮 Allocations／泄漏／长期压力采集，未测真实 FPS／卡顿／GPU。后续应先定位重复点击用例的实际时序，并在稳定环境、明确目标设备及预算下建立性能门槛；本轮没有据波动样本继续扩大渲染结构改造。
+
+## 2026-11-03：P5B 默认颜色冗余配置写入优化
+
+在 `codex/container-architecture-refactor`、HEAD `cfa0095` 上实施。保持公开 API、颜色进度及业务内容契约：无标题／空标题不求值和创建标题颜色 transformer；支持转换的相等端点复用已解析颜色；同一默认内容快照内分别比较标题和图标的呈现颜色，只有变化时更新相应通道及按钮配置。缓存配置保留未变化通道，标题 transformer 始终组合原始 transformer，不形成嵌套闭包链。每次新内容配置清空缓存，继续由既有 traits／外观／内容刷新路径失效；不按固定两项更新、不量化进度、不更换 UIButton 渲染方案。
+
+官方 MCP 确认 Demo 工作区；根 Package 通过仓库脚本提供独立 UIKit host。沿用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator，各测试批次串行，未修改工程、scheme 或开发团队配置，未提交或推送。P5A 的十项性能测试、夹具与汇总脚本保持不变。
+
+- **首轮测试构建失败并保留：** 新测试读取 `AttributeContainer.font` 时选择了 SwiftUI 作用域，链接出现 SwiftUI 字体符号缺失，未进入测试执行；改为显式 `uiKit.font`，未增加框架依赖或修改工程。[首轮日志](Results/20261103-tabbar-p5b-focused/xcodebuild.log)、[失败阶段摘要](Results/20261103-tabbar-p5b-focused/summary.json)。
+
+- **首轮聚焦运行失败并保留：15/16 通过。** 新增内容恢复用例的两处预期未遵循既有契约：字体经过 `.subheadline` 的 Dynamic Type 缩放，不应与未缩放字体对象直接比较；分页进度为 0.5 时关闭连续颜色，离散呈现选择目标项。测试改为比较相同 traits 下的缩放字体及目标蓝色，未修改框架路径或放宽误差。既有 8 项颜色测试与 4 项诊断均通过。[失败摘要](Results/20261103-tabbar-p5b-focused-verified/summary.json)、[原始日志](Results/20261103-tabbar-p5b-focused-verified/xcodebuild.log)。
+
+- **聚焦终态通过：16/16**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。包含 4 项新增真实窗口回归、8 项既有颜色回归与 4 项既有诊断；覆盖动态 traits／tint、字体阴影、原色图片、禁用状态、内容恢复、效果关闭、RTL 和连续改选接管。[聚焦终态](Results/20261103-tabbar-p5b-focused-final/summary.json)、[诊断附件](Results/20261103-tabbar-p5b-focused-final/attachments/manifest.json)。
+
+**相同工作量的确定性对比：** 复用未修改的 P5A 诊断测试与 6 项／30 个进度点夹具，以下均为纯进度区间，不含初始选择提交。新用例还检查空标题、无着色通道、不同进度解析为相同颜色后继续变色、单通道变化保留另一通道及重新配置失效。[P5A／P5B 原始计数对照](Results/20261103-tabbar-p5b-focused-final/work-comparison.json)。
+
+| 场景 | P5A 配置赋值 → P5B | P5A 标题 transformer → P5B |
+| --- | ---: | ---: |
+| 默认图文，两通道持续变色 | 60 → 60 | 60 → 60 |
+| 等色端点 | 60 → 0 | 60 → 0 |
+| 无标题、仅模板图标持续变色 | 60 → 60 | 60 → 0 |
+| 仅标题持续变色 | 60 → 60 | 60 → 60 |
+| 原色图片、标题持续变色 | 60 → 60 | 60 → 60 |
+
+无标题的标题颜色求值同时从 60 降至 0；等色端点仍会进入颜色求值和相等比较，但不再创建中间颜色及重复写入。连续接管的三个变化项仍完成三次配置更新；不将优化理解为只更新两个标签。颜色未变化的判断使用 UIColor 相等性，不使用容差、量化进度或跨快照缓存。
+
+- **Release 首批被本任务中断：9/10 通过、1 项取消失败。** 宿主安装／启动阶段长时间无用例日志，短调用栈先后停在 CoreSimulator 安装与启动请求；安装日志后来确认成功。只读进程查询也有延迟，用户确认没有维护。在日志仍未显示用例进度时对本次 xcodebuild 发出 SIGINT，终态 xcresult 才显示已开始执行：9 项通过，`testJFlushedSecond` 报 `Testing was canceled`。这说明此前日志可见性滞后，不能把该批记为未执行；取消由本任务触发，不归因于框架缺陷。原目录及调用栈保留，整批不纳入性能基线。未关闭模拟器或重启服务；使用同一冻结 Release 包独立重跑十项。[中断摘要](Results/20261103-tabbar-p5b-release-forward/summary.json)、[中断记录及终态修正](Results/20261103-tabbar-p5b-release-forward/startup-interruption.json)、[安装阶段调用栈](Results/20261103-tabbar-p5b-release-forward/startup-wait-sample.txt)、[启动阶段调用栈](Results/20261103-tabbar-p5b-release-forward/post-install-wait-sample.txt)、[安装日志](Results/20261103-tabbar-p5b-release-forward/installation-startup.log)。
+
+- **Release 正向重跑与反向轮各 10/10 通过**，均 0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。两轮复用同一冻结 P5B Release 包，正向关闭／开启颜色，反向开启／关闭颜色；均为非 profiling 的 10 个记录样本。测试、夹具和汇总脚本与 P5A 提交 `cfa0095` 内容一致。[正向终态](Results/20261103-tabbar-p5b-release-forward-verified/summary.json)、[反向终态](Results/20261103-tabbar-p5b-release-reverse/summary.json)、[正向样本](Results/20261103-tabbar-p5b-release-forward-verified/metrics/color-performance.json)、[反向样本](Results/20261103-tabbar-p5b-release-reverse/metrics/color-performance.json)。
+
+**P5A 历史基线对比：** 同一工具链／设备／配置和工作量，以下为整批墙钟平均值，单位 ms；保留颜色关闭控制组，不将独立批次相减作为净颜色成本。[含全部样本的对照](Results/20261103-tabbar-p5b-release-reverse/metrics/p5a-comparison.json)。
+
+| 路径 | 连续颜色 | P5A 正向 | P5A 反向 | P5B 正向 | P5B 反向 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Frames | 关 | 8.81 | 7.77 | 10.54 | 10.94 |
+| Frames | 开 | 187.79 | 121.71 | 238.33 | 262.79 |
+| Commit | 关 | 151.90 | 93.80 | 187.11 | 172.44 |
+| Commit | 开 | 99.27 | 136.96 | 162.72 | 177.99 |
+| Complete | 关 | 109.38 | 99.05 | 170.39 | 182.83 |
+| Complete | 开 | 379.12 | 224.19 | 258.78 | 435.73 |
+| Combined | 关 | 212.04 | 145.18 | 225.48 | 159.06 |
+| Combined | 开 | 350.86 | 209.96 | 328.81 | 301.14 |
+| Flushed | 关 | 8.66 | 8.26 | 8.17 | 11.85 |
+| Flushed | 开 | 230.87 | 107.32 | 217.86 | 208.79 |
+
+P5B 样本相对标准差约 9%—54%，部分普通持续变色路径高于 P5A，颜色关闭控制组亦有上移；不能据历史差异宣称加速，也不能仅以环境波动解释并排除回退。为核对这个未决问题，后续增加同一时段的 P5A／P5B 冻结包 ABBA 聚焦对照。原性能样本、启动等待与中断记录均保留，不筛选较快样本。工作量下降已由确定性诊断证明，普通持续变色路径的稳定耗时结论以补充采样范围为限。
+
+- **完整 Debug 库回归通过：463/463**，0 失败、0 跳过，覆盖既有 459 项及新增 4 项优化回归。四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。Debug 性能数字不合入 Release 基线。[全库终态](Results/20261103-tabbar-p5b-final-debug/summary.json)、[请求清单](Results/20261103-tabbar-p5b-final-debug/requested-tests.json)、[原始日志](Results/20261103-tabbar-p5b-final-debug/xcodebuild.log)。
+
+- **相关 Demo UI 回归通过：2/2**，0 失败、0 跳过，四类运行诊断为 0，xcresult 运行时警告为空，`sourceChangedSinceRun=[]`。默认连续颜色与弹簧组合两项均完成真实短拖取消、RTL 翻页、跨页选择、横屏对齐及恢复竖屏。[UI 终态](Results/20261103-tabbar-p5b-ui/summary.json)、[请求清单](Results/20261103-tabbar-p5b-ui/requested-tests.json)。导出并检查两张终态截图，RTL 网格标签处于选中状态，标题颜色和指示器对齐，Header、标签栏与网格内容衔接正常；截图仅证明终态布局，不代表动画帧率。[截图清单](Results/20261103-tabbar-p5b-ui/attachments/manifest.json)、[默认颜色终态](Results/20261103-tabbar-p5b-ui/attachments/E48129EC-30A8-41A4-BE13-54AD755DB2C8.png)、[弹簧组合终态](Results/20261103-tabbar-p5b-ui/attachments/B70A6FD9-AE49-4AC3-A5DC-4E082D61C410.png)。
+
+**同一时段 ABBA 聚焦对照已完成：** 按 P5A → P5B → P5B → P5A 串行执行，每轮仅选颜色开启的 Frames 和 Flushed，两项各记录 10 个样本；四轮各 2/2 通过，无失败／跳过，四类运行诊断为 0。未挂采集器，未改测试预算或筛选样本。每轮保存执行命令、采样契约、宿主／测试可执行文件 SHA-256，执行前后指纹一致。A 直接运行 P5A 历史冻结包，原始源码指纹经 `cfa0095` 核对，其摘要相对当前工作区的 3 项源码差异为预期，不计为当前 P5B 功能验收；B 与当前 121 项输入一致。第二次 A 再次出现长启动等待，最终正常完成，未中断。不是在同一进程内随机交错的微基准，仍受批次与宿主状态影响。[四轮原始样本](Results/20261103-tabbar-p5b-release-reverse/metrics/adjacent-comparison.json)、[A1 结果及来源](Results/20261103-tabbar-p5b-adjacent-1-a/provenance.json)、[B1 结果](Results/20261103-tabbar-p5b-adjacent-2-b/summary.json)、[B2 结果](Results/20261103-tabbar-p5b-adjacent-3-b/summary.json)、[A2 结果及来源](Results/20261103-tabbar-p5b-adjacent-4-a/provenance.json)。
+
+| 顺序／冻结包 | Frames 批次均值 | Flushed 批次均值 | Frames／Flushed 样本相对标准差 |
+| --- | ---: | ---: | --- |
+| 1／P5A | 222.01 ms | 255.25 ms | 26.00%／14.35% |
+| 2／P5B | 280.74 ms | 297.89 ms | 13.51%／11.76% |
+| 3／P5B | 310.88 ms | 302.69 ms | 12.11%／9.11% |
+| 4／P5A | 309.95 ms | 286.18 ms | 8.82%／9.14% |
+
+同一 P5A 二进制的 Frames 均值从 222.01 ms 漂移到 309.95 ms；最后的 A2 与 B2 Frames 接近，而 Flushed 的 B 两轮仍高于相邻 A 两轮。故不能把最早历史值与当前值的差异全部归因于 P5B，也不能用漂移为所有偏高数值免责：本轮**未证明普通持续变色路径稳定加速，也未建立严格的无回退性能门槛**。确认的收益是无标题／等色端点／相同呈现颜色下的确定性冗余工作消除；常规两通道持续变色仍需相同数量的配置写入。所有原始样本、内存指标和失败记录保留；不从整批耗时推导真实 FPS、卡顿率或单标签独占内存。
+
+- **静态核对通过：** 当前 121 项源码／配置指纹一致，无遗漏新增输入；3 个改动 Swift 文件通过 SwiftFormat 0.64.0 lint，0 文件需要格式化；写格式缓存失败的 warning 保留。`git diff --check` 通过，暂存区为空，仅 5 个 P5B 文件改动，无工程／scheme／开发团队配置改动，未提交或推送。Demo 构建前格式检查未改变源码。既有系统 API 日志保留，不将四类诊断为 0 表述为日志完全无提示。[静态核对](Results/20261103-tabbar-p5b-final-debug/static-audit.json)、[格式检查](Results/20261103-tabbar-p5b-focused-final/swiftformat-lint.log)。
+
+**未执行与后续边界：** 未重跑完整 Release 463 项、完整 Demo 单元／UI 套件、iPad、iOS 15 或真机；未测真实显示节拍 FPS／卡顿／GPU，未对 P5B 重做 Allocations、泄漏或长期压力采集，也未对无标题／等色端点另建独立墙钟基准。计数下降不等于固定耗时收益，新增少量内容视图缓存的独占内存成本尚未量化。P5B 实现及本轮既定功能回归、基线对比已完成，无剩余运行阻塞；若继续以常规持续变色性能作为发布门槛，应在更稳定环境和明确预算下复测，不据本轮数据宣称通用加速。
+
 
 ## 2026-11-03：P5A 默认颜色单因素基线与工作量诊断
 

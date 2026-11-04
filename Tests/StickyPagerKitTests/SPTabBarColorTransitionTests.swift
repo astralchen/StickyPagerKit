@@ -232,6 +232,17 @@ final class SPTabBarColorTransitionTests: XCTestCase {
         withExtendedLifetime(source) {}
     }
 
+    func testColorInterpolationPreservesAllChannelsAndClampsInvalidProgress() throws {
+        let from = UIColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.2)
+        let to = UIColor(red: 0.8, green: 0.6, blue: 0.2, alpha: 1)
+        let pair = SPTabColorTransition(from: from, to: to, traits: UITraitCollection(userInterfaceStyle: .light))
+        assertColor(try XCTUnwrap(pair.color(at: 0.25)), UIColor(red: 0.35, green: 0.45, blue: 0.65, alpha: 0.4))
+        XCTAssertEqual(pair.color(at: -1), from)
+        XCTAssertEqual(pair.color(at: 2), to)
+        XCTAssertEqual(pair.color(at: .nan), from)
+        XCTAssertEqual(pair.color(at: .infinity), from)
+    }
+
     func testColorConversionPreservesEndpointsAndRejectsPattern() {
         let traits = UITraitCollection(userInterfaceStyle: .light)
         let wide = UIColor(displayP3Red: 0.8, green: 0.2, blue: 0.3, alpha: 0.4)

@@ -830,6 +830,8 @@ DEVELOPER_DIR="$SP_DEVELOPER_DIR" xcrun xcresulttool export metrics \
 
 所有路径计入测量区间内的 autoreleasepool 释放；按钮同步布局仍不等于完整显示事务或 GPU 呈现。测量期间不启用工作量计数器。`SPTabBarColorDiagnosticsTests` 另通过内部、按需附加的诊断对象记录基础按钮配置、颜色配置赋值、颜色求值、标题 transformer 创建及框架内容视图布局次数；它们不等于 UIKit 内部布局或堆分配次数。未附加时不创建诊断对象，不影响公开 API。
 
+P5B 在同一默认内容快照内复用已应用的颜色与标题 transformer：无标题或空标题不创建连续颜色 transformer，原色图片不参与连续着色；解析后的颜色结果未变化时不重复赋值按钮配置。标题和图标分别比较；每次必要写入从基础配置生成颜色覆盖，复用未变化通道的 transformer／颜色及原始字体、图片等属性，不缓存上一帧完整按钮配置。标题／模板图标判定和端点相等性在快照建立时计算，四通道插值直接求值，不逐帧创建临时分量数组。快照重新配置时清空复用状态，traits、外观、内容和模式变化仍走既有刷新路径；不量化进度、不扩大公开 API。等色端点仅在支持颜色空间转换时复用，无法转换的颜色继续保留离散配置。
+
 ```sh
 export SP_RUN_NAME="<新的颜色性能运行名>"
 SP_SCOPE=library SP_CONFIGURATION=Release Scripts/validate.sh test ENABLE_TESTABILITY=YES \

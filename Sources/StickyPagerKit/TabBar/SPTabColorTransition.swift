@@ -11,10 +11,12 @@ internal struct SPTabColorTransition {
     private let from: UIColor
     private let to: UIColor
     private let components: ([CGFloat], [CGFloat])?
+    private let hasEqualEndpoints: Bool
 
     init(from: UIColor, to: UIColor, traits: UITraitCollection) {
         self.from = from.resolvedColor(with: traits)
         self.to = to.resolvedColor(with: traits)
+        hasEqualEndpoints = self.from == self.to
         let space = CGColorSpace(name: CGColorSpace.extendedSRGB)!
         if let a = self.from.cgColor.converted(to: space, intent: .defaultIntent, options: nil)?.components,
            let b = self.to.cgColor.converted(to: space, intent: .defaultIntent, options: nil)?.components,
@@ -36,7 +38,16 @@ internal struct SPTabColorTransition {
         if p == 1 {
             return to
         }
-        let values = zip(a, b).map { $0 + ($1 - $0) * p }
-        return UIColor(red: values[0], green: values[1], blue: values[2], alpha: values[3])
+        // 相等端点直接复用已解析颜色，避免插值生成等价颜色及后续重复配置。
+        if hasEqualEndpoints {
+            return from
+        }
+        // 转换时已确认四个分量；直接求值，避免为每个进度点创建临时数组。
+        return UIColor(
+            red: a[0] + (b[0] - a[0]) * p,
+            green: a[1] + (b[1] - a[1]) * p,
+            blue: a[2] + (b[2] - a[2]) * p,
+            alpha: a[3] + (b[3] - a[3]) * p
+        )
     }
 }

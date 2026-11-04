@@ -106,6 +106,9 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
                 resetHighlight = true
             }
             displayedSelectionProgress = nil
+            displayedTitleTransformer = nil
+            displayedTitleColor = nil
+            displayedIconColor = nil
             storedConfiguration = value
             applyingConfiguration = true
             if resetHighlight {
@@ -121,6 +124,12 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
     private var customView: (UIView & UIContentView)?
     private var applyingConfiguration = false
     private var displayedSelectionProgress: CGFloat?
+    // 只复用当前内容快照的呈现结果；重新配置时清空，避免跨 traits、内容或模式复用。
+    private var displayedTitleTransformer: UIConfigurationTextAttributesTransformer?
+    private var displayedTitleColor: UIColor?
+    private var displayedIconColor: UIColor?
+    private var hasDefaultTitle = false
+    private var hasTemplateIcon = false
     private let badge = UILabel()
     private var visualHost: UIView?
     private var activationOverlay: ActivationButton?
@@ -161,6 +170,10 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
         // 配置可能用于新建、复用或脱离 Collection View 的测量视图，不依赖 UIKit 的内部继承链。
         semanticContentAttribute = value.layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
         button.semanticContentAttribute = semanticContentAttribute
+        // 可见颜色通道只随内容快照变化，避免逐帧读取并桥接配置中的文本和图片。
+        hasDefaultTitle = !(value.buttonConfiguration.title?.isEmpty ?? true)
+            || !(value.buttonConfiguration.attributedTitle?.characters.isEmpty ?? true)
+        hasTemplateIcon = value.buttonConfiguration.image?.renderingMode == .alwaysTemplate
         button.tintColor = value.iconColor
         colorDiagnostics?.statistics.baseConfigurationAssignments &+= 1
         button.configuration = value.buttonConfiguration
@@ -232,24 +245,44 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
         }
         displayedSelectionProgress = progress
         colorDiagnostics?.statistics.colorPasses &+= 1
+        var title: UIColor?
+        if hasDefaultTitle {
+            colorDiagnostics?.statistics.titleColorEvaluations &+= 1
+            title = colors.title.color(at: progress)
+        }
+        var icon: UIColor?
+        if hasTemplateIcon {
+            colorDiagnostics?.statistics.iconColorEvaluations &+= 1
+            icon = colors.icon.color(at: progress)
+        }
+        let titleChanged = title != displayedTitleColor
+        let iconChanged = icon != displayedIconColor
+        guard titleChanged || iconChanged else {
+            return
+        }
+        // 从基础快照重建颜色覆盖，只缓存可复用的 transformer，不保留上一帧完整配置。
         var configuration = value.buttonConfiguration
-        colorDiagnostics?.statistics.titleColorEvaluations &+= 1
-        if let title = colors.title.color(at: progress) {
+        if titleChanged, let title {
+            // 始终组合原始 transformer，不让连续更新形成嵌套闭包链。
             let base = configuration.titleTextAttributesTransformer
             colorDiagnostics?.statistics.titleTransformerCreations &+= 1
-            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            displayedTitleTransformer = UIConfigurationTextAttributesTransformer { attributes in
                 var result = base?(attributes) ?? attributes
                 result.foregroundColor = title
                 return result
             }
         }
-        if configuration.image?.renderingMode == .alwaysTemplate {
-            colorDiagnostics?.statistics.iconColorEvaluations &+= 1
-            if let icon = colors.icon.color(at: progress) {
-                configuration.baseForegroundColor = icon
+        if let displayedTitleTransformer {
+            configuration.titleTextAttributesTransformer = displayedTitleTransformer
+        }
+        if let icon {
+            configuration.baseForegroundColor = icon
+            if iconChanged {
                 button.tintColor = icon
             }
         }
+        displayedTitleColor = title
+        displayedIconColor = icon
         colorDiagnostics?.statistics.colorConfigurationAssignments &+= 1
         button.configuration = configuration
     }

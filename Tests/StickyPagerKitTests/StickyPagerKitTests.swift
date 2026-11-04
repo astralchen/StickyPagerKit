@@ -3488,13 +3488,21 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.pagingView.contentOffset.x, pager.pagingView.bounds.width * 2, accuracy: 0.01)
     }
 
-    private func waitForSelectionAnimationProgress(_ pager: SPPageViewController, rtl: Bool) -> CGFloat {
+    private func waitForSelectionAnimationProgress(
+        _ pager: SPPageViewController,
+        rtl: Bool,
+        trace: SPSelectionTimingTrace? = nil
+    ) -> CGFloat {
         let width = pager.pagingView.bounds.width
         let origin = pager.pagingView.contentOffset.x
         let direction: CGFloat = rtl ? -1 : 1
         let deadline = Date(timeIntervalSinceNow: 2)
         while (pager.pagingView.contentOffset.x - origin) * direction < width * 0.15, Date() < deadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+            if let trace {
+                trace.run(for: 0.005, label: "waitForProgress")
+            } else {
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+            }
         }
         let progress = (pager.pagingView.contentOffset.x - origin) * direction
         XCTAssertGreaterThan(progress, width * 0.1, "必须让真实滚动动画推进后再重复点击")
@@ -3503,6 +3511,14 @@ final class StickyPagerKitTests: XCTestCase {
     }
 
     func testRepeatedTabClicksDuringAnimationPreserveProgressAndCommitOnce() {
+        assertRepeatedTabClicksDuringAnimation(delayedCallback: 0)
+    }
+
+    func testRepeatedTabClicksRemainCoalescedAcrossDelayedRunLoopCallback() {
+        assertRepeatedTabClicksDuringAnimation(delayedCallback: 0.35)
+    }
+
+    private func assertRepeatedTabClicksDuringAnimation(delayedCallback: TimeInterval) {
         for rtl in [false, true] {
             let pager = mount()
             pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
@@ -3512,8 +3528,12 @@ final class StickyPagerKitTests: XCTestCase {
             let outgoing = pager.records[0]!.controller as! FixturePage
             let initialAppearances = outgoing.appearCount
             let target = pager.tabBar.items[1]
+            let trace = SPSelectionTimingTrace(pager: pager, rtl: rtl, pageDelegate: delegate, tabDelegate: spy)
+            let traceName = "repeated-selection-\(rtl ? "rtl" : "ltr")-\(delayedCallback > 0 ? "delayed" : "natural")"
+            defer { trace.finish(in: self, name: traceName) }
+            trace.record("initialClick")
             pager.tabBar.requestSelection(of: target)
-            let origin = waitForSelectionAnimationProgress(pager, rtl: rtl)
+            let origin = waitForSelectionAnimationProgress(pager, rtl: rtl, trace: trace)
             let direction: CGFloat = rtl ? -1 : 1
             var offsets = [pager.pagingView.contentOffset.x]
             let observation = pager.pagingView.observe(\.contentOffset, options: [.new]) { _, change in
@@ -3523,13 +3543,23 @@ final class StickyPagerKitTests: XCTestCase {
                     }
                 }
             }
-            for _ in 0 ..< 4 {
+            if delayedCallback > 0 {
+                trace.scheduleDelayedCallback(seconds: delayedCallback)
+            }
+            // RunLoop 的截止时间不保证返回时仍在转场中。先在已确认的真实动画中段
+            // 连续发送全部重复请求，再交还 RunLoop；不延长系统动画或模拟 offset。
+            for iteration in 0 ..< 4 {
+                trace.record("repeatBefore", extra: ["iteration": iteration])
                 XCTAssertEqual(pager.selectedIndex, 0)
+                XCTAssertEqual(pager.selection.transitionTarget, 1)
                 let before = pager.pagingView.contentOffset.x
                 pager.tabBar.requestSelection(of: target)
                 XCTAssertEqual(pager.pagingView.contentOffset.x, before, accuracy: 0.01, "同目标点击不能重置横向位置")
-                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+                trace.record("repeatAfter", extra: ["iteration": iteration])
+                XCTAssertTrue(delegate.selected.isEmpty, "动画中重复点击不能提前提交页面")
+                XCTAssertTrue(spy.selected.isEmpty, "动画中重复点击不能提前提交点击回调")
             }
+            trace.run(for: 0.01, label: "afterRepeatedClicks")
             let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 MainActor.assumeIsolated { pager.selectedIndex == 1 }
             }, object: nil)
@@ -3548,6 +3578,22 @@ final class StickyPagerKitTests: XCTestCase {
             XCTAssertTrue(spy.selected.first === target)
             XCTAssertEqual(outgoing.appearCount, initialAppearances, "重复点击不能取消并重新触发旧页出现")
             XCTAssertEqual((pager.records[1]!.controller as! FixturePage).appearCount, 1)
+            if delayedCallback > 0 {
+                // 明确区分动画中的合并请求与动画提交后的下一次真实选择请求。
+                XCTAssertEqual(trace.completedDelayedCallbacks, 1, "必须实际执行慢回调，不能绕过延迟场景")
+                trace.record("committedClickBefore")
+                let offset = pager.pagingView.contentOffset.x
+                pager.tabBar.requestSelection(of: target)
+                trace.record("committedClickAfter")
+                XCTAssertEqual(pager.selectedIndex, 1)
+                XCTAssertNil(pager.selection.transitionTarget)
+                XCTAssertEqual(pager.pagingView.contentOffset.x, offset, accuracy: 0.01)
+                XCTAssertEqual(delegate.selected, [1])
+                XCTAssertEqual(spy.selected.count, 2)
+                XCTAssertTrue(spy.selected.last === target)
+                XCTAssertEqual(outgoing.appearCount, initialAppearances)
+                XCTAssertEqual((pager.records[1]!.controller as! FixturePage).appearCount, 1)
+            }
         }
     }
 
