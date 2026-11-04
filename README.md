@@ -848,6 +848,24 @@ python3 Scripts/summarize_color_performance.py "Validation/Results/$SP_RUN_NAME"
 
 独立 Instruments 采集可在复制的 xctestrun 同一环境字典中设置 `SP_TAB_COLOR_PROFILE=1`：每项测量前等待 8 秒供采集器附加宿主，并延长到 200 轮；附件标记 profiling，采样契约必须写入 `profiling:true`，该轮不得合入基线。测试输出 `StickyPagerKit.Validation / DefaultColors / DefaultColorBatch` signpost 标记，包含工作路径和颜色开关，仅用于定位区间，不自动产生动画卡顿指标。本机 P5A 首次 `XCTCPUMetric` 采集出现内部断言，现有基准使用墙钟与物理内存，CPU 调用栈与分配统计另用系统采样工具／Instruments 分开采集，具体成功范围和失败证据保留在验证记录。
 
+P5C1 的 `Scripts/color_repeatability.py` 在上述原夹具上增加独立的 A/A 重复性协议，不改变 P5A 十项测试或其汇总脚本。先构建当前 Release，再冻结 UIKit 宿主、测试包、依赖搜索路径中的产物和四份 xctestrun。四批串行测量 Frames／Flushed 各自的颜色开、关，共 16 项、每项 10 个记录样本；颜色顺序固定为正／反／反／正，四批始终使用同一版本。该协议不是版本 A/B 对照，也不与历史不同设备或夹具的数字合并。
+
+```sh
+export SP_RUN_NAME="<新的 P5C1 构建运行名>"
+SP_SCOPE=library SP_CONFIGURATION=Release Scripts/validate.sh build-for-testing ENABLE_TESTABILITY=YES
+python3 Scripts/color_repeatability.py prepare "Validation/Results/$SP_RUN_NAME" \
+  "Validation/Results/<新的 P5C1 实验名>" \
+  --device "$SP_SIMULATOR_ID" --developer-dir "$SP_DEVELOPER_DIR" \
+  --max-rsd-percent 10 --max-spread-percent 10
+python3 Scripts/color_repeatability.py run "Validation/Results/<新的 P5C1 实验名>"
+# 只重读完整证据，不重新运行测试：
+python3 Scripts/color_repeatability.py summarize "Validation/Results/<P5C1 实验名>"
+```
+
+两个阈值必须在采样前显式给出。示例 10% 是实验重复性门槛，不是发布 SLA 或已证明的测量精度。每个路径和颜色模式独立判定：四批中的最大批内相对标准差不超过 `max-rsd-percent`，且 `(最大批均值 − 最小批均值) / 批均值中位数` 不超过 `max-spread-percent`；四组都满足才返回 `stable`。退出码 0 表示本协议内稳定，3 表示完整有效采样但不稳定，1 表示证据无效或执行未完成。波动失败不是 XCTest 功能失败；稳定也不证明加速或无回退，不将十个样本用于尾延迟保证。
+
+协议和每批记录包含源码、冻结产物、工具链、模拟器身份、执行命令、原始 CSV、终态摘要及指纹；每批前后核验产物和源码，结果必须为预期四项通过、无跳过、无预期失败、无运行时警告或已识别诊断。所有墙钟样本原样保留。协议、摘要或 CSV 被修改、缺批、设备不一致或测试失败时拒绝判定，不覆盖已有实验、不自动重试或补样本。运行途中不要修改源码或构建输入；需要修复工具时保留原实验，使用新的构建与实验名。终态保存在 `repeatability.json`／`repeatability.md`，原始结果继续位于忽略目录，不加入 Git。后续 CPU／分配归因、真实显示节拍与真机卡顿验证属于 P5C2，不能从本协议推导。
+
 验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，不兼容 content configuration 引起的整个 Cell 内容视图替换提示，以及 Auto Layout 的 `Unable to simultaneously satisfy constraints.` 冲突，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
 
 同次触摸折返的两项 `ReversingNativePaging` 回归需要连续 HID 路径。普通 XCTest 单段 `press/drag` 无法表达中途反向，因此这两项在没有桥接时明确 skip，不计为通过。使用开发工具 `serve-sim@0.1.48`（不进入库或 Demo 运行时依赖），固定目标 iPad，先完成当前源码的 Demo `build-for-testing`，再在另一终端保持桥接运行：

@@ -4,6 +4,34 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-04：P5C1 普通连续颜色 A/A 重复性协议
+
+在 `codex/container-architecture-refactor`、HEAD `a5f9b6c` 上实施。新增 `Scripts/color_repeatability.py` 和脚本回归，补充 README 使用方式；框架、Swift 测试、Demo、工程与开发团队配置均未修改，P5A 原有十项性能基准、夹具及 `summarize_color_performance.py` 保持不变。本阶段落实性能证据与重复性判定，不调整渲染实现，不宣称普通持续变色已提速。
+
+**固定协议：** `sp-color-repeatability-v1`；Xcode 27.2（27B52）、iPhone 18 Pro Max／iOS 27.2 Simulator，Release、`ENABLE_TESTABILITY=YES`。一次构建后复制独立 UIKit 宿主、测试包及 DYLD 搜索目录内的构建产物；四份 xctestrun 的路径均指向冻结副本。四批同版本 A/A 串行运行，颜色顺序为正／反／反／正，每批只测 Frames／Flushed 的 First／Second 四项，保持原夹具 6 个可见默认图文、LTR、浅色、红蓝端点、360 个手动进度点、10 个记录样本及原预热规则；不启用 profiling 或工作量诊断。不进行自动重试、追加样本或选择性去除慢样本。官方 Xcode MCP 可连接 Demo，但测试接口不能指定本协议所需的冻结 Release xctestrun 和独立 UIKit 宿主，因此使用仓库构建脚本及 `xcodebuild test-without-building`；未切换 Xcode 当前 scheme 或运行目标。
+
+采样前显式固定两项实验门槛均为 10%：每个路径／颜色组的最大批内 RSD，以及 `(最大批均值 − 最小批均值) / 批均值中位数`。它们是本次重复性筛选条件，不是产品 SLA、统计置信界限或已验证精度。四组全部满足才报告 `stable`；完整有效但超限报告 `unstable` 并返回 3；测试或证据不完整返回 1。当前不建立版本 A/B 收益或发布预算判断。[最终协议](Results/20261104-tabbar-p5c1-aa-final/protocol.json)、[执行终态](Results/20261104-tabbar-p5c1-aa-final/execution.json)。
+
+- **脚本回归通过：22/22。** 含新增 14 项和既有 8 项，覆盖原 CSV 双后缀、正反颜色角色映射、完整原始样本保留、批内慢样本和批间漂移判定；拒绝缺批、重复／越界指标、错误设备、非十样本、非有限／非正数、单位变化、跳过／预期失败、运行时警告、源码及冻结产物变化、采样后摘要／CSV／协议改写。验证复制依赖不受原构建目录覆盖影响，失败后不启动下一批，也不能覆盖已有实验。[脚本终态日志](Results/20261104-tabbar-p5c1-build-final/script-tests.log)。
+- **首次采样启动失败并保留：** 初版命令误用 `-test-iterations 1`，Xcode 要求此选项大于 1，返回 64；测试尚未开始，无性能样本。执行器停止于第一批，报告 `incomplete`，没有后续批次或自动重试。修复为省略重复运行参数，使用默认单次执行；之后新建构建记录及完整实验目录，没有覆盖或续跑失败实验。[首次失败日志](Results/20261104-tabbar-p5c1-aa/batch-1/xcodebuild.log)、[首次批次核验](Results/20261104-tabbar-p5c1-aa/batch-1/audit.json)、[首次执行终态](Results/20261104-tabbar-p5c1-aa/execution.json)。
+- **最终 Release build-for-testing 通过。** UIKit 宿主构建成功，Package 测试构建成功，四类已识别运行诊断为 0；构建本身不作为测试通过。[宿主构建日志](Results/20261104-tabbar-p5c1-build-final/host-build.log)、[Package 构建日志](Results/20261104-tabbar-p5c1-build-final/xcodebuild.log)。
+- **最终四批测试通过：4 × 4/4，共 16 项执行、160 个记录样本。** 每批均 0 失败、0 跳过、0 预期失败，xcresult `runtimeWarnings=[]`，四类运行诊断为 0，`sourceChangedSinceRun=[]`。124 项源码／配置输入和 24 个冻结文件在每批前后核验一致，工具链和目标设备身份一致。所有批次均先结束、导出、核验，再开始下一批。[批次 1](Results/20261104-tabbar-p5c1-aa-final/batch-1/summary.json)、[批次 2](Results/20261104-tabbar-p5c1-aa-final/batch-2/summary.json)、[批次 3](Results/20261104-tabbar-p5c1-aa-final/batch-3/summary.json)、[批次 4](Results/20261104-tabbar-p5c1-aa-final/batch-4/summary.json)。原始 CSV 和对应指纹分别位于各批 `metrics/` 与 `audit.json`。
+
+**重复性门槛未通过：** 最终状态为 `unstable`，退出码 3。以下均为完整固定批次的墙钟均值，单位 ms，不是实际显示单帧耗时；所有样本均保留。[完整样本及判定](Results/20261104-tabbar-p5c1-aa-final/repeatability.json)、[表格](Results/20261104-tabbar-p5c1-aa-final/repeatability.md)。
+
+| 路径 | 颜色 | 批次 1／2／3／4 均值 ms | 最大批内 RSD | 批间跨度／均值中位数 | 10% 双门槛 |
+| --- | --- | --- | --- | --- | --- |
+| Frames | 关 | 5.99／6.09／5.93／6.41 | 6.14% | 8.08% | 通过 |
+| Frames | 开 | 112.28／123.01／102.23／135.99 | 19.05% | 28.70% | 未通过 |
+| Flushed | 关 | 7.00／6.09／6.13／6.48 | 7.87% | 14.33% | 未通过 |
+| Flushed | 开 | 128.73／96.99／98.44／98.32 | 35.28% | 32.26% | 未通过 |
+
+同版本普通持续变色仍有明显波动，颜色关闭的 Flushed 也出现批间超限。不能据此确定 UIColor 插值、配置赋值、UIKit 布局或机器负载是根因；不能将颜色开关或历史批次均值直接相减解释为独占成本。本轮与历史结果运行条件并非配对版本实验，即使均值较低，也不宣称 P5B 相对 P5A 有稳定收益或严格无回退保证。没有放宽 10% 门槛，也没有继续增加批次直到满足门槛。
+
+**证据重读与静态核对通过：** 独立执行 `summarize` 重新校验四批协议指纹、摘要与 CSV 后仍返回 `unstable`／3，没有重跑测试。最终输入及冻结产物与协议一致，`git diff --check` 通过；仅两份新 Python 文件和 README／本记录发生改动，无签名配置改动，未提交或推送。[重读日志](Results/20261104-tabbar-p5c1-aa-final/replay.log)、[静态核对](Results/20261104-tabbar-p5c1-aa-final/static-audit.json)。
+
+**未执行与后续边界：** 未重新运行完整 Debug／Release 库套件或 Demo UI，原因是本轮不修改 Swift 实现、测试夹具或交互行为；16 项执行只验证四项原性能用例在新协议中的实际运行，不能替代完整回归。未执行 Instruments CPU／Allocations、实际动画卡顿／GPU、真机、iPad 或 iOS 15 验证。P5C1 流程及证据完成，重复性门槛未建立；P5C2 应对当前版本进行独立热点／分配归因及真实动画测量，先定位波动和成本来源，再决定局部优化，不用本次数字直接批准 P5D 渲染改动。
+
 ## 2026-11-04：重复点击标签用例的动画与 RunLoop 时序诊断
 
 在 `codex/container-architecture-refactor`、HEAD `cfa0095` 与已有未提交 P5B 基础上继续。针对前阶段完整回归中的 `testRepeatedTabClicksDuringAnimationPreserveProgressAndCommitOnce` 失败，先保留原断言记录时序，再进行受控复现和修复。新增测试侧 `SPSelectionTimingTrace`，以单调时钟记录 RunLoop 活动、每次等待的请求／实际时长、横向 offset、逻辑进度、选中索引、转场目标及页面／标签回调；代理转发到原有测试 spy，不接管分页 UIScrollView 的 delegate。JSON 附件在 LTR／RTL 每轮结束时写入，不在动画中打印日志。所有诊断和回归均串行运行，使用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator。
