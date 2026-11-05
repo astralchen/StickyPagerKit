@@ -170,10 +170,14 @@ internal struct SPTabBarContentEnvironment {
         if !item.isEnabled {
             traits.insert(.notEnabled)
         }
+        let colors = interpolatesDefaultColors && item.isEnabled ? defaultColors(for: item) : nil
+        let allowsTintOnlyIconUpdates = colors?.title.hasConstantColor == true
+            && styles.normal.iconColor != nil && styles.selected.iconColor != nil
         return SPTabContentConfiguration.standard(SPDefaultTabContentConfiguration(
             buttonConfiguration: configuration,
-            colors: interpolatesDefaultColors && item.isEnabled ? defaultColors(for: item) : nil,
+            colors: colors,
             selectionProgress: selectionProgress ?? (isSelected ? 1 : 0),
+            allowsTintOnlyIconUpdates: allowsTintOnlyIconUpdates,
             layoutDirection: contentDirection,
             iconColor: iconColor,
             isEnabled: item.isEnabled,

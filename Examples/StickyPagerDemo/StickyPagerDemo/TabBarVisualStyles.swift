@@ -17,6 +17,16 @@ enum DemoTabBarVisualStyles {
         } else if ProcessInfo.processInfo.arguments.contains("--visual-effects") {
             bar.visualStyle = .fadeAndStretch
         }
+        if ProcessInfo.processInfo.arguments.contains("--icon-only-colors") {
+            // 诊断入口：固定标题并显式指定模板图标两端颜色，覆盖局部颜色更新路径。
+            bar.visualStyle.interpolatesDefaultColors = true
+            var appearance = bar.standardAppearance.itemAppearance
+            appearance.normal.titleColor = .red
+            appearance.selected.titleColor = .red
+            appearance.normal.iconColor = .red
+            appearance.selected.iconColor = .blue
+            bar.standardAppearance.itemAppearance = appearance
+        }
     }
 
     static func menu(for bar: SPTabBar) -> UIMenu {

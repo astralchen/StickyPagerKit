@@ -4,6 +4,43 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+## 2026-11-04：P5C5 正常状态显式图标颜色的局部优化
+
+**结论：保留有条件的单一 tint 来源候选。** 固定标题颜色、显式正常／选中图标颜色、存在标题与模板图标、按钮处于正常且未变暗状态时，首次切入将配置前景色设为 nil，后续仅更新实际变化的 tint。其他输入继续使用原配置路径。两台模拟器的同输入 A/B 即时模型、布局后模型及静态像素均一致；新设备固定 ABBA 的仅图标 CPU 降幅为 27.07%／26.17%，通过预定筛查。该数值只对应本次逐点同步布局工作负载，不代表 FPS、整页性能、堆分配或系统卡顿收益。公开 API、进度精度、字体／图片属性和完整配置缓存边界不变。
+
+**回退与同步要求先行：** 独立普通 UIButton 对照先核对高亮前恢复当前配置前景色；进入高亮／禁用／选中前固定当前颜色，高亮期间沿用原配置更新，退出后下一次满足条件的颜色更新才重新切入。继承变暗时恢复固定前景色；新快照清空局部状态。回退只从基础快照、已显示的标量颜色和标题 transformer 构造配置，不读取或缓存上一帧完整配置，不直接调用系统 `updateConfiguration()`，不关闭自动配置更新。内部 `baseForegroundColor == nil` 是表示变化；按钮／图标／标题颜色在调用返回时的差异属于呈现时序差异，必须与基线精确比较。
+
+**候选接入及行为证据：** `SPTabBarContentEnvironment` 决定快照是否允许局部路径，`SPTabColorTransition` 提供可解析的等色标题端点判断，`SPTabContentConfiguration` 管理切入、连续 tint 写入及状态回退。自动图标颜色、原色图片、标题变化、无标题等条件不进入本轮快路径。新增 `SPTabBarIconFastPathTests`；四种模式（适用路径、自动图标颜色、图文同时变化、原色图片）各 17 步，共 68 条，覆盖正常进度、高亮进入／更新／退出、父视图变暗／恢复、禁用／恢复、新标题快照、父 tint 变化、反向进度和提交。A/B 仅四条正常状态记录出现配置前景色表示差异，全部 68 条即时模型／布局后模型／PNG SHA-256 精确一致。最终聚焦测试另严格核对稳态零配置写入、进入高亮一次恢复、期间每步原配置写入、恢复正常时一次切入及随后零配置写入。
+
+首次在 iPhone 18 Pro Max 上 A、B 各 **17/17 通过**，每侧六项自然动画共 72 次选择。按用户要求改用 iPhone 18 Pro 后，A、B 再各 **17/17 通过**，68 条状态比较仍全部一致；候选扩大功能回归 **98/98 通过**。[预定协议](Results/20261104-tabbar-p5c5-local-icon/protocol.json)、[原设备行为对照](Results/20261104-tabbar-p5c5-local-icon/behavior-comparison.json)、[新设备行为对照](Results/20261104-tabbar-p5c5-local-icon/pro-behavior-comparison.json)、[98 项回归](Results/20261104-tabbar-p5c5-local-icon/pro-broad-B/summary.json)。
+
+**性能方法与环境：** Xcode 27.2／iOS 27.2，Release 库测试使用真实 UIWindow 宿主，冻结 A/B 可执行产物，移除并实际核对 Main Thread Checker 未加载。库宿主、冻结产物与来源核验使用既有命令行流程；Demo 真实触摸使用官方 Xcode MCP。每组固定四种工作负载，每种 120 批 × 360 点，逐点布局标签栏和六个按钮，计时不附加工作量计数器。新设备按 A→B→B→A 串行，XCTest 条件顺序固定，非条件正反序；每轮独立启动，无替换样本。预定门槛为 A/A 均值相对极差 ≤10%、批内 RSD ≤20%、目标两次降幅均 ≥10%、非目标两次回退均 ≤5%。这些是本实验筛查，不是统计显著性或产品 SLA。
+
+原设备的 `perf-1-A` 已完成 4/4，但后续多次预检发现 QuickLayoutKit 的构建／UI 测试使用同一模拟器，未执行 B。用户要求换设备后，旧 A 单独保留，不与新设备混算。新模拟器启动后两次预检因主机高负载或其他 xcodebuild 暂停，负载回落后才执行完整 ABBA；未中止其他任务。新四组开始前均未发现编译进程，1 分钟负载满足 ≤16 门槛；预检不等于排除整个测量期间所有系统活动。机器早先高负载、各次预检和旧 A 均保留。[设备切换](Results/20261104-tabbar-p5c5-local-icon/device-change.json)、[新批次终态](Results/20261104-tabbar-p5c5-local-icon/pro-performance-execution.json)。
+
+| 工作负载 | CPU ms／360 点，A1／B1／B2／A2 | B1 对 A1／B2 对 A2 | A/A 相对极差 |
+| --- | --- | --- | ---: |
+| 关闭连续颜色 | 5.587／5.255／5.369／5.495 | −5.94%／−2.30% | 1.65% |
+| 仅标题 | 40.171／41.102／42.260／41.026 | +2.32%／+3.01% | 2.11% |
+| 仅图标 | 68.945／50.280／52.207／70.715 | −27.07%／−26.17% | 2.54% |
+| 图文同时变化 | 90.883／89.345／89.529／90.445 | −1.69%／−1.01% | 0.48% |
+
+四轮各 **4/4 通过**，最大批内 RSD 为 10.99%，全部预定筛查通过。仅标题的小幅增加如实保留，不声称所有路径变快。120 批是同进程相关样本，只有四次独立启动；不能外推跨设备、跨系统收益。[完整均值与 RSD](Results/20261104-tabbar-p5c5-local-icon/pro-performance-comparison.json)、[筛查判定](Results/20261104-tabbar-p5c5-local-icon/performance-decision.json)、[分析器](Results/20261104-tabbar-p5c5-local-icon/analyze-performance-pro.py)。
+
+**失败与修订完整保留：**
+
+- 首个离线行为分析器在读取自然动画后误用局部变量，产生 KeyError；仅修复分析器，原测试结果未重跑或替换。初版分析器和修订说明保留。最终审计初版在生成自身输出前检查了该输出链接，校验失败；调整为先核对其他链接、写入结果后再检查全部链接，保留初版和修订说明，未修改源码或测试。
+- 新增精确聚焦测试首轮 **6/7 通过、1/7 失败**，共四条断言失败：将高亮图标 alpha 错当原输入 alpha，且跨过 0.5 预览快照边界仍要求稳态计数。修订为与同窗口普通 UIButton 原配置路径精确比较即时图标颜色；稳态步骤保持在同一预览区间，68 条 A/B 矩阵继续覆盖跨中点。未放宽颜色、计数或像素精度，框架未因此修改。重新构建后 **7/7 通过**。[失败终态](Results/20261104-tabbar-p5c5-local-icon/final-focused/summary.json)、[失败源码](Results/20261104-tabbar-p5c5-local-icon/final-focused/failed-test-source.swift)、[修订说明](Results/20261104-tabbar-p5c5-local-icon/test-revision.json)、[最终聚焦](Results/20261104-tabbar-p5c5-local-icon/final-focused2/summary.json)。
+- Demo 首次 MCP 构建失败：诊断入口将值类型 `itemAppearance` 存为 let 后修改。修正为 var 副本并整体赋回；未改变框架。首次失败时 UI 测试未执行。[失败构建日志](Results/20261104-tabbar-p5c5-local-icon/final-ui/failed-build.log)。
+
+**最终库回归 259/259 通过：** 最终 Release 构建运行全部非性能 SPTabBar 套件，另含通道诊断及六项自然动画，覆盖内容、状态、缓存、布局、回调、缩放、弹簧、动画改选／反转等。原计数测试有意更新为两项进入局部路径各一次配置、已预热的仅图标稳态零配置；字体、图片身份、标题和图标实际颜色断言保留。无失败／跳过，xcresult runtimeWarnings 为空、四类运行时诊断为 0，冻结产物和运行期间输入一致。既有其他编译警告与 PointerUI 日志保留，不称日志完全无消息。[最终标签栏回归](Results/20261104-tabbar-p5c5-local-icon/final-tabbar/summary.json)。
+
+**最终 Demo UI 2/2 通过：** 官方 Xcode MCP 将当前 Demo scheme 的运行目标切为 iPhone 18 Pro，运行新增显式图标颜色场景及原默认颜色过渡场景。新增场景使用 `--icon-only-colors`、弹簧和 RTL，通过已有“切换图文标签”菜单加入图片并断言栏高增加，再验证真实按下拖出取消、连续标签选择、分页小幅拖动取消、完整翻页及横竖屏恢复。颜色的逐帧精确性由库模型／像素对照负责；UI 用例不宣称逐帧屏幕颜色或 GPU 性能。终态截图可见固定红色标题、选中蓝色模板图标和 RTL 标签顺序。[UI 终态](Results/20261104-tabbar-p5c5-local-icon/final-ui2/summary.json)、[截图](Results/20261104-tabbar-p5c5-local-icon/final-ui2/attachments/783F87B9-436A-4351-9FF3-993A7383B3DE.png)。
+
+**来源与最终审计：** 性能测量后框架生产源码始终与冻结 B 相同；最终库测试和诊断断言使用新构建 `Final2`，与当前 Package／Sources／Tests 一致。库测试结束后，仅补齐 Demo UI 的图文菜单／截图步骤并修复 Demo 外观副本赋值，两项差异另列，没有把旧库构建当作这两项 Demo 修改的验证；最终 MCP UI 输入与当前全量源输入一致。最终 68 条集成记录与同设备 A 精确一致，原有 36 条静态呈现记录与 P5C4 也一致（仅排除内部配置前景色表示）。8 个相关 Swift 文件的 SwiftFormat 0.64.0 lint、证据链接、冻结产物及源码核验、`git diff --check` 通过。[最终呈现对照](Results/20261104-tabbar-p5c5-local-icon/final-presentation-comparison.json)、[最终审计](Results/20261104-tabbar-p5c5-local-icon/final-audit.json)。
+
+**未覆盖与后续：** 未执行 iOS 15 运行、真机、长时稳定性或新一轮 Allocations／系统 Animation Hitches 采集；本轮只完成对应候选的 CPU 对照，不能把配置减少换算为分配收益。自定义属性与符号图像组合未穷尽，跨系统同步呈现仍需继续验证。后续优先在最低支持系统与真机复核高亮／变暗／状态恢复，再补仅图标自然动画的分配和系统卡顿证据；不扩展到自动 tint 或标题变化路径。框架和 Demo 均保持通用，不依赖业务。旧 README、历史验证和其他未提交工作保留，开发团队配置未改；未暂存、提交或推送。
+
 ## 2026-11-04：P5C1 普通连续颜色 A/A 重复性协议
 
 在 `codex/container-architecture-refactor`、HEAD `a5f9b6c` 上实施。新增 `Scripts/color_repeatability.py` 和脚本回归，补充 README 使用方式；框架、Swift 测试、Demo、工程与开发团队配置均未修改，P5A 原有十项性能基准、夹具及 `summarize_color_performance.py` 保持不变。本阶段落实性能证据与重复性判定，不调整渲染实现，不宣称普通持续变色已提速。

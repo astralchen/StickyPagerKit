@@ -52,10 +52,12 @@ final class SPTabBarColorOptimizationTests: XCTestCase {
             let font = button.configuration?.titleTextAttributesTransformer?(AttributeContainer()).uiKit.font
             diagnostics.statistics = .init()
             fixture.frames(30, flushButtons: true)
-            XCTAssertEqual(diagnostics.statistics.colorConfigurationAssignments, 60)
+            // 固定标题的显式模板图标只在两个参与项进入单一 tint 来源时各提交一次。
+            XCTAssertEqual(diagnostics.statistics.colorConfigurationAssignments, changingIcon ? 2 : 60)
             XCTAssertEqual(diagnostics.statistics.titleTransformerCreations, changingIcon ? 0 : 60)
             XCTAssertEqual(button.titleLabel?.textColor, changingIcon ? UIColor.red : UIColor.blue)
-            XCTAssertEqual(button.configuration?.baseForegroundColor, changingIcon ? UIColor.blue : UIColor.red)
+            XCTAssertEqual(button.configuration?.baseForegroundColor, changingIcon ? nil : UIColor.red)
+            XCTAssertEqual(button.imageView?.tintColor, changingIcon ? UIColor.blue : UIColor.red)
             XCTAssertEqual(button.configuration?.titleTextAttributesTransformer?(AttributeContainer()).uiKit.font, font)
             XCTAssertTrue(button.configuration?.image === image)
         }

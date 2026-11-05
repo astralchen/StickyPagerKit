@@ -27,6 +27,10 @@ internal struct SPTabColorTransition {
         }
     }
 
+    var hasConstantColor: Bool {
+        hasEqualEndpoints && components != nil
+    }
+
     func color(at progress: CGFloat) -> UIColor? {
         guard let (a, b) = components else {
             return nil

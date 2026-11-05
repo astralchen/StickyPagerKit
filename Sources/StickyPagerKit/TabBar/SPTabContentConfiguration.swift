@@ -35,6 +35,7 @@ internal struct SPDefaultTabContentConfiguration {
     let buttonConfiguration: UIButton.Configuration
     let colors: SPDefaultTabColors?
     let selectionProgress: CGFloat
+    let allowsTintOnlyIconUpdates: Bool
     let layoutDirection: UIUserInterfaceLayoutDirection
     let iconColor: UIColor
     let isEnabled: Bool
@@ -105,6 +106,7 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
             default:
                 resetHighlight = true
             }
+            usesTintOnlyIcon = false
             displayedSelectionProgress = nil
             displayedTitleTransformer = nil
             displayedTitleColor = nil
@@ -130,6 +132,7 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
     private var displayedIconColor: UIColor?
     private var hasDefaultTitle = false
     private var hasTemplateIcon = false
+    private var usesTintOnlyIcon = false
     private let badge = UILabel()
     private var visualHost: UIView?
     private var activationOverlay: ActivationButton?
@@ -140,6 +143,19 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         // 只安装一次 action，执行时读取最新配置，避免复用时累积回调或引用旧 Item。
         button.addAction(UIAction { [weak self] _ in self?.storedConfiguration.onTap() }, for: .touchUpInside)
+        // 高亮／禁用／选中开始前固定当前颜色，避免 nil 前景色延后到下一次自动更新。
+        button.controlStateWillChange = { [weak self] in
+            guard let self, !self.applyingConfiguration else {
+                return
+            }
+            self.restorePinnedIconConfiguration()
+        }
+        button.tintEnvironmentDidChange = { [weak self] in
+            guard let self, !self.applyingConfiguration, self.button.tintAdjustmentMode == .dimmed else {
+                return
+            }
+            self.restorePinnedIconConfiguration()
+        }
         button.highlightDidChange = { [weak self] in
             guard let self, !self.applyingConfiguration else {
                 return
@@ -238,6 +254,9 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
 
     /// 连续呈现仅修改颜色；基础配置、图片与布局仍由离散配置持有。
     private func updateDefaultColors(progress: CGFloat) {
+        if usesTintOnlyIcon, button.state != .normal || button.tintAdjustmentMode == .dimmed {
+            restorePinnedIconConfiguration()
+        }
         colorDiagnostics?.statistics.colorUpdateAttempts &+= 1
         guard case let .standard(value) = storedConfiguration, let colors = value.colors,
               progress != displayedSelectionProgress else {
@@ -260,6 +279,16 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
         guard titleChanged || iconChanged else {
             return
         }
+        let canUseTintOnlyIcon = value.allowsTintOnlyIconUpdates && hasDefaultTitle && hasTemplateIcon
+            && !titleChanged && button.state == .normal && button.tintAdjustmentMode != .dimmed
+        if canUseTintOnlyIcon, usesTintOnlyIcon, let icon {
+            if iconChanged {
+                button.tintColor = icon
+            }
+            displayedTitleColor = title
+            displayedIconColor = icon
+            return
+        }
         // 从基础快照重建颜色覆盖，只缓存可复用的 transformer，不保留上一帧完整配置。
         var configuration = value.buttonConfiguration
         if titleChanged, let title {
@@ -276,13 +305,29 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
             configuration.titleTextAttributesTransformer = displayedTitleTransformer
         }
         if let icon {
-            configuration.baseForegroundColor = icon
+            configuration.baseForegroundColor = canUseTintOnlyIcon ? nil : icon
             if iconChanged {
                 button.tintColor = icon
             }
         }
         displayedTitleColor = title
         displayedIconColor = icon
+        colorDiagnostics?.statistics.colorConfigurationAssignments &+= 1
+        button.configuration = configuration
+        usesTintOnlyIcon = canUseTintOnlyIcon
+    }
+
+    /// 只从当前快照和已显示颜色恢复；不读取或保存上一帧完整配置。
+    private func restorePinnedIconConfiguration() {
+        guard usesTintOnlyIcon, case let .standard(value) = storedConfiguration else {
+            return
+        }
+        usesTintOnlyIcon = false
+        var configuration = value.buttonConfiguration
+        configuration.baseForegroundColor = displayedIconColor ?? value.iconColor
+        if let displayedTitleTransformer {
+            configuration.titleTextAttributesTransformer = displayedTitleTransformer
+        }
         colorDiagnostics?.statistics.colorConfigurationAssignments &+= 1
         button.configuration = configuration
     }
@@ -416,7 +461,35 @@ SPTabContentProgressDisplaying, SPTabColorDiagnosing {
 
     private final class ActivationButton: UIButton {
         var highlightDidChange: (() -> Void)?
+        var controlStateWillChange: (() -> Void)?
+        var tintEnvironmentDidChange: (() -> Void)?
+        override var isEnabled: Bool {
+            willSet {
+                if newValue != isEnabled {
+                    controlStateWillChange?()
+                }
+            }
+        }
+
+        override var isSelected: Bool {
+            willSet {
+                if newValue != isSelected {
+                    controlStateWillChange?()
+                }
+            }
+        }
+
+        override func tintColorDidChange() {
+            super.tintColorDidChange()
+            tintEnvironmentDidChange?()
+        }
+
         override var isHighlighted: Bool {
+            willSet {
+                if newValue != isHighlighted {
+                    controlStateWillChange?()
+                }
+            }
             didSet {
                 if oldValue != isHighlighted {
                     highlightDidChange?()

@@ -1691,6 +1691,46 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
     }
 
+    func testExplicitIconColorsTouchCancellationAndSelection() {
+        app.terminate()
+        app.launchArguments = ["--open-demo", "--window-regression", "--rtl", "--spring-effects", "--icon-only-colors"]
+        app.launch()
+        let first = app.buttons["sp.tab.0"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        let tabs = app.collectionViews["sp.tabBar.collection"]
+        let titleOnlyHeight = tabs.frame.height
+        app.buttons["demo.pages"].tap()
+        app.buttons["切换图文标签"].tap()
+        XCTAssertGreaterThan(tabs.frame.height, titleOnlyHeight)
+        let second = app.buttons["sp.tab.1"]
+        let press = second.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        press.press(forDuration: 0.3, thenDragTo: press.withOffset(CGVector(dx: 0, dy: 160)))
+        expect("page=grid")
+        XCTAssertTrue(first.isSelected)
+        select(1); expect("page=list")
+        select(3); select(0); expect("page=grid")
+        let grid = app.collectionViews["demo.grid"]
+        let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: grid.frame.width * 0.12, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
+        expect("page=grid")
+        XCTAssertTrue(first.isSelected)
+        grid.swipeRight(); expect("page=list")
+        XCTAssertTrue(second.isSelected)
+        rotate(to: .landscapeLeft)
+        expectSelectedTabAlignment(1)
+        rotate(to: .portrait)
+        select(0); expect("page=grid")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "显式图标颜色真实触摸终态"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testDefaultColorTransitionPagingCancellationAndRotation() {
         app.terminate()
         app.launchArguments = ["--open-demo", "--window-regression", "--rtl", "--color-transition"]
