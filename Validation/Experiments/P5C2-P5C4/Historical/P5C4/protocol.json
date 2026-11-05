@@ -1,0 +1,16 @@
+{
+  "stage": "P5C4",
+  "baseline": "explicit tint plus baseForegroundColor on every icon change",
+  "candidate": "baseForegroundColor nil in base snapshot; icon-only changes write tint; title changes still apply configuration rebuilt from base",
+  "comparison": "separate presentation from representation; exact model and PNG parity within instrumented/plain controls of each variant; cross-variant differences recorded and evaluated, never discarded",
+  "cases": [
+    "explicit state matrix: 4 states x 3 RGBA points x template/original",
+    "state restoration and dynamic light/dark colors",
+    "explicit priority, clear tint, inheritance, reparent, parent dimming, resolved-color refresh",
+    "24 natural points icon-only and both channels"
+  ],
+  "acceptance": "candidate cannot be called equivalent if any presentation/pixel difference exists; internal foreground nil alone is not failure; inherited mode differences are reported separately from explicit mode",
+  "serial": true,
+  "frameworkChanged": false,
+  "performanceTiming": false
+}

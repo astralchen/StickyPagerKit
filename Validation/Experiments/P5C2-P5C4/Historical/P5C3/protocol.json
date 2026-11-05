@@ -1,0 +1,19 @@
+{
+  "stage": "P5C3",
+  "design": "factorial tint write x configuration application; none/tint/configuration/both",
+  "tests": [
+    "states 4 x arms 4 x progress 3",
+    "natural display-driven 24 updates per arm",
+    "same-red 12 writes per arm",
+    "state cycle after blue update for each arm"
+  ],
+  "observation": "UIButton subclass overrides public callbacks and base title transformer records exact execution; untouched UIButton reference for every arm; no runtime method replacement",
+  "gates": [
+    "instrumented/reference models and static pixels must match",
+    "do not require ablation arms to match both; report differences",
+    "no rendering candidate unless full observable equivalence",
+    "no speedup from counts; no timings used"
+  ],
+  "serial": true,
+  "productionChanges": false
+}

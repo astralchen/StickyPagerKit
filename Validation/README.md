@@ -4,6 +4,25 @@
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
+阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
+
+## 2026-11-05：P0～P4 验收索引与 P5C2～P5C4 实验归档
+
+在 `codex/container-architecture-refactor`、HEAD `169f78d` 上整理。补齐阶段／提交对应、选择重入、测量隔离、公开 override、统一呈现、布局顺序、失效范围、缓存与视觉能力的契约和测试索引；明确原计划 P3 由 P3A＋P3B 和 P4A 共同完成。回退仅记录架构边界，不宣称已实际回退验证；P4B 的公开契约变更与后续可选效果分开标明。
+
+将两个未提交的独立 UIButton 实验夹具移至 `Validation/Experiments/P5C2-P5C4/Fixtures`，退出默认 Package 测试发现范围；没有修改 `Package.swift`、Demo target 或 scheme。将两项手动采集／离线分析脚本及其 9 项 Python 测试移至归档，采集脚本仅补充正式 `Scripts` 模块查找路径。复制原 P5C3／P5C4 协议与分析器作为可审查历史源码，并记录来源和前后 SHA-256；历史 Results 原文件保留。README 保留正式诊断入口与索引，将详细历史条件和命令迁至归档说明。既有 P5C2 九节、P5C3／P5C4 各一节及其中失败、断连、撤回候选和未覆盖项均未改写。
+
+**本轮串行检查：**
+
+- **正式脚本回归通过：22/22**，使用 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Scripts/Tests -v`。其中模拟的失败／不稳定样本属于脚本拒绝无效证据的用例，不是新的性能测量。
+- **归档脚本回归通过：9/9**，独立发现 `Validation/Experiments/P5C2-P5C4/Scripts/Tests`，不与默认集合混合。覆盖 2 项采集提示／断连检查和 7 项离线分析协议检查；不代表设备采集端到端通过。
+- **历史分析重放通过：2/2**，分别将原分析器与 `focused/reports.json` 复制到新的临时目录后串行执行，生成 JSON 与 P5C3／P5C4 原 `analysis.json` 完全一致。没有覆盖历史输出，也没有把原候选的不等价结论改成通过。
+- **静态检查通过：** 两个 CLI 在仓库外目录执行 `--help` 成功；归档 Python 语法、归档来源哈希、新文档本地链接及索引中的 37 个测试方法引用核对通过。两个 Swift 夹具逐字保留；框架、既有正式测试／脚本、Package、Demo 源码与开发团队配置均与整理前一致。暂存区为空，`git diff --check` 通过。[本轮审计](Results/20261105-tabbar-archive-closeout/audit.json)、[P5C3 重放输出](Results/20261105-tabbar-archive-closeout/P5C3-analysis.log)、[P5C4 重放输出](Results/20261105-tabbar-archive-closeout/P5C4-analysis.log)。
+
+**提交前复核：** 新归档文件纳入暂存检查后，发现 `HistoricalUsage.md` 末尾多余空行，已仅清理该格式问题；归档源码／协议哈希保持一致。暂存范围限定为本次 16 个文档与归档文件，开发团队配置排除；暂存区内容核验及 `git diff --cached --check` 通过。未重复执行已通过的 Python 回归。
+
+**未执行：** UIKit 构建、库／Demo 运行测试、模拟器／真机采集、性能对照与实际回退；本轮只改变文档、实验位置和归档脚本导入路径，不重跑历史 UI 矩阵。测试输入集合因夹具迁出而变化，旧全仓哈希不能当作归档后重新验证；框架未改也不等于当前全库已运行。未触碰开发团队配置，未暂存、提交或推送。
+
 ## 2026-11-05：P5C6 聚焦兼容性验收与颜色优化收尾
 
 **结论：iOS 26.5 同系统行为对照通过，P5C5 实现不再调整；真机触摸验收仍被自动化环境阻挡。** 按“收益不明显的优化可跳过”的约束，本轮只补必要行为证据，不扩大自动 tint／标题变化等优化路径，不追加 CPU、Allocations 或 Animation Hitches 采集，不继续反复修复真机链路。以提交 `059bb4f` 的生产源码为当前实现，整个过程未修改框架、测试、Demo、公开 API 或工程开发团队配置。[执行范围与环境](Results/20261105-tabbar-p5c6-focused/protocol.json)。
@@ -62,6 +81,392 @@
 **来源与最终审计：** 性能测量后框架生产源码始终与冻结 B 相同；最终库测试和诊断断言使用新构建 `Final2`，与当前 Package／Sources／Tests 一致。库测试结束后，仅补齐 Demo UI 的图文菜单／截图步骤并修复 Demo 外观副本赋值，两项差异另列，没有把旧库构建当作这两项 Demo 修改的验证；最终 MCP UI 输入与当前全量源输入一致。最终 68 条集成记录与同设备 A 精确一致，原有 36 条静态呈现记录与 P5C4 也一致（仅排除内部配置前景色表示）。8 个相关 Swift 文件的 SwiftFormat 0.64.0 lint、证据链接、冻结产物及源码核验、`git diff --check` 通过。[最终呈现对照](Results/20261104-tabbar-p5c5-local-icon/final-presentation-comparison.json)、[最终审计](Results/20261104-tabbar-p5c5-local-icon/final-audit.json)。
 
 **未覆盖与后续：** 未执行 iOS 15 运行、真机、长时稳定性或新一轮 Allocations／系统 Animation Hitches 采集；本轮只完成对应候选的 CPU 对照，不能把配置减少换算为分配收益。自定义属性与符号图像组合未穷尽，跨系统同步呈现仍需继续验证。后续优先在最低支持系统与真机复核高亮／变暗／状态恢复，再补仅图标自然动画的分配和系统卡顿证据；不扩展到自动 tint 或标题变化路径。框架和 Demo 均保持通用，不依赖业务。旧 README、历史验证和其他未提交工作保留，开发团队配置未改；未暂存、提交或推送。
+
+## 2026-11-04：P5C4 单一图标颜色来源的独立验证
+
+**结论：局部成立，不能作为无条件等价替换。** 候选在基础快照中保留 `baseForegroundColor = nil`，仅图标变色时只写显式 tint；标题变化时仍从基础快照构造并应用配置。显式颜色的最终模型／静态像素、状态恢复及动态明暗颜色在本次矩阵中一致；但高亮状态的即时图标 tint 有延后更新，主动清除显式 tint 后的图标继承行为也不同。仅图标路径减少了配置和 transformer 调用，图文同时变化没有减少。未改框架渲染、公开 API 或缓存边界，不缓存上一帧完整配置，不声明性能收益。
+
+**方法与来源：** 新增 `SPButtonSingleColorSourceTests.swift`。基线为“显式 tint＋配置前景色”；候选为上述单一来源。每种方案各有诊断子类和普通 UIButton 对照，共四个按钮；每次严格核对同方案两者模型，静态采集还核对 PNG 字节。子类仅转发公开回调并计数自己的标题 transformer，不替换 runtime 方法。跨方案差异完整记录，由分析器分别判定：`representation` 包含配置前景色及 nil 状态；`presentation` 包含按钮／图标／标题颜色、状态、字体、几何和可访问性 traits；最终静态图片另列。诊断测试通过仅表示控制组和实验执行正确，不等于候选等价性通过。[预定协议](Results/20261104-tabbar-p5c4-single-source/protocol.json)、[分析器](Results/20261104-tabbar-p5c4-single-source/analyze.py)。
+
+官方 Xcode MCP 确认 Demo 工作区；冻结 Release 库测试宿主、诊断注入配置和输入核验使用既有命令行流程。使用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator，构建和测试串行。Apple 文档将 [`tintColor`](https://developer.apple.com/documentation/uikit/uiview/tintcolor) 定义为沿视图层级解析的 tint，并说明变暗状态会影响解析值；[`baseForegroundColor`](https://developer.apple.com/documentation/uikit/uibutton/configuration-swift.struct/baseforegroundcolor) 是可能经配置转换后才应用的前景色。文档不替代本轮对 nil 配置下实际行为的验证。
+
+**聚焦诊断 4/4 通过，无失败或重试。** 静态场景共 48 条：模板／原色图标 × 四状态 × 三个 RGBA 进度为 24 条；状态恢复、父视图变暗及动态颜色明暗切换为 13 条；显式优先级、清除 tint、父色变化、重新挂载及上层重新提交颜色为 11 条。连续进度另有仅图标／图文两组，各 24 次显示链驱动更新。读取即时模型后等待三次自然显示链回调，再读取模型、强制布局并采集静态图片；这些回调不是实际呈现帧，图片也不是系统合成器逐帧证据。[聚焦终态](Results/20261104-tabbar-p5c4-single-source/focused/summary.json)、[完整差异](Results/20261104-tabbar-p5c4-single-source/analysis.json)。
+
+| 场景 | 记录数 | 即时模型一致 | 自然更新后模型一致 | 强制布局后模型一致 | 最终静态像素一致 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 显式颜色／状态矩阵 | 24 | 18 | 24 | 24 | 24 |
+| 状态恢复与动态 traits | 13 | 13 | 13 | 13 | 13 |
+| tint 优先级与继承 | 11 | 7 | 7 | 7 | 7 |
+
+**内部表示与即时行为分开：** 所有配置前景色／nil 标记差异都只计为表示变化，没有据此判定候选失败。显式颜色矩阵中六条即时差异均为高亮时的 `imageView.tintColor`：候选仍为上一进度颜色，基线已是新颜色；三条模板图标、三条原色图标，下一次自然更新后全部一致。例如模板高亮从前一颜色切到 0.2 进度，基线为 `[0.8, 0, 0.2, 0.75]`，候选即时仍为 `[0.2, 0, 0.8, 0.75]`。这属于可观察 UIKit 子视图模型时序差异，不是 `baseForegroundColor` 表示差异；但原色图标不使用模板 tint 绘制，且本轮没有捕获屏幕上的高亮闪动，不能直接声称已出现用户可见回退或 SPTabBar 公开 API 破坏。
+
+**继承结果需要按所有权解释：**
+
+- 保留显式 tint 时，父视图改变颜色、重新挂载、重新恢复蓝色，以及上层重新解析父 tint 后提交颜色，均保持基线与候选一致。
+- 对按钮主动执行 `tintColor = nil` 后，按钮自身 tint 的继承在两种方案中一致，但图标不同：候选跟随父 tint，基线仍受配置前景色约束。清除、父色变化、继承模式重新挂载、父视图从变暗恢复四条最终像素不同；不能称为仅内部表示差异。
+- 父视图变暗过程中另有一条即时图标灰度数值差异，后续一致；没有删除该精确比较结果。因差异发生的阶段不同，即时一致的七条与最终一致的七条不是同一集合。
+
+当前源码 `SPTabBar.tintColorDidChange()` 会刷新可见标签，`SPTabBarContentEnvironment` 负责解析显式颜色及自动 tint，内容视图再写入解析后的颜色。因此“直接清除内部按钮 tint”并不是当前公开接入路径；本轮继承差异是独立 UIKit 边界，不能据此单独认定框架自动 tint 接入失败。夹具的 `resolved-parent-refresh` 步骤通过，但它只是模拟上层重新提交，不能代替实际 SPTabBar 集成验证。
+
+**连续更新计数：** 两组 24 次进度的即时、下一观察回调前和最终呈现模型均一致；标题变化时组合原基础 transformer，未保留上一帧完整配置。
+
+| 通道 | 基线／候选显式配置提交 | 基线／候选标题 transformer | 基线／候选后续 updateConfiguration |
+| --- | ---: | ---: | ---: |
+| 仅图标 | 24／0 | 48／24 | 24／24 |
+| 图文同时变化 | 24／24 | 48／48 | 24／24 |
+
+调用次数减少只发生在本次仅图标路径；图文同时变化仍需提交标题配置。没有新增 CPU、分配或 A/A 测量，不能换算耗时、帧率或百分比收益。条件受独立夹具、当前系统、颜色／图标和状态矩阵限制。[阶段判定](Results/20261104-tabbar-p5c4-single-source/decision.json)。
+
+**最终原有回归 20/20 通过：** 同一最终构建运行原颜色优化／过渡、静态快照和六项自然动画，后者共 72 次选择。原有 36 组模型／几何与静态 PNG 哈希和 P5C2 基线一致。聚焦及回归均无失败／跳过、xcresult `runtimeWarnings=[]`、四类运行时诊断为 0，Checker 实际未加载。新测试无编译警告；既有其他编译警告及 PointerUI 日志保留。SwiftFormat 0.64.0 lint、证据链接、来源及冻结产物校验、`git diff --check` 通过。[最终回归](Results/20261104-tabbar-p5c4-single-source/regression/summary.json)、[36 项基线对照](Results/20261104-tabbar-p5c4-single-source/static-comparison.json)、[最终审计](Results/20261104-tabbar-p5c4-single-source/final-audit.json)。
+
+**建议与未覆盖：** 不进入全局替换。后续若实施候选，应先限定为标题不变、显式颜色、正常状态的图标路径，明确高亮时的回退或同步呈现要求，再做真实 SPTabBar 接入与性能验证；这只是下一步建议，本轮未实现。尚未覆盖 iOS 15 运行、真机、真实触摸高亮／取消、RTL、Dynamic Type、旋转和长时运行，也未验证所有自定义属性或符号图片组合。没有新生产候选，不重复全库／Demo UI 或未改动脚本的全套测试。本轮只新增独立测试及本节记录，既有开发团队配置和其他修改保留，未暂存、提交或推送。
+
+## 2026-11-04：P5C3 独立 UIButton 配置失效因果隔离
+
+**结论：夹具内确认变色 tint 写入足以引出后续配置更新；没有采纳删减写入的生产候选。** 在基础配置固定 `baseForegroundColor` 的前提下，仅写 tint 无法得到基线图标颜色；仅应用配置虽保持本次静态像素，却改变按钮自身 tint 模型。两条路径组合时，固定标题 transformer 分别在同步配置应用与后续自然更新阶段执行，解释了上一轮二次标题属性应用的方向，但不等于证明 UIKit 全部内部因果链或可获得的 CPU 收益。公开 API、生产渲染、快照缓存边界均未修改，`Sources/` 无 diff。
+
+**实验范围：** 新增 `SPButtonColorInvalidationTests.swift`，独立真实窗口中放置诊断 UIButton 子类和普通 UIButton 参考对象。两者使用相同 `.plain()` 配置、固定红色标题 transformer、24×24 光栅化模板图标、初始红色 tint／配置前景色；子类仅记录公开回调并转发 `super`，直接在自己的 transformer 内记录实际执行，不使用 runtime 方法替换。每次从不变基础配置构造颜色覆盖，不缓存上一帧完整配置。所有组都必须与同组普通按钮保持即时／自然调度后／强制布局后的模型一致，静态检查还要求 PNG 字节一致；干预组与“二者都写”之间的差异独立记录，不把预期干预差异写成测试失败。
+
+固定四组为 `none`（不写入）、`tint`（仅显式 tint）、`configuration`（仅配置前景色）、`both`（先 tint 后配置）。四项测试覆盖：四种状态 × 四组 × 三个中间颜色的 48 条记录；每组 24 次显示链驱动进度，共 96 次；每组 12 次相同红色写入，共 48 次；变蓝后高亮／恢复、禁用／恢复、变暗／恢复，共 24 条状态记录。显示链只驱动独立夹具，不代表真实分页手势或完整 SPTabBar 动画。计数有诊断开销，不用于性能计时。[采样前协议](Results/20261104-tabbar-p5c3-invalidation/protocol.json)、[独立分析器](Results/20261104-tabbar-p5c3-invalidation/analyze.py)。
+
+**工具和 API 边界：** 官方 Xcode MCP 确认当前 Demo 工作区；冻结 Release 库测试宿主、移除 Checker 注入并核对产物使用既有命令行流程。使用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator，构建和两次测试运行串行。保持 `automaticallyUpdatesConfiguration` 默认开启。Apple 文档说明该属性参与状态变化时的配置更新，并建议通过 [`setNeedsUpdateConfiguration()`](https://developer.apple.com/documentation/uikit/uibutton/setneedsupdateconfiguration()) 请求更新，[不要直接调用 `updateConfiguration()`](https://developer.apple.com/documentation/uikit/uibutton/updateconfiguration())；本轮阳性检查使用请求入口并等待自然调度，未沿用前轮直接调用方法的探针。前轮原始证据保留，不将历史探针当作推荐接入方式。
+
+**新增诊断 4/4 通过。** 24 次自然连续变色的完整计数如下；同步／后续阶段由夹具写入边界标记，未手动逐点强制布局。
+
+| 干预组 | 显式 tint 写入 | 显式配置应用 | 后续 updateConfiguration | 标题 transformer：同步／后续 |
+| --- | ---: | ---: | ---: | ---: |
+| 不写入 | 0 | 0 | 0 | 0／0 |
+| 仅 tint | 24 | 0 | 24 | 0／24 |
+| 仅配置 | 0 | 24 | 0 | 24／0 |
+| 二者都写 | 24 | 24 | 24 | 24／24 |
+
+在本夹具、此系统和输入下，tint 干预单独存在时就产生后续更新；无 tint 干预的配置组未观察到该后续入口。四组独立对照支持这一有限因果判断，不能将 48→24 次 transformer 直接换算为 50% CPU、分配或帧率收益。相同红色重复写入的各组虽有相应 12 次 setter 请求，但均没有再次执行 transformer 或观察到 `updateConfiguration`，表明 setter 计数本身不代表完整实际工作量。[聚焦终态](Results/20261104-tabbar-p5c3-invalidation/focused/summary.json)、[完整计数和阶段](Results/20261104-tabbar-p5c3-invalidation/analysis.json)。
+
+**行为对照结果：**
+
+- 仅 tint：普通／高亮状态的图标仍受原配置前景色约束，图标颜色及静态像素不同；不能删除配置应用。禁用／变暗时部分像素相同，也不构成恢复状态等价。
+- 仅配置：状态矩阵 12/12、状态切换 6/6 的静态像素与 `both` 相同；即时、自然调度后和强制布局后都仍有按钮 `tint` 值差异。当前没有证明这种变化在框架的 tint 继承、其他内容或外部观察中不可见，不能仅凭截图采纳。
+- `both`：自然最终状态为蓝色按钮 tint／图标／配置前景色，标题保持红色，分析器独立核验；所有干预组的诊断子类均与对应普通 UIButton 模型和已采集静态像素一致。
+
+状态切换三种写入组均观察到正常的配置更新与 transformer 调用，自动更新行为未被关闭。矩阵涵盖 48 个静态模型／图片对照，状态恢复另有 24 个；这不是系统合成器逐帧像素、可访问性或真实触摸验收。[判定与未证实项](Results/20261104-tabbar-p5c3-invalidation/decision.json)。
+
+**最终原有回归 20/20 通过：** 原颜色优化／颜色过渡、静态快照及标题／图标／图文 × 标准／弹簧六项自然动画使用同一最终构建，六项自然动画共 72 次选择。原有 36 组模型／几何及静态 PNG 哈希与 P5C2 A 基线一致。所有运行无失败／跳过、xcresult `runtimeWarnings=[]`、四类运行时诊断为 0，实际 Checker 未加载。新测试无编译警告；其他既有编译警告及 PointerUI 日志保留，不宣称日志完全无消息。SwiftFormat 0.64.0 lint、源码／冻结产物核验、证据链接和 `git diff --check` 通过。[最终回归](Results/20261104-tabbar-p5c3-invalidation/regression/summary.json)、[静态基线对照](Results/20261104-tabbar-p5c3-invalidation/static-comparison.json)、[最终审计](Results/20261104-tabbar-p5c3-invalidation/final-audit.json)。
+
+**下一阶段建议与未覆盖：** 简单删除任一写入的路径在当前表示方式下没有满足等价条件。若继续，优先在独立夹具验证“单一图标颜色来源”的可行性，例如研究基础配置不固定图标前景色时，由 tint 驱动图标是否仍满足颜色／状态／继承行为；这尚未实施或证明可用，内部配置表示差异也应与公开行为差异分别评估。本轮未新增 CPU／Allocations／A/A 测量，没有生产候选，因此不宣称相对性能收益；亦未执行真机、iOS 15、RTL、Dynamic Type、旋转、真实触摸或全库／Demo UI 回归。未改受跟踪脚本实现，不重复脚本全套测试。既有开发团队配置及其他未提交修改保持原样，未暂存、提交或推送。
+
+## 2026-11-04：P5C2 自然动画提交时序与 A/A 对照（仅诊断）
+
+**结论：本轮不进入提交合并或渲染优化。** 相同当前生产实现的两轮 A/A 中，仅图标／图文的逐点布局条件较稳定，但十个条件整体未通过预定重复性筛查。自然动画没有观察到稳态中同一标签在同一显示链观察间隔重复提交颜色配置；涉及图标变色时，配置赋值之外仍有额外的公开 `updateConfiguration` 入口和标题属性提交。优先方向收窄为图标相关配置失效／二次属性应用的因果隔离，不能从本次观察直接删除显式 tint、关闭自动更新或引入延后提交。`Sources/` 无 diff；公开 API、渲染实现及上一帧完整配置缓存边界不变。
+
+**范围与环境：** 仅新增 `Tests/StickyPagerKitTests/SPTabBarColorSequenceTests.swift` 和本节记录，已有其他修改保留。官方 Xcode MCP 已确认 Demo 工作区，iPhone 18 Pro Max（`AE44385E-67B4-4C5B-8047-7CD2E331C200`）已启动；使用 Xcode 27.2／iOS 27.2 Simulator。复用冻结 Release 库测试宿主及自定义来源校验需要命令行入口，全部构建／测试串行，不改 Demo scheme。A/A 开始前未发现其他编译进程，1 分钟负载分别约 6.98、4.33；这不等于排除其他系统活动或控制 CPU 频率。[采样前协议](Results/20261104-tabbar-p5c2-natural-sequence/protocol.json)、[第一轮环境](Results/20261104-tabbar-p5c2-natural-sequence/aa-1-environment.json)、[第二轮环境](Results/20261104-tabbar-p5c2-natural-sequence/aa-2-environment.json)。
+
+**阶段一：两轮执行各 7/7 通过，重复性筛查未整体通过。** 新增诊断测试之前，先验证当前全部源输入与上一轮 A2 冻结产物严格一致，再使用同一 A 宿主独立启动两次：条件正序→反序，不追加替换运行、不删慢样本。每轮包含原十条件通道基线（每条件 30 批 × 360 点）和标题／图标／图文 × 标准／弹簧六项自然动画；两轮自然动画共 144 次选择，中间颜色、固定通道和终态断言通过，Checker 实际未加载。预定筛查门槛为批内 RSD ≤20%、两轮均值相对极差 ≤10%，仅用于发现波动，不是产品 SLA 或统计显著性门槛。
+
+| 通道／布局条件 | A 正序 CPU ms／360 点 | A 反序 CPU ms／360 点 | 两轮均值相对极差 | 筛查 |
+| --- | ---: | ---: | ---: | --- |
+| 仅标题／不主动逐点布局 | 38.178 | 31.121 | 20.37% | 未通过 |
+| 仅标题／逐点布局 | 46.562 | 39.446 | 16.55% | 未通过 |
+| 仅图标／不主动逐点布局 | 47.263 | 42.012 | 11.76% | 未通过 |
+| 仅图标／逐点布局 | 68.876 | 69.223 | 0.50% | 通过 |
+| 图文／不主动逐点布局 | 51.559 | 54.527 | 5.59% | 未通过，反序批内 RSD 21.22% |
+| 图文／逐点布局 | 90.170 | 89.460 | 0.79% | 通过 |
+
+关闭及固定颜色的四个控制条件通过；十个条件共六个通过、四个未通过。仅两次独立启动，进程内 30 批相关，不能推导小幅优化可检测性、FPS 或跨版本收益；本轮没有候选实现参与比较。阶段二只使用计数／顺序推断，不拿仪器化耗时填补重复性不足。[A/A 终态一](Results/20261104-tabbar-p5c2-natural-sequence/aa-1/summary.json)、[终态二](Results/20261104-tabbar-p5c2-natural-sequence/aa-2/summary.json)、[全部均值与 RSD](Results/20261104-tabbar-p5c2-natural-sequence/aa-comparison.json)、[可重读分析器](Results/20261104-tabbar-p5c2-natural-sequence/analyze_baseline.py)。
+
+**阶段二诊断方法：** 真实窗口等待 `viewDidAppear` 后，按需附加既有独立工作量计数器。只在测试进程内临时观察公开 Objective-C selector：按钮配置、tint、`updateConfiguration`、按钮／内容视图 `layoutSubviews` 和 `UILabel` 属性 setter；所有调用按原参数转发原 IMP，非目标对象不记账。每项结束恢复并核对原 IMP；对继承方法安装的本类槽位仍保留到测试进程退出，不能宣称 runtime 方法表完全还原。没有修改系统私有实现或在框架中安装观察器。
+
+六项用例覆盖三通道 × 标准／弹簧，每项包含普通选择、动画中改选、返回原页、合成分页进度反转四个场景，共 24 个场景。前三项由原有动画自然推进；第四项由诊断 CADisplayLink 提供 `setTransitionProgress` 输入并在反转结束后恢复选择，不是实际触摸取消。观察区间内不调用 `advanceSelectionAnimation`、不强制逐帧布局。记录显示链时间戳、RunLoop beforeSources／beforeWaiting 标记、调用嵌套、配置分类及颜色；观察间隔与 RunLoop 标记都不是实际呈现帧。诊断有额外开销，不用于性能基线。`UILabel.attributedText` 写入次数也不等于 transformer 调用次数或整份属性相等检查。
+
+**首轮失败与诊断修订保留：** 首轮 4/6 通过、2/6 失败，仅标题标准／弹簧均因测试假定“自然路径必经 `updateConfiguration`”失败，颜色、中间态、终态和框架计数核对均通过。原始记录显示标题侧此入口为 0，而图标／图文侧非零。修订为在所有自然场景结束后显式调用一次公开方法，严格验证观察入口恰好记录一次；阳性对照事件单列，不混入自然路径或计数。没有放宽颜色、固定通道、终态或提交计数断言。最终独立新构建／新运行 **6/6 通过**，六项阳性对照均恰好一次，配置入口总数与框架独立计数一致，原 IMP 核对通过。首次构建的两个 AnyClass 推断警告也保留，随后用显式类型标注消除；没有新框架代码警告。[首轮失败](Results/20261104-tabbar-p5c2-natural-sequence/sequence/summary.json)、[失败源码](Results/20261104-tabbar-p5c2-natural-sequence/sequence/failed-test-source.swift)、[诊断修订](Results/20261104-tabbar-p5c2-natural-sequence/diagnostic-revision.json)、[构建修订](Results/20261104-tabbar-p5c2-natural-sequence/build-revision.json)、[最终六项终态](Results/20261104-tabbar-p5c2-natural-sequence/sequence2/summary.json)。
+
+**已确认的自然路径差异：** 以下来自最终标准动画普通选择，按观察间隔及标签分组，只取该组恰有一次、且不在离散选择调用栈内的连续颜色配置提交；数值为参与标签合计，包含所有符合条件的组。
+
+| 通道 | 颜色配置提交 | 标题属性 setter | 公开 updateConfiguration | 按钮 layoutSubviews |
+| --- | ---: | ---: | ---: | ---: |
+| 仅标题 | 32 | 32 | 0 | 32 |
+| 仅图标 | 32 | 64 | 32 | 0 |
+| 图文 | 32 | 64 | 32 | 32 |
+
+标题侧的 32 次属性写入全部发生在配置 setter 内。图标／图文均有 32 次在配置 setter 内、32 次在其外；仅图标固定标题仍被再次提交。一个实际序列为 `tint.begin/end → configuration.begin → title.attributedText → configuration.end → button.update.begin/end → title.attributedText`；后一次标题提交不在公开 `updateConfiguration` 调用栈内，不能把相邻时序直接当成完整内部调用关系。弹簧普通选择得到同样按钮侧计数，另外有缩放预设带来的内容视图布局；不把它视为纯颜色单变量比较。
+
+六项用例的普通／中断／返回场景中，没有观察到同一标签在同一观察间隔内多次非 action 颜色配置提交（最大值为 1）；这不证明所有系统版本／显示帧都不会重复，也不适用于被主动排除的离散选择动作。合成分页输入另列，不能用其 action 排除结果证明分页没有多次提交。[全部时序分析](Results/20261104-tabbar-p5c2-natural-sequence/sequence-analysis.json)、[实际图标事件序列](Results/20261104-tabbar-p5c2-natural-sequence/example-icon-sequence.json)、[只读分析器](Results/20261104-tabbar-p5c2-natural-sequence/analyze_sequence.py)。
+
+**推断与下一步：** 当前证据不支持优先增加逐帧合并机制。涉及图标时的二次配置／标题应用更值得隔离，但尚未证明它全部由显式 tint 引起，或能在现有公开行为下消除。下一轮可在独立 UIButton 诊断夹具中分离显式 tint 与配置颜色字段的失效来源，检查即时及布局后颜色、标题属性、状态变化和更新次数，先判断是否存在保持行为的公开 API 路径。仅图标自然路径没有按钮布局入口，也说明上一轮同步布局分区的 CPU 权重不能直接解释成自然动画反复执行 `layoutSubviews` 的次数；本轮未新增自然动画 Time Profiler，不将入口计数换算为 CPU 占比。
+
+**最终回归 20/20 通过：** 同一最终诊断构建启动独立宿主，未安装入口观察器，运行原颜色优化／颜色过渡、静态快照及六项自然动画。36 组模型／几何及静态 PNG 哈希与上一轮 A 完全一致；六项自然动画共 72 次选择。所有最终运行无失败／跳过、xcresult `runtimeWarnings=[]`、四类运行时诊断为 0，实际 Checker 未加载。原日志中的 PointerUI 消息保留。SwiftFormat 0.64.0 lint、源码／冻结产物核对及 `git diff --check` 通过。A/A 后只新增诊断测试文件，当前输入对应 build3；不把旧冻结 A 冒充最终新增测试构建。[最终回归](Results/20261104-tabbar-p5c2-natural-sequence/regression/summary.json)、[36 项静态对照](Results/20261104-tabbar-p5c2-natural-sequence/static-comparison.json)、[最终审计](Results/20261104-tabbar-p5c2-natural-sequence/final-audit.json)。
+
+**未覆盖：** 新的 Instruments CPU／Allocations、真实触摸／系统返回手势、真机系统卡顿、iOS 15 运行、RTL／Dynamic Type／旋转及长时稳定性。本轮无受跟踪脚本实现改动，未重复脚本全套回归或全库／Demo UI 测试。没有保留性能候选或宣布优化收益；既有开发团队配置及其他未提交工作保留，未暂存、提交或推送。
+
+## 2026-11-04：P5C2 显式 tint／配置提交顺序受控实验（候选撤回）
+
+**结论：本次不保留渲染改动。** A 为当前实现：设置 `baseForegroundColor`、写入 `button.tintColor`、赋值 `button.configuration`；B 仅把显式 tint 写入移到 configuration 赋值之后。没有删除 tint 写入、禁用自动状态更新、改变公开 API 或缓存上一帧完整配置。B 行为与静态渲染检查通过，但没有可靠性能收益，CPU 仍显示相同后续配置／布局路径；已按字节恢复 A，框架目录无 diff。保留新增诊断测试、原始产物、候选补丁与全部记录。[预定协议](Results/20261104-tabbar-p5c2-tint-order/protocol.json)、[候选补丁](Results/20261104-tabbar-p5c2-tint-order/candidate.patch)、[决策](Results/20261104-tabbar-p5c2-tint-order/decision.json)。
+
+Apple 文档说明 [`automaticallyUpdatesConfiguration`](https://developer.apple.com/documentation/uikit/uibutton/automaticallyupdatesconfiguration) 参与按钮状态变化时的配置更新，默认开启；[`setNeedsUpdateConfiguration`](https://developer.apple.com/documentation/uikit/uibutton/setneedsupdateconfiguration()) 会请求合并更新。本轮没有把关闭自动更新当作无行为影响的开关，仅验证顺序调整。测试、测量和采集均串行，使用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator、Release 独立库测试宿主。官方 MCP 工作区仍可连接；冻结变体、控制注入及 Instruments 使用命令行。
+
+**前置失败保留：** 首次 A 构建因新增诊断使用 `NSStringFromCGRect` 而失败，当前 SDK 要求替代接口；诊断改为记录 CGRect 的 x／y／width／height 数值数组，未改断言或框架。新 A2 构建和 B 构建成功。CPU 补采首次在启动测试前被正式采集器拒绝：冻结依赖目录名为 Products，而校验要求 Release-iphonesimulator；仅复制成要求名称的诊断副本并验证文件树相同，保留旧配置，未执行或替换动画／CPU 样本。[编译修订](Results/20261104-tabbar-p5c2-tint-order/build-revision.json)、[首次编译日志](Results/20261104-tabbar-p5c2-tint-order-A-build/xcodebuild.log)、[采集前置拒绝](Results/20261104-tabbar-p5c2-tint-order/profile-pair-preflight-failed.log)、[路径修订](Results/20261104-tabbar-p5c2-tint-order/profile-preflight-revision.json)。
+
+**行为检查 A、B 各 18/18 通过：** 包括既有颜色优化／颜色过渡、四项单通道标准／弹簧自然动画和新增 `SPTabBarTintOrderingTests`。新测试保留标题／图标／双通道，在普通、高亮、禁用、变暗四种状态及 0.2／0.5／0.8 进度下记录 36 个快照；A、B 布局前后模型颜色、几何、状态与静态 `layer.render` PNG SHA-256 全部一致。自然用例各侧共 48 次选择通过，中间颜色与固定通道断言不变；实际 Checker 未加载。所有测试无失败／跳过、xcresult `runtimeWarnings=[]`、四类运行时诊断为 0。静态 layer 渲染不等于系统合成、动画中途像素或真实触摸验证。[A 行为终态](Results/20261104-tabbar-p5c2-tint-order/behavior-A/summary.json)、[B 行为终态](Results/20261104-tabbar-p5c2-tint-order/behavior-B/summary.json)、[36 项对照](Results/20261104-tabbar-p5c2-tint-order/behavior-comparison.json)。
+
+**冻结及来源边界：** 两次构建的源输入仅 `SPTabContentConfiguration.swift` 不同，新测试和其他输入完全一致。分别冻结 A／B 宿主、测试包及依赖；A→B→B→A 顺序固定，前两项条件正序，后两项完全反序，每条件原样保留 30 批 × 360 点。运行 A 时工作区可能为 B，标准摘要如实保留该单文件差异；执行器另记构建变体、工作区运行前后指纹，核对唯一允许的预期差异及冻结产物一致，不把 A 冒充 B 的源码验证。CPU 补采则分别恢复对应源文件，严格核对采集器构建指纹。[源差异](Results/20261104-tabbar-p5c2-tint-order/variant-source-difference.json)、[执行器](Results/20261104-tabbar-p5c2-tint-order/run.py)、[串行顺序](Results/20261104-tabbar-p5c2-tint-order/benchmark.py)。
+
+**A/B/B/A 四项均执行通过，性能收益未确认。** 以下是每批 360 点的平均进程 CPU ms，不是逐帧耗时：
+
+| 条件 | A 正序 CPU ms | B 正序 CPU ms | B 反序 CPU ms | A 反序 CPU ms |
+| --- | ---: | ---: | ---: | ---: |
+| off／不主动逐点布局 | 6.456 | 8.660 | 5.579 | 5.510 |
+| off／逐点布局 | 5.573 | 7.717 | 5.649 | 5.761 |
+| fixed／不主动逐点布局 | 5.880 | 8.245 | 5.535 | 6.150 |
+| fixed／逐点布局 | 6.198 | 8.526 | 6.223 | 9.377 |
+| title／不主动逐点布局 | 39.189 | 64.743 | 48.822 | 39.359 |
+| title／逐点布局 | 68.032 | 99.337 | 64.313 | 49.484 |
+| icon／不主动逐点布局 | 62.989 | 56.526 | 57.714 | 68.763 |
+| icon／逐点布局 | 83.173 | 155.574 | 133.869 | 88.673 |
+| both／不主动逐点布局 | 71.570 | 105.926 | 104.880 | 90.154 |
+| both／逐点布局 | 141.737 | 133.872 | 165.039 | 107.010 |
+
+仅图标不主动布局的 B 比匹配 A 低 10.26%／16.07%，但逐点布局的 B 高 87.05%／50.97%；双通道逐点布局一轮低 5.55%、另一轮高 54.23%。仅标题、关闭、固定端点等控制条件也有明显漂移。四项开始时仍有其他编译进程，系统 load average 较高；记录环境而不终止其他任务。这些数据不支持采纳候选，也不能把百分比全归为顺序修改的精确回退幅度。没有设置事后通过阈值、删慢样本或追加替换运行；进程内 30 批不是 30 个独立实验。[完整样本统计](Results/20261104-tabbar-p5c2-tint-order/performance-comparison.json)、[串行终态](Results/20261104-tabbar-p5c2-tint-order/benchmark-driver.log)、[首次环境快照](Results/20261104-tabbar-p5c2-tint-order/bench-1-A-environment.json)、[末次环境快照](Results/20261104-tabbar-p5c2-tint-order/bench-4-A-environment.json)。
+
+**仅图标 CPU B→A 两项完整采集通过：** 同一 120 批 × 360 点／同步布局，工具及测试退出 0，完整 signpost、PID、源码与产物均核验，实际 Checker 未加载。两次模板均有一张表缺已知输入源警告，原日志保留；使用确有数据的符号化 time-profile，不依赖未知表。主线程工作栈样本权重 A 为 9,880 ms、B 为 9,993 ms，非精确 CPU 时长。A／B 的配置 setter 分区分别 43.67%／44.77%，显式 tint 6.72%／7.06%，后续布局 36.55%／35.11%。后续布局仍包含按钮配置更新及标题属性处理，没有显示顺序调整消除这些工作；单次采样不作显著性或精确收益判定。[CPU 对照](Results/20261104-tabbar-p5c2-tint-order/cpu-comparison.json)、[采集终态](Results/20261104-tabbar-p5c2-tint-order/profile-pair-execution.json)、[分析器](Results/20261104-tabbar-p5c2-tint-order/analyze_cpu.py)。
+
+**最终状态与未覆盖：** 生产源码已恢复 A，与 A2 构建的输入一致；没有保留运行时实验开关或上一帧配置缓存。新增诊断测试和验证记录保留；SwiftFormat 0.64.0 lint、证据链接、冻结产物及 `git diff --check` 通过。未改受跟踪 Python 脚本，本轮不重复脚本回归；未执行新的 Allocations、真机、UI 触摸或 iOS 15 验证，也不从静态快照推定这些通过。由于候选撤回，不以本轮新增性能数据替代当前基线或宣称性能优化已交付。[最终审计](Results/20261104-tabbar-p5c2-tint-order/final-audit.json)。既有开发团队配置保持原样，未暂存、未提交或推送。
+
+后续若继续，应先获得更安静的同条件测量窗口，再考虑能减少配置／属性更新次数的方案；不能从本次结果直接跳到删除显式 tint 或关闭自动配置更新。任何候选仍需保留图标 tint 继承、标题 transformer 组合、状态变化和当前快照边界。
+
+## 2026-11-04：P5C2 仅标题／仅图标 CPU、分配与自然动画归因
+
+新增独立工作量入口 `testWorkloadTitleOnly`／`testWorkloadIconOnly` 及标准／弹簧 × 两通道四项自然动画入口；`profile_colors.py --test` 增加两个工作量选项。完整六项默认图文、120 批 × 360 进度点及同步布局保持一致，另一颜色通道固定为红色；没有改动框架渲染、公开 API 或既有开发团队配置。单通道自然观察器额外读取 tint，附件新增 `channel`／`iconBlue`；默认双通道观察器不增加该读取。构建与采集均使用 Xcode 27.2、iPhone 18 Pro Max／iOS 27.2 Simulator、Release 库测试独立宿主；官方 MCP 仍连接 Demo，本次冻结产物／Instruments 握手使用命令行。全部验证串行，不提交／推送。[预定协议](Results/20261104-tabbar-p5c2-channel-profile/protocol.json)、[构建](Results/20261104-tabbar-p5c2-channel-profile-build/xcodebuild.log)。
+
+**聚焦通过 6/6：** 两项工作量与四项自然动画全部通过。两种自然通道 × 标准／弹簧，各 12 次选择，共 48 次；每轮变化通道均有中间颜色，固定通道观察样本保持红色，终态颜色／选中索引通过。标准每轮至少 24 个观察回调，弹簧图标至少 37、标题至少 38。实际检查 Main Thread Checker 未加载，各用例 nominal、非低电量，xcresult `runtimeWarnings=[]`，四类运行时诊断为 0。仅通过原 CADisplayLink 和主 actor 让出推进，不手动设进度或强制逐帧布局。此结果是模型标题颜色／按钮 tint 验证，不是图像像素、真实触摸、GPU FPS 或系统 hitch 验收。[聚焦终态](Results/20261104-tabbar-p5c2-channel-profile/focused/summary.json)、[原始附件](Results/20261104-tabbar-p5c2-channel-profile/focused/reports.json)、[逐轮独立复核](Results/20261104-tabbar-p5c2-channel-profile/native-analysis.json)。
+
+**CPU 两项采集通过：** 标题→图标，单项各一次 Time Profiler，XCTest 均 1/1。各次冻结宿主／测试包／依赖，确认 PID、唯一 Begin／End、正常主动停止、源码及产物一致；实际 Checker 均未加载。模板仍提示一张表没有已知输入源，原警告保留；分析只使用确有数据的符号化 `time-profile`。仅筛选目标 PID、工作区间内主线程 Running，再限制于 `SPColorAttributionFixture.frames`，排除选择复位。标题／图标分别得到 5,374／9,182 个 1 ms 权重样本；以下分区互斥，合计与总权重一致，权重并非精确 CPU 时长。
+
+| CPU 工作栈互斥分区 | 仅标题：权重 ms / 占比 | 仅图标：权重 ms / 占比 |
+| --- | ---: | ---: |
+| 配置 setter | 3246 / 60.40% | 4112 / 44.78% |
+| 颜色函数内、setter 外的显式 tint 栈 | 未命中样本 | 627 / 6.83% |
+| 颜色函数其余同步工作 | 207 / 3.85% | 206 / 2.24% |
+| 后续同步布局 | 999 / 18.59% | 3271 / 35.62% |
+| 其余逐点工作 | 922 / 17.16% | 966 / 10.52% |
+
+图标配置 setter 内还包含 1,511 ms 的具名 tint 传播、1,773 ms 图像更新、1,431 ms 标题属性处理 inclusive 权重；这些子分类重叠，不能相加。图标后续布局分区为 3,271 ms，其中 2,794 ms 命中按钮配置更新执行栈，1,447 ms 命中标题属性处理。标题侧后续布局仅 999 ms；即使图标条件不再每点创建标题 transformer，固定标题依然参与 UIKit 配置解析和后续属性处理。上述差异支持优先研究图标颜色更新引起的配置／布局工作，但单次采样不能证明因果链全貌，不能把 6.83% 当成删除 `button.tintColor` 的可得收益，也不能将两侧权重相减作精确增量。系统私有符号仅用于阅读采样，库未调用它们。
+
+**分析修订保留：** 初版用包含关系匹配 `updateDefaultColors`，会把后续布局中调用的缓存 transformer 闭包误归到颜色函数同步阶段。修正为匹配函数自身前缀，闭包归实际调用者的 setter／布局阶段；只重读同一 trace，保留初版摘要，不重新采样。图标布局占比由初版 29.79% 修正为 35.62%，总样本不变。[修订原因](Results/20261104-tabbar-p5c2-channel-profile/analysis-revision.json)、[初版摘要](Results/20261104-tabbar-p5c2-channel-profile/cpu-analysis-initial.json)、[最终 CPU 归因](Results/20261104-tabbar-p5c2-channel-profile/cpu-analysis.json)、[可重读分析器](Results/20261104-tabbar-p5c2-channel-profile/analyze.py)。
+
+**原 Allocations 失败保留：** 首项图标附加后工作负载等待超时，工具退出 0，但 XCTest 最终退出 75。原 trace 111.276031 秒、正常 Stop，仅有 Begin 而没有 End，没有完整工作量 JSON，因此不用于分配统计；原协议中的标题项未执行。停止采集后对自己的宿主 PID 75394 做一秒只读栈采样，866 个主线程样本均停在 CoreText 分配→`liboainject`→`proc_pidinfo`；另一个附加初始化线程位于 `_OAAttachAndInitialize`→`dispatch_once_wait`，进程 CPU 为 0。该证据指向采集附加阶段阻塞，不能认定图标渲染耗时超过窗口或唯一系统根因；没有据此延长窗口、缩减批次或改渲染。[无效证据](Results/20261104-tabbar-p5c2-channel-profile/alloc-icon/invalid-evidence.json)、[执行终态](Results/20261104-tabbar-p5c2-channel-profile/alloc-icon/execution.json)、[停止后宿主栈](Results/20261104-tabbar-p5c2-channel-profile/alloc-icon/host-after-stop.sample.txt)。
+
+**独立附加状态检查协议下，Allocations 两项通过：** 新建图标→标题实验，不替换原失败或重标旧协议通过。仅本地诊断执行器在 recording 提示后做一秒栈观察，确认不再看到附加初始化函数后才释放 go，最多 20 次；两项均第一次仍有初始化栈、第二次不再出现。该私有符号观察不是 Apple 公开 ready 契约，也不是已验证的永久修复，不推广到正式采集脚本。保持相同产物和完整 120 批，未修改框架／Swift 夹具。最终两项测试各 1/1，工具退出 0、正常 Stop、完整 Begin／End、实际 Checker 未加载、源码／产物一致，均无 xctrace 警告。[协议修订](Results/20261104-tabbar-p5c2-channel-profile/allocation-revision.json)、[独立执行器](Results/20261104-tabbar-p5c2-channel-profile/profile_allocations_guarded.py)、[串行终态](Results/20261104-tabbar-p5c2-channel-profile/allocation-guarded-execution.json)。
+
+**分配归因边界：** 本次公开导出的 Statistics 是整段录制窗口，未获得按 signpost 过滤的事件级分配／调用点证据；不能将以下计数视为标签栏独占净分配、逐帧分配或存活量。标题窗口 24.521 秒，累计堆分配 1,091,195,344 字节／8,062,601 次；图标窗口 37.635 秒，1,904,845,216 字节／13,210,719 次。包含采集附加初始化、选择复位、宿主和附件活动，两个窗口长度不同；不把累计约 1.09／1.90 GB 当成峰值内存，不作泄漏结论。
+
+| 整段录制窗口累计分配类型 | 仅标题次数 | 仅图标次数 |
+| --- | ---: | ---: |
+| `_DictionaryStorage<String, AttributedString._AttributeValue>` | 631,680 | 1,239,840 |
+| `_DictionaryStorage<NSAttributedStringKey, Any>` | 636,000 | 1,244,160 |
+| `UIBackgroundConfiguration` | 633,360 | 808,080 |
+| `UIButtonConfiguration` | 273,240 | 360,120 |
+| `UIImageSymbolConfiguration` | 196,320 | 719,040 |
+
+图标侧同时出现较多属性字典、按钮／背景配置和图像符号配置分配，与 CPU 中图像及标题属性处理的方向相符；这是跨证据推断，不能按类型计数反推具体调用点或删除某行的收益。两窗口的 `VM: CG Image` 均为 1,800 次也说明录制包含选择复位及图像准备，不能把这些都归为连续 tint 的位图创建。[完整分配统计及边界](Results/20261104-tabbar-p5c2-channel-profile/alloc-analysis.json)、[标题原始统计](Results/20261104-tabbar-p5c2-channel-profile/alloc-guarded-title/allocation-statistics.xml)、[图标原始统计](Results/20261104-tabbar-p5c2-channel-profile/alloc-guarded-icon/allocation-statistics.xml)。
+
+**最终回归通过：** 全部采集结束后，原六项工作量／标准／弹簧自然动画串行 6/6 通过，实际 Checker 未加载，0 失败／跳过、xcresult `runtimeWarnings=[]`、四类诊断为 0。脚本回归 31/31、SwiftFormat 0.64.0 lint 通过。相关原始日志的 PointerUI 启动消息保留，不宣称日志完全无消息。[原用例回归](Results/20261104-tabbar-p5c2-channel-profile/original-regression/summary.json)、[脚本回归](Results/20261104-tabbar-p5c2-channel-profile/script-tests.log)、[格式检查](Results/20261104-tabbar-p5c2-channel-profile/swiftformat-lint.log)。
+
+**建议与未覆盖：** 下一步若进入优化实验，应保持标题 transformer 组合、模板图像、禁用／高亮状态与 tint 继承契约，先受控比较显式 tint 写入及配置应用导致的后续属性更新；现有证据不足以直接删除写入或改成上一帧整份配置缓存。本轮各通道只有一次有效 CPU 和一次新协议下分配录制，不提供重复性／版本收益判定。事件级分配归因、真机同通道采集、真实触摸／取消、长时运行及 iOS 15 尚未覆盖；此前真机四批和 GUI 对照限制仍保留。框架目录无 diff，新增证据链接、输入及产物核对见[最终审计](Results/20261104-tabbar-p5c2-channel-profile/final-audit.json)。未暂存、未提交或推送。
+
+## 2026-11-04：P5C2 默认图文颜色通道干预实验
+
+新增 `SPTabBarColorAttributionTests.testChannelIsolation`，不改变框架渲染实现、公开 API、Demo 或已有签名配置；原夹具的新参数保持默认标题／图标都变化。保留六项标题和模板星形图标、360×64 标签栏、等宽、LTR、浅色，仅控制标题／图标的颜色端点是否相同。条件为关闭连续颜色、两者固定、仅标题变化、仅图标变化、两者变化，分别观察不主动逐点布局和逐点布局；每条件预热一次，再测 30 批 × 360 进度点。选择复位在计时外，不主动布局条件在每批计时外排空布局。进程 CPU 包含其他线程、autoreleasepool 等工作；不主动布局仍可能触发 UIKit 同步操作，不能称为纯 setter 或自然帧成本。
+
+**协议与失败保留：** 固定一次正序、一次完全反序，两个独立宿主启动、同一冻结 Release 应用及测试产物，不使用 Instruments，不重试失败或删除慢样本。首版新用例因跨选择复位比较图片对象身份失败，第二轮未执行。源码 `SPTabBarContentEnvironment.configuration` 每个新配置会重新光栅化图标，跨快照身份不是既有契约；修正为每批选择完成后记录图片，再严格验证当前快照内 360 点更新保持该图片对象身份，所有颜色和工作量断言保留。原失败源码、日志、xcresult 和原因单列；修正后新建 v2 构建与完整实验，不混合两版样本。[首版失败](Results/20261104-tabbar-p5c2-channels/run-1/summary.json)、[首版源码](Results/20261104-tabbar-p5c2-channels/failed-source.swift)、[原因及修正](Results/20261104-tabbar-p5c2-channels/failure-analysis.json)、[v2 固定协议](Results/20261104-tabbar-p5c2-channels-v2/protocol.json)。
+
+**修正后通道实验通过 2/2：** 两次 XCTest 均 1/1，无跳过／失败，xcresult `runtimeWarnings=[]`，四类运行时诊断为 0。十个条件完整正／反执行，实际核对 Main Thread Checker 均未加载，源码和冻结产物未变化。各条件记录 nominal、非低电量，不等于控制 CPU 频率或宿主负载。原始日志中的 PointerUI 启动消息保留，不把诊断摘要无警告写成日志完全无消息。[构建](Results/20261104-tabbar-p5c2-channels-v2-build/xcodebuild.log)、[串行执行器](Results/20261104-tabbar-p5c2-channels-v2/run.py)、[正序终态](Results/20261104-tabbar-p5c2-channels-v2/run-1/summary.json)、[反序终态](Results/20261104-tabbar-p5c2-channels-v2/run-2/summary.json)。
+
+以下为每批 360 点的平均进程 CPU 毫秒，不是单帧耗时：
+
+| 通道 | 不主动逐点布局 CPU ms：正序 / 反序 | 逐点布局 CPU ms：正序 / 反序 |
+| --- | ---: | ---: |
+| 关闭连续颜色 | 5.124 / 5.100 | 6.230 / 5.404 |
+| 两者固定 | 5.740 / 5.252 | 5.626 / 5.519 |
+| 仅标题变化 | 32.898 / 31.647 | 40.673 / 39.891 |
+| 仅图标变化 | 45.251 / 45.259 | 74.410 / 71.658 |
+| 两者变化 | 54.151 / 58.063 | 86.674 / 91.939 |
+
+**工作量检查独立于计时：** 每个条件另作 30 个变化进度点，两个参与项合计配置写入在关闭／固定侧为 0，在仅标题／仅图标／两者变化侧均为 60；标题 transformer 创建数分别为 0／0／60／0／60。目标按钮观察到的 tint 变化数为 0／0／0／30／30，它是模型值变化次数，不是 UIKit 内部 setter 调用次数。基础配置写入为 0；图文内容、终态标题颜色、终态 tint、当前快照内图片身份均通过。计数器只挂在非计时遍历，避免干扰 CPU 测量。[全部样本与计数](Results/20261104-tabbar-p5c2-channels-v2/comparison.json)、[正序原始附件](Results/20261104-tabbar-p5c2-channels-v2/run-1/workload.json)、[反序原始附件](Results/20261104-tabbar-p5c2-channels-v2/run-2/workload.json)。
+
+**推断与限制：** 两轮均显示仅图标变色高于仅标题变色，且配置写入次数相同；结合前轮符号栈，图标／tint 相关更新及其后续布局应列为优先隔离方向。不能把两条路径耗时相减作为可优化收益，也不能相加预测双通道成本。两者变化时两轮批均 CPU 相对极差为不主动布局 6.97%、逐点布局 5.90%；仅标题为 3.87%／1.94%，仅图标为 0.02%／3.77%。关闭颜色＋逐点布局的首轮批内 RSD 为 27.11%、两轮相对极差 14.19%，全部保留。仅两次独立启动、每次 30 批相关样本，不作显著性、长期稳定性、性能预算通过或版本收益判断，不能与 P5A/P5C1 或旧 120 批夹具直接比较。
+
+下一步应对相同完整图文的仅标题／仅图标条件做有起止窗口的 CPU／分配采集，再核验自然动画；特别区分配置复制／应用、图标 tint 传播与后续布局。现阶段不直接移除 `button.tintColor` 写入、不缓存上一帧完整配置、不改绘制方式。真机四批协议和 GUI 对照的既有阻塞没有被本次模拟器实验解除；本阶段没有新真机或 Allocations 结果。
+
+**原六项诊断回归通过 6/6：** 使用同一冻结 Release 产物，在两轮通道实验结束后串行运行原工作量颜色开／关、标准自然动画开／关、弹簧自然动画开／关，0 失败／跳过，xcresult `runtimeWarnings=[]`，四类运行时诊断为 0，源码与产物未变。这是模拟器自然显示链检查，不是真机触摸或系统 hitch 验收。[回归终态](Results/20261104-tabbar-p5c2-channels-v2/regression/summary.json)、[执行状态](Results/20261104-tabbar-p5c2-channels-v2/regression/execution.json)。本阶段没有重复运行未修改的 Python 脚本测试。SwiftFormat 0.64.0 lint、新增证据链接及 `git diff --check` 通过，框架目录无 diff。[最终核对](Results/20261104-tabbar-p5c2-channels-v2/final-audit.json)。未暂存、未提交或推送。
+
+## 2026-11-04：P5C2 CPU 阶段拆分与八秒链路复核
+
+继续诊断，未修改框架渲染、公开 API、Swift 测试或受跟踪的 Python 脚本。所有新录制串行；未提交／推送，既有开发团队配置保留。本阶段新增的是本地证据分析脚本及本节记录。
+
+**CPU 数据重读通过：** 从既有两份 Time Profiler XML 重新筛选目标 PID、唯一配对 signpost、主线程 Running 和 `SPColorAttributionFixture.frames` 调用栈。核对正常终止及区间覆盖，解引用并去重；开启／关闭的样本数和总权重分别与原摘要 19,968／880 完全一致。39 项生产 Swift／Package 输入与原 CPU 录制指纹一致。以下互斥分区按 setter → 颜色函数其余部分 → 布局 → 其他的优先级归类，合计严格等于样本总权重；不把重叠 inclusive 栈相加。
+
+| 开启颜色的工作负载阶段 | 采样权重 ms | 占工作负载样本权重 |
+| --- | ---: | ---: |
+| `UIButton` 配置 setter 调用栈 | 8,790 | 44.02% |
+| `updateDefaultColors` 内、setter 之外 | 2,379 | 11.91% |
+| 颜色更新调用之外的同步布局 | 6,663 | 33.37% |
+| 其余逐点工作 | 2,136 | 10.70% |
+
+分区不是函数独占 CPU 计时，也不表明四项能独立优化或这些比例适用于真机自然动画。原夹具每个进度点强制同步布局六个按钮，Main Thread Checker 仍开启；本次重读不改变该前提。各分区中包含 Checker 栈的权重分别为 188／60／249／90 ms，不将它们相减冒充关闭 Checker 的性能。
+
+**进一步归因：** setter 下可见标题属性处理具名栈权重 3,748 ms、图像／symbol 更新 3,264 ms、背景配置 348 ms；另有 1,430 ms 未匹配这三个具名分类。本份 trace 的三类命中没有交叉，但这是本组符号匹配现象，不是所有 UIKit 路径的严格通道划分。图像分支能看到图像视图配置、tint 传播和图像状态更新；标题分支能看到 attributed string 枚举及标题内容赋值。同步布局分区又有 4,200 ms inclusive 权重命中按钮配置更新执行栈。由此推断，仅测 setter 同步耗时会遗漏部分后续工作；不能据此断言每次赋值都重复执行同一配置，也不能将图像符号权重当成可全部消除的成本。私有符号只作为既有采样证据读取，库没有调用或依赖它们。
+
+[互斥分区及调用栈](Results/20261104-tabbar-p5c2-followup/cpu-partition-detailed.json)、[可重读分析脚本](Results/20261104-tabbar-p5c2-followup/partition_cpu_detailed.py)、[首层分区](Results/20261104-tabbar-p5c2-followup/cpu-partition.json)。旧摘要及 trace 未改写。分配数据仍是整段采集窗口统计，不能因 CPU 栈分类更细就升级为逐帧净分配或泄漏证据；本阶段没有新 Allocations 采集。
+
+**新链路检查通过 2/2：** 独立于旧性能组，预先固定顺序、各八秒、零重试，不启动应用或释放动画。Animation Hitches 单独录制实际 8.769633 秒，附加 os_signpost 实际 8.733721 秒；两项工具退出 0，TOC 均为 `Time limit reached`。它们只证明本次两次无应用负载录制完整，不能注销此前间歇断连，不能补齐旧四批性能协议。[固定协议](Results/20261104-tabbar-p5c2-followup/protocol.json)、[串行执行器](Results/20261104-tabbar-p5c2-followup/probe.py)、[链路结果](Results/20261104-tabbar-p5c2-followup/transport-results.json)。
+
+**GUI 对照未执行：** 当前官方 Xcode MCP 可连接 Demo，但不提供本次 Instruments 配置与采集接口。尝试 Xcode 27.2 自带 Instruments 图形界面，首次启动调用超时；随后成功打开 Animation Hitches 模板并识别 iPhone 13／iOS 27.2。目标模式控件无法通过当前 UI 自动化稳定操作，未开始 GUI 录制。不能据此声称 GUI 也断连或 GUI／CLI 结果一致。未切换全局 Xcode、未重启／取消配对、未结束其他工程或服务，未修改用户设置来绕过控件问题。
+
+**下一项实验范围：** 保持六项图文、尺寸、字体、布局及内容快照相同，分别固定标题颜色端点、固定图标颜色端点、两者都固定、两者都变化，并保留原关闭连续颜色对照。先冻结新 Release 产物，在固定正／反顺序下分别观察配置写入、transformer 创建、tint 变更以及包含后续布局的 CPU；单独标记“仅赋值”和“赋值后布局”的测量边界，不能把不布局的合成循环称为自然动画。再对有解释力的通道采集时间窗口匹配的分配证据和自然动画。该通道干预实验尚未实施；现有证据支持优先级，不支持直接缓存整份上一帧配置或改变渲染契约。
+
+**本阶段终态：** CPU 重读与守恒核对通过；两项无应用负载 CLI 录制通过；GUI 对照未执行／被自动化控件访问阻塞，原完整四批真机协议仍未通过。没有新增 XCTest 或构建结果。新增链接、生产输入、暂存区和 diff 核对见[最终核对](Results/20261104-tabbar-p5c2-followup/audit.json)。
+
+## 2026-11-04：P5C2 采集链路排查与 os_signpost 新实验
+
+用户确认没有其他任务使用 iPhone 13，也没有人为连接切换后继续排查。本阶段保持框架、公开 API、诊断夹具和已签名应用不变；不重启设备、不清理 Xcode 或其他工程，不修改开发团队配置，不提交／推送。官方 MCP 工作区可连接；短录制与指定 Instruments 组合仍使用 `xctrace`，所有采集串行。
+
+先执行不启动诊断应用、不触发 SPTabBar 动画、不进行应用文件握手的三秒短录制，核对 trace TOC 的真实终止原因和时长：
+
+| 采集配置 | 实际时长 s | trace 终止原因 | 本次链路检查 |
+| --- | ---: | --- | --- |
+| Time Profiler | 3.865 | Time limit reached | 通过 |
+| Animation Hitches ＋ Points of Interest | 0.791 | Device disconnected | 失败 |
+| Animation Hitches 单独使用 | 3.768 | Time limit reached | 通过 |
+| Time Profiler ＋ Points of Interest | 3.822 | Time limit reached | 通过 |
+| Animation Hitches ＋ os_signpost | 3.739 | Time limit reached | 通过 |
+
+以上工具退出码均为 0，再次确认不能用退出码替代录制完整性。没有找到 DTServiceHub 对应的真机崩溃日志，但这不证明服务没有异常。本轮在无应用负载、无文件握手情况下复现了原组合断连，因此这些动作不是该问题的必要条件；拆分结果提示组合相关性，尚未确定系统／工具唯一根因，也不能把单次短录制通过写成永久修复。[短录制对照](Results/20261104-tabbar-p5c2-transport/comparison.json)、[失败 trace 日志](Results/20261104-tabbar-p5c2-transport/hitches/xctrace.log)、[服务崩溃日志查询](Results/20261104-tabbar-p5c2-transport/service-crashes.log)。
+
+采用当前 Xcode 列出的 `os_signpost` 仪器替代附加的 `Points of Interest`，建立全新的四批八项实验。保持同一份应用产物、六项图文与 12 次自然选择、颜色关／开、开／关、开／关、关／开顺序；每项正常主动停止、完整标记与帧覆盖核验后才进行下一项。旧组保持三项有效、两项断连无效、三项未执行，不把旧样本混入新组，也不重新标为通过。仪器组合变化意味着绝对耗时不能当成与旧组完全同条件的 A/A 对照。[新协议](Results/20261104-tabbar-p5c2-signpost-repeat/protocol.json)、[采集器](Results/20261104-tabbar-p5c2-signpost-repeat/capture.py)、[串行执行器](Results/20261104-tabbar-p5c2-signpost-repeat/run.py)。
+
+**新实验终态：六项有效，第七项采集启动失败，第八项未执行。** 前六项组成三个完整开／关对照批次，均为正常主动停止、完整 Begin／End、目标 PID 及帧生命周期关联通过，源码和同一应用产物未变；每项 12 次自然选择检查通过，共 72 次。第七项在 0.733201 秒再次记录 `Device disconnected`，早期检测在发出 go 之前拒绝执行；没有动画样本、没有补跑替换，第八项未执行。第四批完整性仍未通过，不能把前三批描述性数据改称四批稳定性通过。[终态](Results/20261104-tabbar-p5c2-signpost-repeat/execution.json)、[第七项无效证据](Results/20261104-tabbar-p5c2-signpost-repeat/run-7-off/invalid-evidence.json)、[逐次结果与统计](Results/20261104-tabbar-p5c2-signpost-repeat/comparison-partial.json)。
+
+| 已完成批次 | 顺序 | 关闭颜色更新阶段中位数 ms | 开启颜色更新阶段中位数 ms | 两侧目标区间 hitch |
+| --- | --- | ---: | ---: | --- |
+| 1 | 关 → 开 | 0.450 | 4.735 | 0 / 0 |
+| 2 | 开 → 关 | 0.434 | 4.911 | 0 / 0 |
+| 3 | 开 → 关 | 0.476 | 4.861 | 0 / 0 |
+
+仅对这三次独立启动的中位数计算描述性离散程度：关闭侧 RSD 4.71%、相对极差 9.39%；开启侧 RSD 1.88%、相对极差 3.63%。没有预设发布性能门槛，不能将这些数值套入 P5C1 的不同夹具／平台协议。当前版本开启连续颜色后的额外应用更新成本在三个配对样本中均出现；这不是函数独占 CPU、GPU FPS 或版本间回退判定。第 3、5 项有 dylib 符号时间线重叠警告，保留日志，不以这些 trace 做新的符号调用链归因。
+
+**连接诊断结论仍有限：** `os_signpost` 组合在第七项也断连，故不能将问题唯一归因于 Hitches ＋ Points 组合，短录制成功不能证明长期链路稳定。断连后设备 DTServiceHub 仍存活；未发现匹配的服务崩溃日志，JetsamEvent 最新记录为 2026-11-02，未找到本次被系统内存回收的证据。Mac 日志中的 `fileDescriptorHandshakeWithReceivePort: failed (5)` 在成功和失败录制前都存在，不能认定它就是唯一根因。结束了仍等待握手的本次 UIKitTestHost，没有重启设备或修改配对／全局设置。[排查记录](Results/20261104-tabbar-p5c2-transport/findings.md)、[相关服务日志](Results/20261104-tabbar-p5c2-transport/service-log.txt)、[内存回收日志索引](Results/20261104-tabbar-p5c2-transport/jetsam-index.log)、[宿主清理](Results/20261104-tabbar-p5c2-signpost-repeat/run-7-off/cleanup.log)。
+
+本轮获得更强的当前版本成本方向证据，但完整四批协议仍被采集链路阻塞。下一步应把 Instruments GUI／CLI 的同配置短录制和工具链兼容性作为独立环境问题排查；没有核实其他工具链组合，不预设升级或降级有效。框架层的下一项实验仍应围绕配置应用、标题／图标通道隔离，不为规避采集错误改业务或渲染实现。本阶段没有更改 Swift 或 Python 源码，未重复构建或运行上一轮已通过的 31 项脚本回归；本轮执行的是上述真实采集、原始数据重读和静态核对。 最终核对确认源码与应用产物未变、框架目录无 diff、新增证据链接有效、暂存区为空，`git diff --check` 通过。[最终核对](Results/20261104-tabbar-p5c2-signpost-repeat/final-audit.json)。
+
+## 2026-11-04：P5C2 诊断开关对照与真机重复采样
+
+继续定位普通持续变色成本，不修改框架渲染实现、公开 API 或业务 Demo。新增 `Scripts/analyze_color_hitches.py` 及回归；Swift 诊断用例仅在计时外记录 Main Thread Checker 实际加载状态、thermal state 与低电量模式。开发团队配置已有改动保留，不提交／推送。官方 MCP 仍连接 Demo，本次需要冻结 Release xctestrun、注入项对照及 Instruments 系统录制，使用命令行串行执行。
+
+**模拟器对照通过：8/8。** 一次 Release 构建后冻结独立宿主、测试包与依赖，八次独立启动，固定四个条件的正／反顺序：Checker 开＋颜色关、Checker 关＋颜色关、Checker 关＋颜色开、Checker 开＋颜色开，然后完全反向。每项 120 批 × 360 进度点，沿用 P5C2 原预热和同步布局，不启用 Instruments。关闭诊断仅移除两个环境字典中 `libMainThreadChecker.dylib` 的注入，其余配置不变；八次实际加载状态均符合请求。每次 XCTest 1/1 通过、无跳过、无运行时警告、四类诊断通过，运行期间源码及冻结产物一致。[固定协议](Results/20261104-tabbar-p5c2-controlled/checker-protocol.json)、[执行脚本](Results/20261104-tabbar-p5c2-controlled/run_checker.py)、[逐次终态](Results/20261104-tabbar-p5c2-controlled/checker-driver.log)、[CPU／墙钟明细](Results/20261104-tabbar-p5c2-controlled/checker-comparison.json)。
+
+| 连续颜色 | Main Thread Checker | 两次批均进程 CPU ms | 两次均值的相对极差 |
+| --- | --- | ---: | ---: |
+| 关 | 关 | 5.598 / 6.190 | 10.05% |
+| 关 | 开 | 6.773 / 7.258 | 6.91% |
+| 开 | 关 | 98.557 / 101.980 | 3.41% |
+| 开 | 开 | 93.960 / 114.508 | 19.71% |
+
+相对极差为 `(max − min) / 两次均值的中位数`，只是描述，未新增事后通过阈值。颜色开启时，Checker 开启侧一次低于相邻关闭侧、一次高于相邻关闭侧；当前不能把波动唯一归因于 Main Thread Checker。关闭 Checker 后进程内 CPU RSD 仍为 13.45%／19.79%，持续变色额外成本依然存在。每个条件只有两次独立启动，120 批是进程内相关样本，不能当作 120 个独立实验，也不从四个均值推出精确诊断税率。八次记录均为 nominal、非低电量，仍不等于控制了 CPU 频率、调度或宿主后台负载。
+
+**真机四批协议：** 同一份上轮独立应用产物，生产 Swift 与 Package 输入核对一致；每项仍为 12 次标准自然选择。按颜色关／开、开／关、开／关、关／开串行执行，不把上轮单组样本混入，不把帧行作为独立重复，不自动追加替换失败样本。原 iPhone 13 XCTest 退出 74 的限制未在此重试；继续使用独立诊断应用，结果不冒充真机 XCTest 或触摸验收。[协议](Results/20261104-tabbar-p5c2-controlled/device-protocol.json)。
+
+**分析器首次失败及同次恢复：** 首项采集与 12 次检查成功，但新分析器报告缺少 signpost，执行器停止后续批次。检查原 XML 确认 Begin／End 都存在：`xctrace` 只在首个同类型节点输出 schema，后续省略 schema 的节点仍有新事件。初版解析器误将这些节点跳过。修复为继承列定义、逐行解引用并去重，新增“省略 schema 但包含新事件”的回归；只重读原 trace 恢复首项，没有重跑动画或放宽区间／PID／帧覆盖要求。原失败日志、旧脚本与恢复状态保留。后续仅分析脚本及其回归的输入指纹变化，框架、诊断应用与冻结二进制未变；原采样顺序不变，从第二项继续。[首次失败](Results/20261104-tabbar-p5c2-controlled/device-driver.log)、[旧分析器](Results/20261104-tabbar-p5c2-controlled/analyze_color_hitches-before-fix.py)、[恢复记录](Results/20261104-tabbar-p5c2-controlled/device-1-off/analysis-recovery.json)、[阶段输入差异](Results/20261104-tabbar-p5c2-controlled/device-analysis-revision.json)。修复后重读上一轮两份 trace，摘要与先前结果完全一致。全部脚本回归 28/28 通过，其中本次分析器 6 项。[脚本回归](Results/20261104-tabbar-p5c2-controlled/script-tests-final.log)。
+
+**启动阶段失败另列：** 第二项完成后，第三项的 `devicectl launch --terminate-existing` 返回 CoreDeviceError 10004，无法取得启动 PID；没有 ready 文件、未发出 go，没有动画样本。查询时宿主不在进程列表、设备不要求解锁，未找到对应宿主崩溃日志；这些证据不能确定唯一根因。采集执行器改为单独退出自己的宿主、确认退出后再单独 launch，并在完整采集后退出该宿主。第三项使用新 token 和独立恢复目录，原失败目录保留；不重跑前两项、不丢弃动画慢样本，采样顺序不变。[原启动错误](Results/20261104-tabbar-p5c2-controlled/device-3-on/commands.log)、[恢复边界](Results/20261104-tabbar-p5c2-controlled/device-launch-revision.json)、[恢复执行器](Results/20261104-tabbar-p5c2-controlled/capture-device-separated-launch.py)。
+
+**第四项采集无效，不替换：** 第四项自然选择检查完成、采集工具退出码为 0，但 trace TOC 明确为 `Device disconnected`，录制仅 0.780299 秒，只有 Begin 而没有 End。与首项解析器问题不同，这次原始数据确实不完整；不统计该项更新耗时或零 hitch。分析器新增正常主动停止及 signpost 不超出录制时段的检查，回归覆盖“工具退出码 0 但断连／截断”，不放宽原有覆盖要求。当前设备恢复为有线连接后，只继续第五至第八项，不重跑第四项；因此本协议不具备完整四批有效数据，不能宣称四批重复性通过。[无效证据](Results/20261104-tabbar-p5c2-controlled/device-4-off/invalid-evidence.json)、[原采集日志](Results/20261104-tabbar-p5c2-controlled/device-4-off/xctrace.log)、[终止信息](Results/20261104-tabbar-p5c2-controlled/device-4-off/trace-toc.xml)、[阶段修订](Results/20261104-tabbar-p5c2-controlled/device-recording-revision.json)。
+
+**真机终态：四批完整性未通过，后续被环境阻塞。** 恢复连接后第五项也记录 `Device disconnected`，实际录制 0.807304 秒；其动画检查通过、工具退出码同样为 0，性能证据仍无效。停止后续采集，第六至第八项未执行，没有追加替换断连样本。预定八项中三项有完整数据、两项断连无效、三项未执行；另保留第三项采样前的启动失败及恢复记录。这不是完整四批成功，也不计算四批 RSD 或给出稳定判定。[第五项无效证据](Results/20261104-tabbar-p5c2-controlled/device-5-on/invalid-evidence.json)、[全部有效／无效／未执行清单](Results/20261104-tabbar-p5c2-controlled/device-partial-comparison.json)。
+
+| 有效运行 | 连续颜色 | 标准自然选择检查 | 更新阶段中位数／P95／最大 ms | 目标区间 hitch |
+| --- | --- | ---: | ---: | ---: |
+| 1 | 关 | 12/12 | 0.472 / 2.028 / 2.536 | 0 |
+| 2 | 开 | 12/12 | 4.880 / 5.323 / 6.486 | 0 |
+| 3（启动恢复后） | 开 | 12/12 | 4.937 / 5.386 / 7.356 | 0 |
+
+以上为最终分析器重读同一批原始文件的结果；更新阶段时长不是函数独占 CPU、不是 GPU 帧时间。有效开启侧与上轮约 4.86 ms 的方向接近，说明额外更新成本在已取得样本中再次出现；仍不足以宣布四批重复性成立或发布预算通过。全部启动／断连失败保留，不把零 hitch 当作低成本证明。分析器的完整区间检查遵循成对 Begin／End 的语义，参见 Apple [Recording Performance Data](https://developer.apple.com/documentation/os/recording-performance-data)。
+
+**采集入口与最终检查：** `profile_colors.py` 增加早期断连检测，遇到 `Device got disconnected` 后即使随后出现 `Ctrl-C to stop` 也拒绝释放工作负载；本地真机采集器的新副本同步加入该检测及正常终止原因检查，旧执行器不覆盖。全部脚本回归 31/31 通过，其中 trace 分析 7 项、早期录制状态 2 项；新增防护尚未再次进行真机端到端运行，不能据此声称断连问题已修复。[回归](Results/20261104-tabbar-p5c2-controlled/script-tests-terminal.log)、[后续采集器副本](Results/20261104-tabbar-p5c2-controlled/capture-device-recording-guard.py)。
+
+SwiftFormat 0.64.0 lint、Python 语法与 `git diff --check` 通过，本节证据链接均存在。八次模拟器终态与冻结产物复核通过，Swift 输入自构建后未变；其后只有 trace 分析器、录制状态检查及对应 Python 回归变化，差异单列，不重写原阶段摘要。框架目录无 diff、暂存区为空，开发团队两处既有改动原样保留。[最终核对](Results/20261104-tabbar-p5c2-controlled/final-audit.json)。
+
+**后续建议：** 已有证据继续支持把成本调查放在配置应用、标题属性桥接及图像／背景配置，而不是先改 RGBA 插值。Main Thread Checker 不是已证明的唯一波动原因；接下来应先恢复 Instruments 连接稳定性，再建立新的完整四批协议，当前失败组不补成干净通过。若进入实现实验，先隔离标题与图标通道、验证是否存在重复的配置应用；在可复现收益和行为回归充分前，不替换默认渲染器、不跳帧、不改公开契约。真机 XCTest 退出 74、弹簧、真实触摸／取消／旋转、iPad／iOS 15、长时运行及真机分配归因仍未在本阶段补齐。
+
+## 2026-11-04：P5C2 iPhone 13 系统动画补采
+
+用户授权使用 iPhone 13 后补采；设备 iOS 27.2（24B119）、Xcode 27.2（27B52），沿用当前分支和未提交 P5C2 工作。以下真机结果与后文模拟器 CPU／分配结果分开，不替换原失败。框架源码、公开 API、渲染实现和原 Swift 诊断用例未再修改；Demo 工程在本次开始时已有两处 `DEVELOPMENT_TEAM` 变更，原样保留。没有提交或推送。
+
+**执行方式与边界：** 官方 Xcode MCP 工作区仍连接 Demo、目标为 iPhone 13；冻结 Package 测试包、独立宿主及 Instruments 握手不由其测试接口覆盖，使用 `xcodebuild`／`devicectl`／`xctrace`。独立真机宿主及 Release Package 测试包构建通过，签名仅通过命令行传入。XCTest 通道持续退出 74 后，以忽略目录中的独立诊断应用链接同一次构建的 `StickyPagerKit.o`；六个默认图文、360×64 标签栏、LTR、浅色、红蓝端点和 12 次标准自然选择保持一致。等待真实 `viewDidAppear` 和显示链启动，单次让出主 actor 400 ms，不手动推进进度、不强制逐帧布局；检查每轮选中索引、最终蓝色标题、超过两个观察回调，开启侧还要求中间颜色。这个结果是独立诊断检查，不是 XCTest 通过或真机触摸验收。夹具、命令、组装及采集脚本仅存本地忽略证据目录；不是新增公开组件。[原构建](Results/20261104-tabbar-p5c2-device-build/xcodebuild.log)、[独立夹具](Results/20261104-tabbar-p5c2-device-standalone-build/Probe.swift)、[独立应用构建](Results/20261104-tabbar-p5c2-device-standalone-build/xcodebuild.log)、[采集脚本](Results/20261104-tabbar-p5c2-device-standalone-build/capture.py)、[产物指纹](Results/20261104-tabbar-p5c2-device-standalone-build/artifact-hashes.json)。
+
+**串行终态：通过。** 两侧使用相同已签名应用产物，唯一 token 握手，确认采集器 recording 后才释放自然动画。最终采用 `Animation Hitches` 加 `Points of Interest` 的短时系统录制，结束后按 ready PID、`NativeColorSelections` 的 Begin／End 和更新表的 swap ID 关联帧生命周期；不将其他进程指标归给本库。两次工具退出码均为 0，检查均通过，源码与应用指纹未变。两侧记录的低电量模式关闭，thermal state 为 nominal；未控制温度、后台负载或电量水平以建立长期重复性。
+
+| 颜色模式 | 自然选择检查 | signpost 区间 s | 目标更新／匹配帧生命周期记录 | 区间内系统 hitch 记录 | 更新阶段中位数／P95／最大 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 关闭 | 12/12 | 5.298 | 200 / 200 | 0 | 0.497 / 2.095 / 2.485 |
+| 开启 | 12/12 | 5.356 | 197 / 197 | 0 | 4.857 / 5.453 / 6.306 |
+
+两侧每轮最少 25 个观察回调；开启侧 12/12 轮观察到中间标题颜色。P95 使用 nearest rank；“更新阶段”来自 `hitches-updates` 的 duration，是工具报告的应用更新区间，包含 UIKit 与观察夹具，不是颜色函数独占 CPU。帧生命周期通过目标更新的 swap ID 关联，用于验证实际帧数据覆盖；200 与 197 的差异不能解释成丢失三帧。两张系统 `hitches` 表均有 schema、无记录，同时存在完整 signpost 和目标帧数据，因此结论仅为本次两个短窗口未记录到 hitch，不推导发布级卡顿率、GPU FPS、无回退或性能预算通过。关闭侧保存期间出现一次 `Timeline modification failed -- dylibs overlap by 0x18a0` 符号时间线警告；原日志保留，不声称工具零警告，也不以该 trace 做新的符号调用链归因。[关闭侧终态](Results/20261104-tabbar-p5c2-device-system-off/execution.json)、[关闭侧指标](Results/20261104-tabbar-p5c2-device-system-off/hitch-summary.json)、[开启侧终态](Results/20261104-tabbar-p5c2-device-system-on/execution.json)、[开启侧指标](Results/20261104-tabbar-p5c2-device-system-on/hitch-summary.json)、[对照汇总](Results/20261104-tabbar-p5c2-device-standalone-build/comparison.json)、[分析脚本](Results/20261104-tabbar-p5c2-device-standalone-build/analyze.py)。
+
+**失败与降级路径原样保留：**
+
+- 手工真机宿主配置及修改注入路径后均在建立 XCTest 连接前退出 74；用例未运行。使用 Xcode 原生生成的 app-hosted 配置时，首次遗漏 Package ProfileData 输出字段，xcodebuild 在执行前退出 70；补齐后仍退出 74。随后未替换任何测试包的 Xcode 原生空用例同样退出 74，说明问题不局限于 SPTabBar 测试或组装步骤；尚未确定系统／工具连接失败的唯一原因。不将修改注入路径写成已修复根因。真机 XCTest 验证仍被运行环境阻塞。[首次失败](Results/20261104-tabbar-p5c2-device-hitches-off/execution.json)、[设备路径尝试](Results/20261104-tabbar-p5c2-device-hitches-off-devicepath/execution.json)、[配置校验失败](Results/20261104-tabbar-p5c2-device-hitches-off-native/execution.json)、[原生配置尝试](Results/20261104-tabbar-p5c2-device-hitches-off-final/execution.json)、[原生空用例](Results/20261104-tabbar-p5c2-device-probe/xcodebuild.log)。
+- 独立应用首次关闭侧附加采集成功，12 次检查通过，但默认模板没有本应用 signpost，只能解读完整采集窗口，未混入最终区间对照。开启侧按 PID 附加失败，尽管 devicectl 仍能列出该 PID；随后按名称及延后按 PID 附加也失败，尚不能确认进程发现失败原因。失败均发生在 go 握手前，未执行动画样本；最终新建关闭／开启两侧系统录制，完整保留此前结果。[首次有效关闭侧](Results/20261104-tabbar-p5c2-device-standalone-off/execution.json)、[开启侧附加失败](Results/20261104-tabbar-p5c2-device-standalone-on/execution.json)、[名称附加失败](Results/20261104-tabbar-p5c2-device-signpost-off/execution.json)、[延后附加日志](Results/20261104-tabbar-p5c2-device-signpost-off/xctrace-delayed.log)。
+
+**最终静态核对：** 现有脚本回归 22/22 通过，新增 Swift 诊断文件的 SwiftFormat 0.64.0 lint 通过，采集脚本语法及 `git diff --check` 通过；最终两侧 `sourceChanged` 清单均为空、框架目录无 diff。本节新增证据链接均存在；其他历史忽略产物缺失不在本次修复范围。[最终核对](Results/20261104-tabbar-p5c2-device-standalone-build/final-audit.json)。
+
+**建议与未覆盖：** 真机自然选择样本未产生系统 hitch，但开启侧应用更新阶段有明显额外耗时，与模拟器中配置应用链的热点方向一致；这属于跨证据的方向性判断，不是单函数 CPU 归因或性能回退证明。继续优先验证 UIButton 配置应用、标题属性桥接、图像／背景配置的成本，保持当前渲染实现，先做同配置多批重复与受控诊断开关对照，再决定优化。此补采只覆盖标准动画；真机弹簧、真实触摸／取消／旋转、iOS 15、iPad、长时运行及真机 CPU／分配归因未执行，模拟器已有结果不替代这些边界。`profile_colors.py --platform device` 增加了平台产物校验、文件握手和保留原宿主名称，但因上述 XCTest 阻塞，其完整真机链路尚未通过；本次系统指标来自独立诊断应用。
+
+## 2026-11-04：P5C2 普通连续颜色 CPU、分配与自然动画诊断
+
+> 以下保留真机补采前的模拟器阶段结果；“未使用真机／系统 hitch 被平台阻塞”均指当时范围。后续 iPhone 13 补采及仍未解决的 XCTest 连接限制见上一节。
+
+在 `codex/container-architecture-refactor`、HEAD `e2332bd` 上实施。新增 `SPTabBarColorAttributionTests.swift` 和 `Scripts/profile_colors.py`，补充使用说明；未修改框架渲染实现、公开 API、P5A/P5C1 原夹具、Demo、工程或开发团队配置。所有运行串行执行，环境为 Xcode 27.2（27B52）、iPhone 18 Pro Max／iOS 27.2 Simulator。库诊断使用 Release／独立 UIKit 宿主；Demo 真实触摸回归使用官方 Xcode MCP，每次仅请求一项，避免 scheme 的并行配置使两项同时运行。
+
+**诊断契约：** 默认六项图文、360×64 pt、LTR／浅色、红蓝端点。独立工作量用例分别执行颜色开、关各 120 批 × 360 手动进度点，同步布局六个按钮；选择复位在每批计时外，`getrusage(RUSAGE_SELF)` 记录进程用户＋系统 CPU，包含其他线程，不是主线程独占 CPU。trace 的整段 signpost 包含复位，CPU 分析再以 `SPColorAttributionFixture.frames` 调用栈筛选逐点工作子集。自然动画由原有 CADisplayLink 推进，分别运行标准／弹簧 × 颜色开／关，每项 12 次选择；额外观察者仅读取时间戳和标题颜色，不调用手动进度、强制布局或提前结束动画。固定观察窗口包含收尾，统计另限制在标准 0.25 秒／弹簧 0.5 秒名义动画窗口；它不是系统实际呈现区间。
+
+- **首轮失败保留：5/6 通过、1 项失败，另有 2 条 appearance 不平衡诊断。** 首个弹簧关闭颜色用例第一轮仅观察到 1 个回调；首次回调晚到约 611 ms，650 ms 等待实际持续 1.443 秒；第二轮首次回调晚到约 546 ms，后续逐渐恢复。工作量用例及套件结束附近出现 appearance 诊断。确认首批混入窗口／显示链启动阶段，但不能由时间戳还原延迟的唯一根因。没有放宽至少 3 个回调、中间颜色或选中终态断言。[首轮终态](Results/20261104-tabbar-p5c2-focused/summary.json)、[原始附件](Results/20261104-tabbar-p5c2-focused/attachments/manifest.json)、[阶段源码](Results/20261104-tabbar-p5c2-focused/source/SPTabBarColorAttributionTests.swift)。
+- **修正诊断夹具后 Release 聚焦通过：6/6。** 专用异步窗口等待真实 `viewDidAppear`／`viewDidDisappear`，不修改共用 `SPTestWindow` 或 P5A 夹具；显示链至少实际回调两次才开始稳态选择，启动样本另存。四项自然动画均观察到足够回调，颜色开启两项均观察到中间标题颜色，所有终态断言通过。0 失败／跳过、xcresult `runtimeWarnings=[]`、四类诊断为 0。该结果验证新的稳态诊断前提，不注销冷启动异常，也不作为冷启动性能门槛。[聚焦终态](Results/20261104-tabbar-p5c2-focused-final/summary.json)、[原始附件](Results/20261104-tabbar-p5c2-focused-final/attachments/manifest.json)、[统计与范围](Results/20261104-tabbar-p5c2-focused-final/diagnostic-summary.json)、[可重读分析脚本](Results/20261104-tabbar-p5c2-focused-final/analyze.py)。
+
+无采集器、固定 120 批的进程 CPU 与墙钟结果如下；批次顺序相关，不能把 120 个样本视为 120 次独立会话。没有建立新的性能通过阈值，不与 P5C1 不同夹具／执行契约的均值直接比较。
+
+| 颜色 | 批均墙钟 ms | 批均进程 CPU ms | 墙钟 RSD | CPU RSD | CPU／墙钟相关系数 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 关 | 8.410 | 8.183 | 27.68% | 24.78% | 0.975 |
+| 开 | 199.095 | 193.260 | 24.25% | 22.24% | 0.964 |
+
+**波动结论：** 两侧累计进程 CPU／墙钟比均约 97%，CPU 时间也明显波动；这支持“并非只有线程等待时间增加”的判断。它不能区分 CPU 频率／调度、缓存、分配器、诊断插桩或实际路径差异，不能证明颜色功能是环境波动根因，亦未建立 P5B 的严格无回退保证。
+
+**CPU 归因：** Time Profiler 关闭／开启各一轮，测试各 1/1 通过，工具退出码均 0；冻结宿主与依赖、目标 PID、完整工作负载 signpost 均核验。模板均提示一张表没有已知输入源，警告保留；实际导出的 `time-profile` 有符号化样本，分析不依赖该未知表。只保留负载区间内主线程 Running 样本，再筛选逐点工作调用栈；关闭侧该子集采样权重为 880 ms，开启侧为 19,968 ms。这些是 1 ms 采样权重，不是精确函数计时或净增量。开启侧 `updateDefaultColors` 调用链为 11,169 ms（55.93%），其中 `UIButton.setConfiguration` 为 8,790 ms（44.02%）；具名 `SPTabColorTransition.color(at:)` 调用链为 46 ms（0.23%）。inclusive 调用链互相包含，不能相加；内联和符号归属会影响具名函数占比，因此不把 0.23% 当作全部颜色相关成本。继承的 Main Thread Checker 仍启用，含其帧的子集采样权重为 587 ms（约 2.94%，同样为 inclusive），当前绝对值不等于关闭诊断的生产表现。[关闭侧归因](Results/20261104-tabbar-p5c2-cpu-off/cpu-attribution.json)、[开启侧归因](Results/20261104-tabbar-p5c2-cpu-on/cpu-attribution.json)、[原始符号化表](Results/20261104-tabbar-p5c2-cpu-on/time-profile.xml)、[分析脚本](Results/20261104-tabbar-p5c2-focused-final/analyze_traces.py)。系统私有符号仅用于采样解释，库未访问或依赖它们。
+
+**分配归因：** Allocations 两侧使用相同 120 批负载，均完整记录起止 signpost；窗口统计包含宿主、复位、附件／握手和采集期间其他活动，未按 signpost 过滤分配事件。关闭窗口 6.668 秒，开启窗口 74.599 秒；只将以下数据作为匹配固定负载下的窗口现象，不直接相减宣称标签栏独占净分配，不换算逐帧分配、实时内存或泄漏。
+
+| 颜色 | Heap 累计分配次数 | Heap 累计分配 bytes | 采集状态 |
+| --- | ---: | ---: | --- |
+| 关 | 1,193,257 | 195,924,224 | 正常结束并导出 |
+| 开 | 14,910,362 | 1,998,151,168 | 保存等待超时后，从同一次完整 trace 恢复 |
+
+开启侧高频类型包括 `_DictionaryStorage<NSAttributedStringKey, Any>`（1,227,189）、`_DictionaryStorage<String, AttributedString._AttributeValue>`（1,222,941）、`UIBackgroundConfiguration`（967,490）和 `UIImageSymbolConfiguration`（709,206）。结合 CPU 配置调用链，支持优先研究配置应用、标题属性桥接及图像／背景配置的成本；类型统计本身不能证明每个对象都由某一行框架代码独占创建。两侧均有负的 persistent 字段，原值保留，不据此推断对象存活数或泄漏。[关闭统计](Results/20261104-tabbar-p5c2-alloc-off/allocation-summary.json)、[开启统计](Results/20261104-tabbar-p5c2-alloc-on/allocation-summary.json)。
+
+**Allocations 保存超时与恢复：** 开启侧全部负载完成后，执行器等待采集器停止／保存超过 60 秒，记录 `failed`；后续清理等待期间同一 trace 完成落盘，测试 1/1 通过。没有重跑采集，也未覆盖失败状态。重新导出后确认 PID 6298、全部 120 批、完整 Begin／End 区间及非空分配统计；数据恢复结论单列，原执行器未保存采集器最终退出码，不补造退出码 0。脚本将正常保存等待改为 180 秒，并在清理阶段保存最终工具退出码；没有减少工作量或放宽性能断言。[首次执行状态](Results/20261104-tabbar-p5c2-alloc-on/execution.json)、[采集日志](Results/20261104-tabbar-p5c2-alloc-on/xctrace.log)、[同次数据恢复核验](Results/20261104-tabbar-p5c2-alloc-on/recovery.json)、[阶段脚本](Results/20261104-tabbar-p5c2-alloc-on/source/profile_colors.py)。
+
+自然动画的无采集器回调数据如下。统计限定在名义动画窗口内相邻观察者回调，首回调延迟单列于 JSON；“超过预算”定义为间隔大于前一回调 `targetTimestamp - timestamp` 的 1.5 倍再加 2 ms，仅用于筛查回调间隙，不是系统丢帧或 hitch 计数。
+
+| 样式／颜色 | 相邻回调间隔数 | 中位数 ms | P95 ms | 最大 ms | 超过上述预算次数 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 标准／关 | 163 | 16.666 | 16.932 | 32.829 | 2 |
+| 标准／开 | 162 | 16.666 | 17.318 | 32.633 | 2 |
+| 弹簧／关 | 346 | 16.667 | 16.814 | 22.112 | 0 |
+| 弹簧／开 | 339 | 16.670 | 17.048 | 33.448 | 2 |
+
+- **系统 Animation Hitches 被平台阻塞。** 关闭侧模板明确返回 `Hitches is not supported on this platform`，采集器退出码 2；宿主自然动画用例虽 1/1 通过，也不能作为系统 hitch 采集成功。保留 trace 与失败，不在同一平台重复尝试开启侧。不从 CADisplayLink 回调表推导 GPU FPS、实际显示帧数或系统卡顿率。[执行状态](Results/20261104-tabbar-p5c2-hitches-off/execution.json)、[工具错误](Results/20261104-tabbar-p5c2-hitches-off/xctrace.log)。本轮未使用真机，系统级指标待兼容真机及对应采集流程补齐。
+- **官方 MCP 真实触摸回归通过：两次各 1/1。** 分别验证默认连续颜色、弹簧效果下的 RTL 拖动取消、完成翻页、跨页点击和旋转对齐；0 失败／跳过／未运行、无 xcresult 运行时警告、四类诊断为 0，`sourceChangedSinceRun=[]`。先完成第一项再请求第二项，结束后恢复 Xcode 原运行目标 iPhone 13。这里验证交互行为，不是触摸场景的帧率或卡顿预算。[颜色终态](Results/20261104-tabbar-p5c2-ui-color/summary.json)、[弹簧终态](Results/20261104-tabbar-p5c2-ui-spring/summary.json)。
+- **输入与静态核对：** 6 项聚焦、CPU 与 Allocations 两侧运行时源码摘要均为 `[]`；之后只有 `Scripts/profile_colors.py` 的保存等待／清理退出码逻辑改变。重新构建后的输入与最终脚本一致，所有五份采集宿主中的测试可执行文件 SHA-256 均为 `bcce6a76db9deaa68037e05c48650f86d61c68a2e0ec4ca8a343e50b38559200`，Swift 诊断及框架代码未变。保留各阶段原摘要，不将早期脚本冒充最终脚本运行；当前差异清单单列。现有脚本回归 22/22 通过，新增 Swift 文件通过 SwiftFormat 0.64.0 lint，`git diff --check` 通过，未提交或推送。[来源核对](Results/20261104-tabbar-p5c2-capture-build/source-audit.json)、[脚本回归](Results/20261104-tabbar-p5c2-capture-build/script-tests.log)、[格式检查](Results/20261104-tabbar-p5c2-capture-build/swiftformat-lint.log)。
+
+**结论与下一步：** 当前已确认配置应用调用链和属性／图像／背景配置的分配是主要候选成本，具名 RGBA 插值不是本次采样首要热点；并未确定同版本波动的唯一原因。建议下一步先做运行环境／诊断开关的受控对照，并对配置应用路径提出单项可证伪假设，再决定 P5D；不直接换默认渲染器、跳帧或改变快照契约。自然动画及交互验证通过，系统 hitch 仍被模拟器平台限制；没有发布级流畅度／无回退保证。未执行完整库／Demo 套件、真机、iPad、iOS 15、GPU 或长期泄漏验证。指标含义参考 Apple 的 [getrusage 手册](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/getrusage.2.html)、[CADisplayLink 文档](https://developer.apple.com/documentation/quartzcore/cadisplaylink)及 [Analyze heap memory](https://developer.apple.com/videos/play/wwdc2024/10173/)。
 
 ## 2026-11-04：P5C1 普通连续颜色 A/A 重复性协议
 

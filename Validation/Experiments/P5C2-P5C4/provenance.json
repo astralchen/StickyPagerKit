@@ -1,0 +1,77 @@
+{
+  "schema": "sp-experiment-archive-v1",
+  "date": "2026-11-05",
+  "note": "历史文件归档来源；profile_colors.py 仅增加正式 Scripts 模块查找路径，其余源文件逐字保留。不是当前运行验收。",
+  "files": [
+    {
+      "source": "Scripts/profile_colors.py",
+      "archive": "Scripts/profile_colors.py",
+      "sourceSHA256": "45c771317c0fe57ad71859f80d9b4afcacf1f5a1fe51838b9126703818ae2189",
+      "operation": "move",
+      "archiveSHA256": "c79eab4ed1123b70c54822e3223dc1225b930af87f89596d5abdfa724c27583b"
+    },
+    {
+      "source": "Scripts/analyze_color_hitches.py",
+      "archive": "Scripts/analyze_color_hitches.py",
+      "sourceSHA256": "5d08acacd968f4bba3be91e4493fc98ee4388a3270725667c8b214f8bcb154cb",
+      "operation": "move",
+      "archiveSHA256": "5d08acacd968f4bba3be91e4493fc98ee4388a3270725667c8b214f8bcb154cb"
+    },
+    {
+      "source": "Scripts/Tests/test_color_profile.py",
+      "archive": "Scripts/Tests/test_color_profile.py",
+      "sourceSHA256": "3e2f0e3341079b98532f2250e1cc1f2a9f68fed547a997e76bc965fa182c0b05",
+      "operation": "move",
+      "archiveSHA256": "3e2f0e3341079b98532f2250e1cc1f2a9f68fed547a997e76bc965fa182c0b05"
+    },
+    {
+      "source": "Scripts/Tests/test_color_hitches.py",
+      "archive": "Scripts/Tests/test_color_hitches.py",
+      "sourceSHA256": "329717fd43d10d9550f04626bd9ce314062b1a3c256f9e521f977eb146072580",
+      "operation": "move",
+      "archiveSHA256": "329717fd43d10d9550f04626bd9ce314062b1a3c256f9e521f977eb146072580"
+    },
+    {
+      "source": "Tests/StickyPagerKitTests/SPButtonColorInvalidationTests.swift",
+      "archive": "Fixtures/SPButtonColorInvalidationTests.swift",
+      "sourceSHA256": "bd0cf93da69b7ecaa03e6969cb13cb8a2a12dc441cf1f106e656a9511098975b",
+      "operation": "move",
+      "archiveSHA256": "bd0cf93da69b7ecaa03e6969cb13cb8a2a12dc441cf1f106e656a9511098975b"
+    },
+    {
+      "source": "Tests/StickyPagerKitTests/SPButtonSingleColorSourceTests.swift",
+      "archive": "Fixtures/SPButtonSingleColorSourceTests.swift",
+      "sourceSHA256": "8cdd18b8a3dfd3ac1c518609e1e7cecd205cc98388327872fbfe918c0bb028b7",
+      "operation": "move",
+      "archiveSHA256": "8cdd18b8a3dfd3ac1c518609e1e7cecd205cc98388327872fbfe918c0bb028b7"
+    },
+    {
+      "source": "Validation/Results/20261104-tabbar-p5c3-invalidation/analyze.py",
+      "archive": "Historical/P5C3/analyze.py",
+      "sourceSHA256": "b7087eca2c3667bc316d977ba6770fcf17b83ebdd0a21c342cd36eacabe01f81",
+      "operation": "copy",
+      "archiveSHA256": "b7087eca2c3667bc316d977ba6770fcf17b83ebdd0a21c342cd36eacabe01f81"
+    },
+    {
+      "source": "Validation/Results/20261104-tabbar-p5c3-invalidation/protocol.json",
+      "archive": "Historical/P5C3/protocol.json",
+      "sourceSHA256": "4fde910ef9827de880821b434d1fa64950517c8999e032a0a2bbd02a3ae3587c",
+      "operation": "copy",
+      "archiveSHA256": "4fde910ef9827de880821b434d1fa64950517c8999e032a0a2bbd02a3ae3587c"
+    },
+    {
+      "source": "Validation/Results/20261104-tabbar-p5c4-single-source/analyze.py",
+      "archive": "Historical/P5C4/analyze.py",
+      "sourceSHA256": "1ecea319318c30c2ffe7e675ea3db731aa4c5fff6c5a48c7bd48eb172c3f7356",
+      "operation": "copy",
+      "archiveSHA256": "1ecea319318c30c2ffe7e675ea3db731aa4c5fff6c5a48c7bd48eb172c3f7356"
+    },
+    {
+      "source": "Validation/Results/20261104-tabbar-p5c4-single-source/protocol.json",
+      "archive": "Historical/P5C4/protocol.json",
+      "sourceSHA256": "49ffff065110ab8a95e8826f648fdbb0904306454069c5876f0a4b4ef96e57a7",
+      "operation": "copy",
+      "archiveSHA256": "49ffff065110ab8a95e8826f648fdbb0904306454069c5876f0a4b4ef96e57a7"
+    }
+  ]
+}

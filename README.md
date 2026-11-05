@@ -866,6 +866,12 @@ python3 Scripts/color_repeatability.py summarize "Validation/Results/<P5C1 实�
 
 协议和每批记录包含源码、冻结产物、工具链、模拟器身份、执行命令、原始 CSV、终态摘要及指纹；每批前后核验产物和源码，结果必须为预期四项通过、无跳过、无预期失败、无运行时警告或已识别诊断。所有墙钟样本原样保留。协议、摘要或 CSV 被修改、缺批、设备不一致或测试失败时拒绝判定，不覆盖已有实验、不自动重试或补样本。运行途中不要修改源码或构建输入；需要修复工具时保留原实验，使用新的构建与实验名。终态保存在 `repeatability.json`／`repeatability.md`，原始结果继续位于忽略目录，不加入 Git。后续 CPU／分配归因、真实显示节拍与真机卡顿验证属于 P5C2，不能从本协议推导。
 
+默认图文颜色的诊断入口仍保留在正式库测试中：`SPTabBarColorAttributionTests` 提供固定工作量、标题／图标通道隔离及自然动画观察，`SPTabBarColorSequenceTests` 和 `SPTabBarTintOrderingTests` 保留已提交的序列与呈现回归。诊断计数、进程 CPU、显示链回调和静态像素具有不同含义，不能互相替代或推导系统卡顿验收。
+
+P5C2～P5C4 的采集脚本、离线分析器、独立 UIButton 夹具及协议已归档到 [实验目录](Validation/Experiments/P5C2-P5C4/README.md)。两个独立 UIButton 夹具不再进入默认 Package 回归，归档脚本测试按需单独执行；失败、断连、未采用候选及历史原始证据继续保留。正式脚本回归命令仍见下文。
+
+SPTabBar 的职责、行为契约、对应测试及阶段验收见 [P0～P4 契约与验收索引](Validation/SPTabBar-Contract-Acceptance.md)。历史通过只适用于记录的源码与环境，不代表当前版本完整矩阵已重新执行。
+
 验证脚本分别扫描日志中的 `Observation tracking feedback loop detected!` 和 appearance transition 不平衡诊断，不兼容 content configuration 引起的整个 Cell 内容视图替换提示，以及 Auto Layout 的 `Unable to simultaneously satisfy constraints.` 冲突，保存 `runtime-diagnostics.json`；即使 XCTest 通过，出现其中任一诊断也返回非零退出码。摘要分别保留 XCTest 结果、`runtimeDiagnostics` 和 `sourceChangedSinceRun`（包含运行后新增、修改及删除的输入文件），不能以“无此诊断”代替测试通过。诊断修复的对照证据见 [验证记录](Validation/README.md)。脚本自身回归使用 `python3 -m unittest discover -s Scripts/Tests -v`。
 
 同次触摸折返的两项 `ReversingNativePaging` 回归需要连续 HID 路径。普通 XCTest 单段 `press/drag` 无法表达中途反向，因此这两项在没有桥接时明确 skip，不计为通过。使用开发工具 `serve-sim@0.1.48`（不进入库或 Demo 运行时依赖），固定目标 iPad，先完成当前源码的 Demo `build-for-testing`，再在另一终端保持桥接运行：
