@@ -586,6 +586,8 @@ final class DemoHeaderController: UIViewController {
 /// UI 回归直接读取窗口场景方向，避免将设备旋转请求误认为界面已旋转。
 @MainActor
 final class RegressionStatusLabel: UILabel {
+    /// 仅由显式启用的 Demo 验收入口提供；读取不推进动画或触发布局。
+    var supplementaryRegressionState: (() -> String)?
     private var regressionState: String {
         let orientation: UIInterfaceOrientation
         let orientationLock: String
@@ -598,7 +600,7 @@ final class RegressionStatusLabel: UILabel {
             orientationLock = "unavailable"
         }
         let safe = window?.safeAreaInsets ?? .zero
-        return "interfaceOrientation=\(orientation.rawValue);interfaceOrientationLocked=\(orientationLock);safeLeft=\(safe.left);safeRight=\(safe.right);\(super.accessibilityValue ?? "")"
+        return "applicationState=\(UIApplication.shared.applicationState.rawValue);interfaceOrientation=\(orientation.rawValue);interfaceOrientationLocked=\(orientationLock);safeLeft=\(safe.left);safeRight=\(safe.right);\(super.accessibilityValue ?? "")"
     }
 
     // 保留可见文字并附加短状态，兼顾图库选择回调与窗口几何断言；完整触摸诊断仍从 value 读取。
@@ -618,7 +620,7 @@ final class RegressionStatusLabel: UILabel {
                 return super.accessibilityValue
             }
             let trace = (window as? PagingTraceWindow).map { "gesture=\($0.pagingTrace);" } ?? ""
-            return "\(trace)\(regressionState)"
+            return "\(trace)\(regressionState)\(supplementaryRegressionState?() ?? "")"
         }
         set { super.accessibilityValue = newValue }
     }

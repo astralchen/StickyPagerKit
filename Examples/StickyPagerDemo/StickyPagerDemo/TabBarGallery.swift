@@ -8,6 +8,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
     private let indicatorProvider = DemoIndicatorProvider()
     private let contentProvider = DemoTabContentProvider()
     private let status = RegressionStatusLabel()
+    private var accessibilityCommitCount = 0
     private let tabs = [
         SPTabBarItem(title: "推荐"),
         SPTabBarItem(title: "收藏", image: UIImage(systemName: "star"), selectedImage: UIImage(systemName: "star.fill")),
@@ -50,6 +51,14 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         }
         status.numberOfLines = 0
         status.accessibilityIdentifier = "demo.gallery.status"
+        if ProcessInfo.processInfo.arguments.contains("--accessibility-regression") {
+            status.supplementaryRegressionState = { [weak self] in
+                guard let self else {
+                    return ""
+                }
+                return DemoTabAccessibilitySnapshot.read(bar: self.bar, commits: self.accessibilityCommitCount)
+            }
+        }
         status.font = .preferredFont(forTextStyle: .body)
         status.adjustsFontForContentSizeCategory = true
         status.text = "独立使用：点击标签可选择；拖动可浏览更多标签。右上角可切换布局、样式和动态内容。"
@@ -137,6 +146,9 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
     }
 
     func tabBar(_ tabBar: SPTabBar, didSelect item: SPTabBarItem) {
+        if ProcessInfo.processInfo.arguments.contains("--accessibility-regression") {
+            accessibilityCommitCount += 1
+        }
         status.text = "已选择：\(item.accessibilityLabel ?? item.title ?? "未命名")\n角标：\(item.badgeValue ?? "无")"
         view.setNeedsLayout()
     }

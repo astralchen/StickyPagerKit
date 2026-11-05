@@ -6,6 +6,60 @@
 
 阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
 
+## 2026-11-05：缩放、弹簧与系统无障碍兼容性验收
+
+基于 `codex/container-architecture-refactor`、HEAD `3188a81` 开始。本轮补真实系统设置、VoiceOver 和自然触摸证据，不追加颜色性能优化或 Instruments 性能测量。新增内容限于 Demo 的只读诊断和 UI 验收夹具；仅在确认框架可复现缺陷后才修改实现。原有开发团队配置差异保持不动，不提交或推送。[执行协议](Results/20261105-tabbar-compatibility/protocol.json)。
+
+**验收入口：** `TabAccessibilitySystemTests` 操作“设置”中的真实开关，不替换 `UIAccessibility` 状态、不发送模拟通知、不手动推进动画。`--accessibility-regression` 与 `--window-regression` 共同启用图库诊断，读取系统偏好、可见缩放层、全部缓存缩放层、可见透明度、已提交选择及回调次数；仅在 AX 请求时读取，不向正式帧循环加入工作。VoiceOver 通过公开的 `focusedElement(using:)` 观察焦点；先确认前台焦点就绪，再验证单击聚焦、双击一次提交和向右滑动焦点。每条用例记录并恢复触及的系统设置原值。系统设置选择器针对本次中文环境，兼容英文开关名称；这不构成全部系统语言的验收。
+
+**保留的夹具失败与定位：**
+
+- 默认设置前两次失败发生在系统开关触摸。事件记录中点击横坐标为 201，位于整行中心，而实际开关位于行尾；`element.tap()` 同样选择了行中心。改为真实触摸行尾后，原系统值断言及设置响应检查通过。没有替换开关状态或放宽断言。[第一次](Results/20261105-tabbar-compatibility/settings-default-1/result.json)、[第二次](Results/20261105-tabbar-compatibility/settings-default-2/result.json)、[修正后的完整结果](Results/20261105-tabbar-compatibility/settings-default-3/result.json)。
+- 第一轮 VoiceOver 主体到达下一标签焦点截图，但清理阶段在旧页面元素上多发双击，异步 `tearDown` 进入 XCTest 嵌套失败处理，最终主动停止。采样时 Demo 主线程在正常 RunLoop 等待，Runner 堆栈在清理流程；不能将这一轮记为通过。后续日志确认开关已经关闭时 Runner 的 `isVoiceOverRunning` 仍可暂时为 true。夹具改用已确认的开关值导航，并让清理失败继续记录、尝试剩余恢复项。[原失败结果](Results/20261105-tabbar-compatibility/voiceover-default-1/tests.json)、[Runner 堆栈](Results/20261105-tabbar-compatibility/voiceover-default-1/runner-sample.txt)。
+- 第二轮 VoiceOver 在系统状态已为开启、焦点仍为空时，首次触摸按普通点击提交了选择。增加真实前台焦点就绪检查后完整流程通过；不补发触摸、不使用固定延时、不降低焦点或回调断言。这个结果支持修正验收前提，不能证明所有系统上的启动时序都相同。[失败](Results/20261105-tabbar-compatibility/voiceover-default-2/result.json)、[复验](Results/20261105-tabbar-compatibility/voiceover-default-3/result.json)。
+- 自定义卡片第一轮错误要求屏幕外禁用项已经创建 Cell。日志确认前三项唯一入口检查通过，第四项尚未出现；修正为先真实滚入视口检查唯一入口及禁用状态，再滚回。该轮同时保留 XCTest 等待菜单动画完成通知超时的日志，未把它解释成框架性能问题。[原结果](Results/20261105-tabbar-compatibility/settings-custom-1/result.json)。
+- 自定义卡片第二轮统计整个集合视图子树，在减弱动态效果开启后读到一个缩放层。源码仅刷新可见 Cell，并在 `willDisplay` 同步重新显示的项；诊断改为分别报告可见层和全部缓存层，并增加开启设置后往返滚动的验收，检查缓存项再次显示时的实际行为。[原结果](Results/20261105-tabbar-compatibility/settings-custom-final-2/result.json)。
+- 后续记录确认 `motion=1` 时可见缩放层为 0、全部缓存缩放层为 1；真实滚动后两者均为 0，回调次数和选中项未变。这个现象属于屏幕外缓存延迟更新，不需要框架增加全量刷新。该轮随后在关闭系统开关后的即时取值失败，清理阶段恢复原值；夹具改为一次触摸后等待系统目标值提交，仍要求相同目标值、不重试触摸。[结果与事件日志](Results/20261105-tabbar-compatibility/settings-custom-final-3/result.json)。
+- iOS 27.2 自定义内容再次执行时，“设置”应用在下一次开关操作前启动超时；清理阶段最终确认减弱动态效果和降低透明度均恢复关闭。这是完整端到端用例失败，不能用前一轮的局部缓存证据覆盖。Runner 采样位于系统设置的 XCTest 空闲等待，没有再次出现嵌套清理阻塞。此后停止在该模拟器重复此用例，改用独立的已安装 iOS 26.5 环境补验。[完整失败](Results/20261105-tabbar-compatibility/settings-custom-final-4/result.json)、[等待堆栈](Results/20261105-tabbar-compatibility/settings-custom-final-4/runner-sample.txt)。
+
+**环境边界：** 本机未安装 iOS 15 运行时。已配对的 iPhone 11 和 iPhone XR 详情查询分别在 10 秒限时内超时，不能从 Xcode 目标列表推断可以执行。iPhone 13 的本轮预检确认为有线连接、开发者模式开启。iOS 26.5 为本机已安装的最旧可用模拟器运行时，补验结果不能替代 iOS 15。原始结果、事件附件、失败时源码和 SHA-256 保留在本地忽略目录。[运行时列表](Results/20261105-tabbar-compatibility/runtimes.json)、[iPhone 11](Results/20261105-tabbar-compatibility/iphone11-details.json)、[iPhone XR](Results/20261105-tabbar-compatibility/iphonexr-details.json)、[iPhone 13 预检](Results/20261105-tabbar-compatibility/iphone13-details.json)。
+
+**旧系统本轮尝试：被环境阻挡。** 使用当前源码为独立 iOS 26.5 模拟器重新构建成功，但未取得测试体结果。两次进程检查未观察到 Demo 或 Runner；模拟器报告 Booted，启动就绪及画面读取却长时间等待。截图最终显示主屏幕与已安装应用图标，不能作为运行通过证据。`StopProject` 报告没有运行中的应用，随后关闭本任务打开的工作区以取消初始化；没有关闭其他工作区。启动观察最终返回 Finished，后续检查设备已为 Shutdown。本轮没有复用 P5C6 冻结产物，也不新增 iOS 26.5 通过声明。[执行记录](Results/20261105-tabbar-compatibility/older-custom-settings/execution.json)、[构建日志](Results/20261105-tabbar-compatibility/older-custom-settings/build.log)、[实际画面](Results/20261105-tabbar-compatibility/older-custom-settings/startup.jpg)。
+
+**真机分页交互：iPhone 13／iOS 27.2，1/1 通过。** 官方 MCP 因两个 Demo 测试 target 缺少 Team 构建失败；仅通过命令行传入已有 Team，未修改工程文件。回退按单项测试串行执行，255.70 秒内返回 0，未触发 600 秒等待上限。`testSpringDefaultPagingCancellationAndRotation` 在真机验证弹簧与缩放开启时的 RTL 真实拖动取消、完成分页、标签选择和旋转后对齐。xcresult 确认 1 通过、0 失败／跳过，runtimeWarnings 为空，四类 UIKit 运行时诊断均为 0；这不代表整套无障碍矩阵或动画性能通过。[官方构建失败](Results/20261105-tabbar-compatibility/device-mcp-build.json)、[临时签名命令](Results/20261105-tabbar-compatibility/device-cli/command.json)、[实际结果](Results/20261105-tabbar-compatibility/device-cli/summary.json)。
+
+该真机批次的 `sourceChangedSinceRun` 原样列出四个未纳入该次指纹的文件：三个资源 JSON、一个工作区文件。采集过的输入均未变化；三个资源与本轮初始指纹一致，四个文件均与 HEAD 一致，修改时间也早于本轮。属于指纹扩展名清单遗漏，不据此宣称文件在运行中被修改；没有回填或重写原摘要来消除标记。[独立输入审计](Results/20261105-tabbar-compatibility/device-cli/input-coverage-audit.json)。
+
+**补充保留的失败：**
+
+- iPhone 18 Pro 的四项既有交互用例为 **2/4 通过、2/4 失败**：自定义内容最大字号／RTL／旋转和默认弹簧分页取消／旋转通过；自定义长按拖动实际位移 44 pt，未达到原断言要求的 50.25 pt；默认最大字号用例在标题边界检查失败，截图显示系统应用切换器对应用画面的裁切。用户确认没有其他操作，不能归因于外部干扰。补充真实触摸轨迹和前台状态诊断，保留原位移及几何断言，不通过补发激活掩盖状态问题。后续复验结果单列，不覆盖这一轮失败。[结果](Results/20261105-tabbar-compatibility/spring-interaction-final/result.json)、[原控制台](Results/20261105-tabbar-compatibility/spring-interaction-final/console.log)。
+- iPhone 13 的首轮四项系统设置用例为 **0/4 通过、4/4 失败**，均停在系统设置首页无障碍入口不可见，未进入框架断言或修改系统开关。真机首页比模拟器多出网络等条目；夹具补真实滚动定位，并在连续操作时保留设置页面，避免每次重启系统应用。原开关目标值、旁白焦点、单次提交断言不变。[原失败摘要](Results/20261105-tabbar-compatibility/device-system/summary.json)。
+
+- 真机修正导航后的批次，自定义系统设置用例通过；自定义旁白用例在首次启用的系统通知提示下处于 `applicationState=1`、无前台焦点，焦点断言失败。提示也阻挡了清理中的关闭动作；XCTest 默认处理尝试单击“允许”，没有立即消除提示。停止该批次，xcresult 记录 1 通过、2 失败（其中 1 项为取消），默认旁白未执行。补充仅识别该通知提示的真实旁白触摸处理，并保留前台与焦点就绪断言。该批次摘要中的源码变化仅为测试结束后修改的夹具，旧版本已归档。[批次终态](Results/20261105-tabbar-compatibility/device-system-2/summary.json)、[原夹具](Results/20261105-tabbar-compatibility/device-system-2/test-source.swift)。
+- 随后单独恢复真机设置 **1/1 通过**，读取旁白为开启后恢复关闭，并确认减弱动态效果为关闭；这不是标签兼容性通过。恢复时通知提示已不再存在，不能据此确认先前默认处理最终选择了哪项通知权限。临时恢复用例已移出默认集合，源码和结果归档，最终验收不依赖该方法。[恢复结果](Results/20261105-tabbar-compatibility/device-voiceover-recovery/summary.json)、[恢复源码](Results/20261105-tabbar-compatibility/device-voiceover-recovery/test-source.swift)。
+
+**最终真机系统设置与旁白：iPhone 13／iOS 27.2，4/4 通过。** 重新构建最终夹具后按自定义设置、自定义旁白、默认设置、默认旁白串行运行，总耗时 451.64 秒，退出 0，无失败或跳过，`sourceChangedSinceRun=[]`，runtimeWarnings 为空，四类 UIKit 运行时诊断均为 0。两类内容均验证：开启减弱动态效果后可见缩放层移除、关闭后恢复；透明度设置往返响应；选择和回调次数不被系统设置改变；旁白就绪后的单击聚焦、双击一次提交、右滑只移动焦点。自定义内容额外验证缓存项滚出再显示时遵守当前设置。截图中第三项获得旁白焦点、第二项仍选中，与断言一致。四项用例记录的原值均为关闭，结束时均恢复；Runner 的旁白通知仍可能晚于真实开关值，不用其滞后值驱动清理。[终态与源码一致性](Results/20261105-tabbar-compatibility/device-system-final/summary.json)、[设置恢复审计](Results/20261105-tabbar-compatibility/device-system-final/restoration-audit.json)、[截图清单](Results/20261105-tabbar-compatibility/device-system-final/attachments/manifest.json)。
+
+本轮新系统提示处理分支只针对已观察到的中文旁白通知弹窗；最终四项运行未再次弹出该提示，因此该分支的实际触摸处理尚未获得成功执行证据，不能因主流程 4/4 通过宣称首次授权提示已全面兼容。未重置真机通知权限来重复制造提示。
+
+**两项交互定向复验：iPhone 18 Pro／iOS 27.2，2/2 通过。** 保持原拖动输入及位移阈值，只增加真实触摸记录；长按手指移动 100.33 pt，标签滚动 90.33 pt，首个移动事件位移 3 pt，原要求仍为大于 50.25 pt。24 个样本中最大派发延迟 16.43 ms、最大事件处理 0.91 ms；这里只用于解释本次输入，不是性能基线。默认最大字号用例完成竖屏、左右横屏、回到竖屏，四步均记录 `applicationState=0`，原几何与对齐断言通过。源码指纹一致，runtimeWarnings 为空，四类 UIKit 运行时诊断均为 0。[终态](Results/20261105-tabbar-compatibility/spring-interaction-trace/summary.json)、[长按轨迹](Results/20261105-tabbar-compatibility/spring-interaction-trace/held-drag-observation.json)、[前台与方向](Results/20261105-tabbar-compatibility/spring-interaction-trace/foreground-rotation-observation.json)。
+
+**尚未解决的原因归属：** 首轮 44 pt 位移及应用切换器画面在定向复验未重现；首轮缺少完整触摸轨迹和前台状态，不能证明具体触发原因，也不能把追加诊断后的通过称为实现修复。用户确认没有其他操作，本轮不归因于外部干扰，不删除首轮失败，不为猜测增加框架补偿行为。
+
+**本轮验收边界：**
+
+| 范围 | 终态与限制 |
+| --- | --- |
+| iPhone 13 默认／自定义系统设置和旁白 | 最终 4/4 通过；原值恢复已核对 |
+| iPhone 13 弹簧分页取消及旋转 | 1/1 通过；当时指纹遗漏单独审计，框架未变 |
+| iPhone 18 Pro 既有四项交互 | 首批 2/4 通过、2/4 失败；两项失败定向复验 2/2 通过，原因未证实，不抹掉首批失败 |
+| iOS 26.5 独立模拟器 | 构建通过，运行初始化被环境阻挡，未取得测试体结果 |
+| iOS 15 最低支持系统 | 未执行；本机没有对应运行时，配对旧设备预检超时 |
+| 其他系统设置与无障碍 | 未完整覆盖旁白转子／朗读语义、切换控制、粗体文字、所有语言、首次通知提示成功处理及跨系统矩阵 |
+| 性能、压力与完整库回归 | 本轮未执行；没有修改框架实现，不将 UI 成功外推为性能或完整库回归通过 |
+
+本轮只增加 Demo 诊断、UI 验收夹具和验证记录，未修改框架实现或开发团队配置。失败、取消、恢复和未执行结果分开保留；未提交或推送。最终五个 Swift 文件局部格式检查、`git diff --check`、新增记录链接及保护文件指纹检查通过，暂存区为空。已删除本轮创建的独立 iOS 26.5 模拟器，将 iPhone 18 Pro 恢复本轮开始时的 Shutdown 状态；没有操作其他模拟器。[最终审计](Results/20261105-tabbar-compatibility/final-audit.json)、[环境恢复](Results/20261105-tabbar-compatibility/environment-cleanup.json)。
+
 ## 2026-11-05：P0～P4 验收索引与 P5C2～P5C4 实验归档
 
 在 `codex/container-architecture-refactor`、HEAD `169f78d` 上整理。补齐阶段／提交对应、选择重入、测量隔离、公开 override、统一呈现、布局顺序、失效范围、缓存与视觉能力的契约和测试索引；明确原计划 P3 由 P3A＋P3B 和 P4A 共同完成。回退仅记录架构边界，不宣称已实际回退验证；P4B 的公开契约变更与后续可选效果分开标明。

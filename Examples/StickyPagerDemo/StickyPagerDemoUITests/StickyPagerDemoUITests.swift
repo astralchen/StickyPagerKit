@@ -1866,7 +1866,7 @@ final class StickyPagerDemoUITests: XCTestCase {
 
     func testSpringCustomTabPagingAndHeldDragPreserveInteraction() {
         app.terminate()
-        app.launchArguments = ["--window-regression", "--open-demo", "--spring-effects"]
+        app.launchArguments = ["--window-regression", "--open-demo", "--spring-effects", "--paging-trace"]
         app.launch()
         XCTAssertTrue(app.buttons["sp.tab.0"].waitForExistence(timeout: 5))
         testCustomTabPagingAndHeldDragPreserveInteraction()
@@ -1890,6 +1890,7 @@ final class StickyPagerDemoUITests: XCTestCase {
         let tab = app.buttons["sp.tab.3"]
         let before = tab.frame.midX
         let distance = tabs.frame.width * 0.25
+        print("HELD_TAB_DRAG_BEFORE tab=\(tab.frame) viewport=\(tabs.frame) state=\(status.value ?? "")")
         let start = tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(
             forDuration: 0.4,
@@ -1897,6 +1898,7 @@ final class StickyPagerDemoUITests: XCTestCase {
             withVelocity: .slow,
             thenHoldForDuration: 0.2
         )
+        print("HELD_TAB_DRAG_AFTER tab=\(tab.frame) viewport=\(tabs.frame) state=\(status.value ?? "")")
         XCTAssertGreaterThan(before - tab.frame.midX, distance * 0.5)
         expect("page=empty")
         let scrolledFrame = tab.frame
@@ -2297,6 +2299,11 @@ final class StickyPagerDemoUITests: XCTestCase {
         for (step, orientation) in [UIDeviceOrientation.portrait, .landscapeLeft, .landscapeRight, .portrait]
             .enumerated() {
             rotate(to: orientation)
+            // 不在系统应用切换器的裁切快照上检查应用内布局，也不补发前台激活操作。
+            expect("applicationState=0")
+            print(
+                "SAFE_AREA_INPUT step=\(step) appState=\(app.state.rawValue) tabs=\(tabs.frame) state=\(status.value ?? "")"
+            )
             expect(step == 0 ? "page=grid" : "page=weekly")
             for identifier in ["demo.headerTitle", "demo.headerSubtitle"] {
                 let text = app.staticTexts[identifier]
