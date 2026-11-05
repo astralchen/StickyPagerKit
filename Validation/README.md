@@ -1,8 +1,30 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-11-04。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-11-05。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
+
+## 2026-11-05：P5C6 聚焦兼容性验收与颜色优化收尾
+
+**结论：iOS 26.5 同系统行为对照通过，P5C5 实现不再调整；真机触摸验收仍被自动化环境阻挡。** 按“收益不明显的优化可跳过”的约束，本轮只补必要行为证据，不扩大自动 tint／标题变化等优化路径，不追加 CPU、Allocations 或 Animation Hitches 采集，不继续反复修复真机链路。以提交 `059bb4f` 的生产源码为当前实现，整个过程未修改框架、测试、Demo、公开 API 或工程开发团队配置。[执行范围与环境](Results/20261105-tabbar-p5c6-focused/protocol.json)。
+
+**环境核对：** iPhone 13／iOS 27.2 为有线连接、开发者模式开启。较旧 iPhone 11 的设备详情查询在预设 10 秒超时；Xcode 列出的 iPhone 12 Pro Max／iOS 26.7 实际详情查询返回 paired 但 unavailable，不能从目标列表推断可运行。未安装 iOS 15 运行时，不将其他系统结果替代最低支持系统验收。使用本机已安装的 iOS 26.5（23F77）运行时创建临时 iPhone 16 Pro 模拟器，无系统下载。
+
+**真机尝试：失败／被环境阻挡，真实触摸用例未执行。** 优先通过官方 Xcode MCP 运行已有 `testExplicitIconColorsTouchCancellationAndSelection()`，首先因两个 Demo 测试 target 缺少 Team 构建失败。仅作一次命令行回退，通过 `DEVELOPMENT_TEAM` 传入已有 Team，不修改工程文件；构建及签名完成、Runner 启动后，在启用 UI 自动化模式时超时，`xcodebuild` 退出 65。xcresult 记录 0 通过、1 条 Runner 初始化失败，错误为 `Timed out while enabling automation mode.`，不是测试体内的颜色／手势断言失败。没有重复真机测试或修改自动化／设备设置；本轮不能报告真机触摸通过。[官方 MCP 构建错误](Results/20261105-tabbar-p5c6-focused/device-mcp-build.json)、[命令与临时签名参数](Results/20261105-tabbar-p5c6-focused/device-cli/command.json)、[正式失败摘要](Results/20261105-tabbar-p5c6-focused/device-cli/summary.json)、[完整日志](Results/20261105-tabbar-p5c6-focused/device-cli/xcodebuild.log)。首次在受限环境读取 xcresult 摘要遇到 TestReport 临时文件权限错误，随后以所需权限重读同一结果包成功；没有重新运行测试。
+
+**iOS 26.5 A/B：各 11/11 通过，68 条呈现记录精确一致。** 复用 P5C5 已冻结的 Release A／B 宿主及测试产物，A 为优化前实现，B 的全部 `Sources/` 输入与当前一致。两份冻结输入之间仅有已记录的三个生产文件差异，使用相同的两项状态／高亮夹具和九项颜色过渡测试；不将冻结的旧诊断测试版本称为重建并执行当前全部测试。命令行流程用于控制冻结 xctestrun，按 A→B 串行，无重试、无性能计时。[A 终态](Results/20261105-tabbar-p5c6-focused/older-A/summary.json)、[B 终态](Results/20261105-tabbar-p5c6-focused/older-B/summary.json)、[冻结来源与当前差异](Results/20261105-tabbar-p5c6-focused/older-B/provenance.json)。
+
+| 检查 | 结果 | 边界 |
+| --- | --- | --- |
+| 独立高亮同步回退、颜色过渡 | A、B 各 11/11 通过 | 模拟器 UIKit 测试，非真实触摸 |
+| 即时模型／布局后模型／静态 PNG | 68/68 精确一致 | 只比较同一 iOS 26.5 上的 A/B |
+| 内部配置前景色表示 | 四条适用正常状态记录不同 | 单独记录 nil／颜色表示，不混作呈现差异 |
+| 真机真实触摸 | 被环境阻挡 | Runner 自动化初始化超时，未执行测试体 |
+| iOS 15 | 未执行 | 当前无可用运行环境 |
+
+状态矩阵覆盖适用路径、自动图标颜色、图文同时变化、原色图片四种模式，各 17 步，包括高亮进入／更新／退出、变暗／恢复、禁用／恢复、新标题快照、父 tint 变化、反向进度及提交。所有即时和布局后视图模型、静态像素保持精确比较，没有放宽断言；动态 traits 的完整矩阵和真实屏幕逐帧呈现不在本轮覆盖内。两轮无失败／跳过，xcresult runtimeWarnings 为空，四类运行时诊断为 0。配置表示变化与 iOS 27.2 上观察到的四条相同，但没有要求跨系统 PNG 一致。[68 条对照与表示差异](Results/20261105-tabbar-p5c6-focused/comparison.json)、[对照分析器](Results/20261105-tabbar-p5c6-focused/compare.py)。
+
+**收尾：** 原始结果、失败日志、冻结来源和运行命令保留在本地忽略目录。临时模拟器已关闭并删除，本轮打开的 Xcode 工作区连接已关闭，未操作其他工作区和设备。当前源码与执行前输入一致，开发团队配置及此前未提交工作保留；本轮受跟踪文件仅更新本验证记录。证据链接、源码／冻结产物核验和 `git diff --check` 通过。[最终核对](Results/20261105-tabbar-p5c6-focused/final-audit.json)。没有提交或推送。到此停止本轮颜色性能优化；真机和最低支持系统覆盖作为明确未完成项保留，待有直接可用环境或实际问题时再处理，不自动安排更多性能阶段。
 
 ## 2026-11-04：P5C5 正常状态显式图标颜色的局部优化
 
