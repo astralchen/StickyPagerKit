@@ -9,6 +9,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
     private let contentProvider = DemoTabContentProvider()
     private let status = RegressionStatusLabel()
     private var accessibilityCommitCount = 0
+    private var stateProbe: DemoTabStateProbe?
     private let tabs = [
         SPTabBarItem(title: "推荐"),
         SPTabBarItem(title: "收藏", image: UIImage(systemName: "star"), selectedImage: UIImage(systemName: "star.fill")),
@@ -39,6 +40,14 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         bar.contentDelegate = contentProvider
         indicatorProvider.contentProvider = contentProvider
         view.addSubview(bar)
+        if ProcessInfo.processInfo.arguments.contains("--tab-state-regression") {
+            stateProbe = DemoTabStateProbe(bar: bar)
+            navigationItem.leftBarButtonItem = UIBarButtonItem(
+                title: "连续改选",
+                primaryAction: UIAction { [weak self] _ in self?.stateProbe?.startSequence() }
+            )
+            navigationItem.leftBarButtonItem?.accessibilityIdentifier = "demo.state.start"
+        }
         if ProcessInfo.processInfo.arguments.contains("--accessories") {
             bar.items += (1 ... 8).map { SPTabBarItem(title: "专题频道 \($0)") }
             DemoTabBarAccessories.install(on: bar, owner: self, leading: true, trailing: true)
@@ -57,6 +66,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
                     return ""
                 }
                 return DemoTabAccessibilitySnapshot.read(bar: self.bar, commits: self.accessibilityCommitCount)
+                    + (self.stateProbe?.snapshot ?? "")
             }
         }
         status.font = .preferredFont(forTextStyle: .body)
@@ -149,6 +159,7 @@ final class TabBarGallery: UIViewController, SPTabBarDelegate {
         if ProcessInfo.processInfo.arguments.contains("--accessibility-regression") {
             accessibilityCommitCount += 1
         }
+        stateProbe?.didSelect(item)
         status.text = "已选择：\(item.accessibilityLabel ?? item.title ?? "未命名")\n角标：\(item.badgeValue ?? "无")"
         view.setNeedsLayout()
     }

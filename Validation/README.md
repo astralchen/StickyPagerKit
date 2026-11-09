@@ -1,10 +1,58 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-11-05。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-11-09。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
 阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
+
+## 2026-11-09：动画环境变化、旁白动态标签与生命周期补验
+
+基于 `34aeda5`，先验证再决定是否修复框架，不继续颜色或缓存微优化。只增加通用验收输入与诊断，不修改开发团队配置，串行测试，不提交或推送。[本轮协议](Results/20261109-tabbar-state-compatibility/protocol.json)。
+
+**环境预检：** 可用模拟器运行时为 iOS 26.5、27.1、27.2，未安装 iOS 15。iPhone XR 本轮确认为有线连接、开发者模式开启、iOS 18.7.10；iPhone 11 为网络连接、iOS 18.7.7。优先使用有线 XR 补旧系统证据，不能将 iOS 18 的结果写成最低系统通过。[运行时](Results/20261109-tabbar-state-compatibility/runtimes.txt)、[XR 详情](Results/20261109-tabbar-state-compatibility/xr-details.json)。
+
+**库级聚焦：最终 7/7 通过。** `SPTabBarEnvironmentLifecycleTests` 四项覆盖自然显示时钟下的颜色端点变化、默认／自定义内容的字号与尺寸变化后再次改选、两类内容各 20 次活动动画移除与释放，以及协调器释放后不再发送帧；同时执行三项 `SPTabBarIconFastPathTests` 同步回退回归。使用真实 UIWindow 和仓库 UIKit application host，没有手动推进动画。颜色和字号通过公开 trait override 注入，属于 UIKit 集成证据，不是系统设置端到端。原始结果无 UIKit 四类运行时诊断。[终态](Results/20261109-tabbar-state-compatibility/library-final/summary.json)。
+
+**保留失败：** 首次编译成功，测试启动因模拟器 `Invalid connectionUUID` 失败；检查发现目标仍为 Shutdown，正常启动并等待就绪后，用相同产物另存运行结果。该次实际执行为 3/4 通过，循环释放断言失败。补充每轮独立自动释放池及前后对象日志后，40 轮均显示池排空前 Bar／Item 尚在、排空后 Bar／Item／Provider 全部释放，定位为夹具生命周期边界；原有释放断言保留，框架未因此修改。[启动失败](Results/20261109-tabbar-state-compatibility/library-focused/summary.json)、[首次实际运行](Results/20261109-tabbar-state-compatibility/library-ready/summary.json)、[失败夹具](Results/20261109-tabbar-state-compatibility/library-ready/test-source.swift)。
+
+Demo 的 `--tab-state-regression` 入口只通过公开 API 发起有限次改选、记录当前 scene 失活时间、最近请求间隔和实际缩放值；停止的是夹具继续发起的请求，不停止或推进框架已有动画。旁白动态用例在一次真实激活后延迟更新内容、禁用、删除、重排或关闭缩放；不要求系统保持特定焦点，只验证合法导航及无额外提交。
+
+**真机前后台：iPhone XR／iOS 18.7.10，最终 2/2 通过。** 默认图文和自定义卡片均通过自然弹簧改选、Home 进入后台、返回前台和重复点击当前项。两种内容都在第六次请求后失活，诊断确认 `resignInFlight=1`；返回时选中索引与失活时一致、选中项缩放为 1、程序化输入未产生提交回调，随后真实重复点击按既有契约提交一次。这里验证选中状态与缩放终态，不代表逐帧动画性能或完整指示器几何验收。四类 UIKit 运行时诊断均为 0。[终态](Results/20261109-tabbar-state-compatibility/xr-background-2/summary.json)。
+
+**真机前置失败保留：** 官方 Xcode MCP 首次构建因两个测试 target 未配置 Team 失败，测试体未执行；命令行仅传入现有 Team 和签名参数，没有修改工程配置。CLI 首轮实际执行两项均失败于“设置”页面定位，尚未修改系统开关或进入 Demo：iOS 18 将同一设置标识报告为 Cell 内的 StaticText，而原选择器只接受 Button。改为按相同标识匹配元素后原有系统值与动画断言通过，不放宽验收条件。[官方构建错误](Results/20261109-tabbar-state-compatibility/official-device-build.json)、[首次真机失败](Results/20261109-tabbar-state-compatibility/xr-background/summary.json)、[失败时测试源码](Results/20261109-tabbar-state-compatibility/xr-background/test-source.swift)。
+
+**旁白首批失败保留：5/5 未通过，均未进入动态变更。** 第一项在处理通知提示后读到旁白关闭；后四项旁白为开启，但前台焦点就绪断言失败。截图及 SpringBoard 层级确认设备仍显示 `VO_USAGE_CONFIRMED_ALERT`，包含“开始旁白教程”“使用旁白”“取消”；焦点在系统面板中，原夹具没有处理这个独立的首次使用确认。仅按实际层级增加“使用旁白”操作及面板消失断言，未增加等待时限、补发标签触摸或发送焦点恢复通知。首项开关关闭的具体事件归属尚未单独复现；不把后续确认面板修正外推为首次通知处理已全面验证。[首批结果](Results/20261109-tabbar-state-compatibility/xr-voiceover/summary.json)、[截图与层级清单](Results/20261109-tabbar-state-compatibility/xr-voiceover/attachments/manifest.json)、[失败时源码](Results/20261109-tabbar-state-compatibility/xr-voiceover/test-source.swift)。
+
+**旁白确认定向运行仍失败，保留中间结果：** 真实事件记录显示 40.76 秒单击“使用旁白”后面板消失，41.61 秒原通用激活逻辑继续双击，查找已消失的 Sheet 失败；未进入标签行为断言。最终夹具只在提示仍存在时补充旁白双击，通知提示采用相同的存在性保护，不向已关闭面板继续发送触摸。该修正只涉及系统提示处理。[定向失败](Results/20261109-tabbar-state-compatibility/xr-voiceover-ready/summary.json)、[实际事件](Results/20261109-tabbar-state-compatibility/xr-voiceover-ready/xcodebuild.log)、[当时源码](Results/20261109-tabbar-state-compatibility/xr-voiceover-ready/test-source.swift)。
+
+**确认面板关闭后的旁白批次仍为 0/5：** `xr-voiceover-final` 名称是当时拟定的批次名，不代表成功终态。五项均在动态变更前失败于 `hasFocus=1`，当时 `voiceOver=1`、`applicationState=0`、`commits=0`。系统层级没有确认 Sheet，首项录屏约 40.01 秒显示正常图库、无系统提示；所以不能再把本批失败全部归因于确认面板，也不能宣称动态变更已有运行验收。[本批结果](Results/20261109-tabbar-state-compatibility/xr-voiceover-final/summary.json)、[附件](Results/20261109-tabbar-state-compatibility/xr-voiceover-final/attachments/manifest.json)、[录屏帧](Results/20261109-tabbar-state-compatibility/xr-voiceover-final/focus-frame-42.png)。
+
+为区分自动焦点前置条件与实际触摸行为，临时加入 `testVoiceOverFirstExplorationWithoutAutomaticFocus`：旁白开启后仅执行一次正常单击探索，仍要求焦点指向目标、提交数为 0，随后双击恰好提交一次。原有等待焦点的用例和失败记录保留，没有在失败后补触摸。Apple 的[旁白手势说明](https://support.apple.com/en-ie/guide/iphone/iph3e2e2281/27/ios/27)区分单击选择与双击激活；这份文档不证明本机行为，实际结果单独记录。
+
+**首次探索与原生对照均失败，未据此修改框架：** 首次探索在一次单击后已经 `commits=1`、`selected=1`，没有得到目标焦点；所以不能移除原前置检查来宣布通过。随后同页原生 `UIBarButtonItem`／`UIMenu` 对照也在旁白开启时被单击直接激活，记录 `menuActivated=true`。这是问题不局限于 SPTabBar 的证据，尚不足以判定具体系统版本、自动化事件派发或设备状态的责任。没有加入框架焦点补偿。两条定位探针不保留在默认回归集合，完整源码与失败证据保留于本地结果目录；正式五条动态变更测试保留原断言。[首次探索](Results/20261109-tabbar-state-compatibility/xr-first-exploration/summary.json)、[原生对照](Results/20261109-tabbar-state-compatibility/xr-native-control/summary.json)、[包含两条探针的源码快照](Results/20261109-tabbar-state-compatibility/xr-native-control/test-source.swift)。
+
+`focusType` 只补充原始焦点对象类型。`focusAttached` 当前仅表达焦点对象本身是 UIView 且仍在窗口内；未知／非 UIView 焦点不会被误写为已确认有效，也不能据其 0 值单独认定对象悬空。首次探索中曾读到非 UIView 焦点，但当时没有类型日志；不猜测其具体类型。
+
+**旧系统真实设置：iPhone XR／iOS 18.7.10，2/2 通过。** 使用最终测试源码运行既有默认／自定义两项，覆盖减弱动态效果开关、可见缩放层移除／恢复、自定义屏幕外缓存重新显示、降低透明度开关与提交次数保持。源码指纹一致，runtimeWarnings 为空，四类 UIKit 运行时诊断均为 0。[终态](Results/20261109-tabbar-state-compatibility/xr-system-settings/summary.json)、[截图清单](Results/20261109-tabbar-state-compatibility/xr-system-settings/attachments/manifest.json)。
+
+**本轮终态与限制：**
+
+| 范围 | 结果 | 验收边界 |
+| --- | --- | --- |
+| 自然动画、traits／尺寸变化、活动动画释放及图标回退 | iOS 27.2 模拟器 7/7 通过 | 真实窗口、自然显示时钟；traits 为注入，非系统设置端到端；40 次释放不是长期内存／耗时基线 |
+| 默认／自定义动画中进入后台及返回 | iPhone XR／iOS 18.7.10，2/2 通过 | 确认失活时缩放仍在动画中；检查选中、缩放与回调，非逐帧指示器几何／hitch 测量 |
+| 减弱动态效果、降低透明度 | iPhone XR／iOS 18.7.10，2/2 通过 | 真实系统开关及恢复；不等于全部无障碍设置 |
+| 旁白重命名、禁用、删除、重排、移除缩放层 | 最近正式批次 0/5，通过前置检查前失败 | 未执行动态变更断言；首次探索和原生菜单对照各 0/1，问题不局限于标签实现，具体归因仍未确定 |
+| iOS 15 最低系统 | 未执行 | 本机无运行时，不将 iOS 18 结果替代最低系统验收 |
+| 新系统真机旁白动态变更 | 未执行 | 复核时 iPhone 13 仍未连接；历史 iOS 27.2 基础旁白通过不能替代本轮新用例 |
+| 完整库回归、性能、长期压力、多窗口与完整无障碍矩阵 | 未执行 | 本轮聚焦补证据，未修改框架实现，不外推结果 |
+
+**设置与工作区恢复：** 已逐条核对全部 19 条真机执行记录中读取过的 `motion`／`transparency`／`voiceOver` 原值、最后一次值断言后的截图标记及清理错误，原值均恢复，清理阶段没有断言失败。旁白首次使用确认已完成，通知拒绝选择保留，未重置权限制造首次提示重试；最终提示存在性保护分支没有再次获得首次提示完整成功执行证据。[恢复审计](Results/20261109-tabbar-state-compatibility/restoration-audit.json)。只关闭本轮通过 MCP 打开的 StickyPagerDemo 工作区，将本轮启动的 iPhone 18 Pro 恢复 Shutdown；不操作原有 Duo 模拟器、QuickLayoutKit 工作区或其他设备。[模拟器终态](Results/20261109-tabbar-state-compatibility/simulator-cleanup.json)。
+
+框架、Package、开发团队配置与本轮开始时逐字一致。库验证后的库编译输入未变；早先前后台结果之后仅增加旁白夹具／诊断，相关前后台函数另作逐字核对，不将旧的完整源码指纹冒充最终全仓一致。[范围审计](Results/20261109-tabbar-state-compatibility/scope-audit.json)。最终五个 Swift 文件局部格式检查和 `git diff --check` 通过，暂存区为空；没有提交或推送。[最终审计](Results/20261109-tabbar-state-compatibility/final-audit.json)。
+
+后续优先在可用新系统真机核对原生旁白触摸基线，再运行五项动态用例；旧系统旁白保留自然触摸与焦点证据继续归因，不能通过删除前置断言或补焦点通知收尾。收益未证实的颜色／缓存微优化继续跳过。
 
 ## 2026-11-05：缩放、弹簧与系统无障碍兼容性验收
 

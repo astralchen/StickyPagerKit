@@ -21,6 +21,8 @@ enum DemoTabAccessibilitySnapshot {
             + "transparency=\(UIAccessibility.isReduceTransparencyEnabled ? 1 : 0);"
             + "voiceOver=\(UIAccessibility.isVoiceOverRunning ? 1 : 0);"
             + "hasFocus=\(focused == nil ? 0 : 1);"
+            + "focusType=\(focused.map { String(describing: type(of: $0)) } ?? "none");"
+            + "focusAttached=\((focused as? UIView)?.window == nil ? 0 : 1);"
             + "scaleHosts=\(hosts.count);minScale=\(hosts.map { $0.transform.a }.min() ?? 1);"
             + "allScaleHosts=\(allHosts.count);"
             + "minAlpha=\(alpha);commits=\(commits);selected=\(bar.selectedIndex ?? -1);focus=\(focusID);"

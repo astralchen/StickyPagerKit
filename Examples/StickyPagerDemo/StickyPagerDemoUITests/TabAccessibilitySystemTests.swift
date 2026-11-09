@@ -10,6 +10,7 @@ final class TabAccessibilitySystemTests: XCTestCase {
     private var confirmedVoiceOverState: Bool?
     private var settingsPage: Setting?
     private var hasOpenedSettings = false
+    private var additionalArguments: [String] = []
 
     private enum Setting: String, CaseIterable {
         case motion, transparency, voiceOver
@@ -64,8 +65,37 @@ final class TabAccessibilitySystemTests: XCTestCase {
         try verifyVoiceOver(custom: true)
     }
 
+    func testDefaultSpringSurvivesActualBackgroundTransition() throws {
+        try verifyBackground(custom: false)
+    }
+
+    func testCustomSpringSurvivesActualBackgroundTransition() throws {
+        try verifyBackground(custom: true)
+    }
+
+    func testVoiceOverDefaultRenameRefreshesLabelAndValue() throws {
+        try verifyVoiceOver(custom: false, mutation: "rename")
+    }
+
+    func testVoiceOverDefaultDisableRejectsActivation() throws {
+        try verifyVoiceOver(custom: false, mutation: "disable")
+    }
+
+    func testVoiceOverCustomRemovalHasNoStaleActivation() throws {
+        try verifyVoiceOver(custom: true, mutation: "remove")
+    }
+
+    func testVoiceOverCustomReorderPreservesSelectedIdentity() throws {
+        try verifyVoiceOver(custom: true, mutation: "reorder")
+    }
+
+    func testVoiceOverCustomScaleRemovalKeepsSingleEntry() throws {
+        try verifyVoiceOver(custom: true, mutation: "scale")
+    }
+
     private func launchGallery(custom: Bool) {
         app.launchArguments = ["--window-regression", "--spring-effects", "--accessibility-regression"]
+            + additionalArguments
         app.launch()
         let gallery = app.buttons["标签外观"]
         XCTAssertTrue(gallery.waitForExistence(timeout: 8))
@@ -166,12 +196,40 @@ final class TabAccessibilitySystemTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(Double(value("minAlpha") ?? "")), 1)
     }
 
-    private func verifyVoiceOver(custom: Bool) throws {
+    private func verifyBackground(custom: Bool) throws {
+        set(.motion, enabled: false)
+        additionalArguments = ["--tab-state-regression"]
+        launchGallery(custom: custom)
+        app.buttons["demo.state.start"].tap()
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        app.activate()
+        expect("applicationState", "0")
+        expect("resigns", "1")
+        expect("resignInFlight", "1")
+        expect("commits", "0")
+        let resumedSelection = try XCTUnwrap(value("resignSelected"))
+        expect("selected", resumedSelection)
+        expect("selectedScale", "1.0")
+        print("TAB_STATE_RETURN \(status.value ?? "nil")")
+        capture("spring-after-background")
+        // 点击当前对齐的可见项，不假定自定义宽卡片的第零项仍在屏幕内。
+        app.buttons["sp.tab.\(resumedSelection)"].tap()
+        expect("selected", resumedSelection)
+        // 重复点击仍按现有用户选择回调契约提交一次。
+        expect("commits", "1")
+    }
+
+    private func verifyVoiceOver(custom: Bool, mutation: String? = nil) throws {
+        if let mutation {
+            additionalArguments = ["--tab-state-regression", "--tab-mutation=\(mutation)"]
+        }
         set(.voiceOver, enabled: false)
         set(.motion, enabled: false)
         launchGallery(custom: custom)
         set(.voiceOver, enabled: true)
         dismissVoiceOverNotificationIfPresent()
+        confirmVoiceOverUsageIfPresent()
         app.activate()
         dismissVoiceOverNotificationIfPresent(waitForPrompt: true)
         expect("applicationState", "0")
@@ -186,6 +244,10 @@ final class TabAccessibilitySystemTests: XCTestCase {
         expect("focus", "sp.tab.1")
         expect("commits", "0")
         target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+        if let mutation {
+            try verifyMutation(mutation)
+            return
+        }
         expect("selected", "1")
         expect("commits", "1")
         expect("focus", "sp.tab.1")
@@ -193,6 +255,37 @@ final class TabAccessibilitySystemTests: XCTestCase {
         expect("focus", "sp.tab.2")
         expect("commits", "1")
         capture("voiceover-focused-next-tab")
+    }
+
+    private func verifyMutation(_ mutation: String) throws {
+        expect("mutation", mutation)
+        expect("commits", "1")
+        if mutation == "rename" {
+            XCTAssertEqual(app.buttons["sp.tab.1"].label, "更新后的收藏")
+            XCTAssertEqual(app.buttons["sp.tab.1"].value as? String, "23")
+        } else if mutation == "disable" {
+            let item = app.buttons["sp.tab.1"]
+            XCTAssertFalse(item.isEnabled)
+            item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+            expect("commits", "1")
+        } else if mutation == "remove" {
+            expect("itemCount", "4")
+            XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@", "收藏")).firstMatch.exists)
+        } else if mutation == "reorder" {
+            expect("selected", "3")
+            expect("selectedTitle", "收藏")
+        } else if mutation == "scale" {
+            expect("scaleHosts", "0")
+            XCTAssertEqual(app.buttons.matching(identifier: "sp.tab.1").count, 1)
+        }
+        // 不规定删除或重排后系统必须保持原焦点；真实导航后不得继续指向脱离窗口的旧控件。
+        app.swipeRight()
+        expect("hasFocus", "1")
+        expect("focusAttached", "1")
+        expect("commits", "1")
+        print("TAB_STATE_ACCESSIBILITY \(status.value ?? "nil")")
+        capture("voiceover-after-\(mutation)")
     }
 
     private func set(_ setting: Setting, enabled: Bool, remembersOriginal: Bool = true) {
@@ -231,7 +324,8 @@ final class TabAccessibilitySystemTests: XCTestCase {
                 }
                 activate(accessibility)
             }
-            let page = settings.buttons[setting.page]
+            // iOS 18 把入口作为 Cell 内的 StaticText，iOS 27 则报告 Button；标识相同。
+            let page = settings.descendants(matching: .any).matching(identifier: setting.page).firstMatch
             guard page.waitForExistence(timeout: 5) else {
                 XCTFail("未找到设置页面 \(setting.rawValue)：\(settings.debugDescription)"); return
             }
@@ -320,9 +414,31 @@ final class TabAccessibilitySystemTests: XCTestCase {
         XCTAssertTrue(decline.exists)
         let point = decline.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         point.tap()
-        point.doubleTap()
+        if alert.exists {
+            point.doubleTap()
+        }
         XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
         print("VOICEOVER_NOTIFICATION_DISMISSED")
+    }
+
+    private func confirmVoiceOverUsageIfPresent() {
+        // iOS 18 首次启用时还存在独立的系统使用确认；开关开启不等于完成此确认。
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let sheet = springboard.sheets["VO_USAGE_CONFIRMED_ALERT"]
+        guard sheet.exists else {
+            return
+        }
+        capture("voiceover-usage-confirmation")
+        let useVoiceOver = sheet.buttons["使用旁白"]
+        XCTAssertTrue(useVoiceOver.exists)
+        // 已观察到首次确认可由单击完成；只有面板仍存在时才按旁白手势激活。
+        let point = useVoiceOver.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        point.tap()
+        if sheet.exists {
+            point.doubleTap()
+        }
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        print("VOICEOVER_USAGE_CONFIRMED")
     }
 
     private func capture(_ name: String) {
