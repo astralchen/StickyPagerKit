@@ -6,6 +6,18 @@
 
 阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
 
+## 2026-11-11：iPhone 13 短列表吸顶后旋转
+
+在 iPhone 13（iOS 27.2）打开含三行内容的“短列表”，保留 Demo 默认的 220 pt Header 和底部工具栏。修复前，两个横屏方向的安全区右边界均为 797 pt，实际滑块右端均为 841 pt。竖屏通过程序滚到吸顶位置再闪现滑块时，底端为 793.7 pt，越过列表的安全区底边 758 pt。该路径未重现用户截图中滑块贴近屏幕底边的确切位置。[修复前的几何和边距对照](Results/20261111-iphone13-short-baseline/xcodebuild.log) · [修复前横屏截图](Results/20261111-iphone13-short-baseline/landscape-right.png)
+
+框架将已有的单物理像素处理扩展到新系统。iPhone 13 竖屏和转回竖屏时，滑块下端均为 754.7 pt。两个横屏方向的滑块右端均为 793.7 pt，留在 797 pt 的边界内。测试读取 UIKit 实际显示的滑块，使用场景报告的方向区分左右横屏。单独的 UI 用例通过真实上滑吸顶，在各方向核对选中页、首末行可触达和标签栏位置，最后下滑展开。[首次修复后真机结果](Results/20261111-iphone13-rotation-fix/summary.json)
+
+首次真机基线的 UI Runner 在启用自动化模式时超时，宿主测试仍测到两个横屏越界。随后真机重跑成功。加入截图后的另一次运行中，两个 UI 手势用例通过，宿主测量遇到应用场景尚未激活。测试随后改为等待活动场景和 key window。最终 iPhone 13 真机五项全部通过，包括三行列表滑块几何、短列表旋转手势、长列表原生轨道对照、显式绑定业务边距和系统底栏下的末行可达性。[宿主启动时序失败记录](Results/20261111-iphone13-rotation-verified/summary.json) · [最终五项与源码校验](Results/20261111-iphone13-rotation-final/summary.json) · [真机横屏滑块截图](Results/20261111-iphone13-rotation-final/attachments/F8D6A8CA-0E70-43FE-B39E-F5330FF9A32E.png)
+
+iPhone XR（iOS 18.7.11）三项复验通过。短列表的两个横屏方向，滑块右端均为 844.5 pt，安全区右边界为 848 pt。iPhone 18 Pro Max（iOS 27.2 模拟器）另有三项通过，其中长列表滑块下端与同窗口原生对照均为 891 pt。[XR 真机结果](Results/20261111-xr-rotation-verified/summary.json) · [模拟器对照](Results/20261111-indicator-rotation-native/summary.json)
+
+完整库测试 503 项，494 通过、9 失败。按颜色序列用例的既有要求，仅在生成的测试宿主配置中移除 MainThreadChecker 注入，独立复跑原九项和本次安全区测试，9 通过、1 失败。六项颜色序列、字体环境与 UIKit 自动观察用例均通过；仍失败的是标签图标高亮颜色。在同一模拟器运行本次修改前保存的测试包，复现了相同的实际颜色和期望值。[全量结果](Results/20261111-indicator-rotation-library/summary.json) · [聚焦复查](Results/20261111-indicator-rotation-recheck/xcodebuild.log) · [修复前测试包对照](Results/20261111-indicator-rotation-control/xcodebuild.log)
+
 ## 2026-11-11：框架绑定的纵向滚动指示器安全区
 
 移除顶部回弹 Demo 的专用处理后，iPhone XR（iOS 18.7.11）端点回归先在原框架上失败。屏幕高 896 pt，安全区底边为 862 pt，滑块仍到达 893 pt。对同一列表分别设定 0、0.5、1、7 和 34 pt 的底边距，实测滑块下端依次为 893、858.5、858、852 和 825 pt。两个横屏方向的零边距也让滑块进入侧边安全区。框架据此对旧系统开启自动调整的列表，仅在有安全区且业务边距为零的左、右、底边写入一个物理像素。[真机失败与底边对照](Results/20261111-framework-indicator-baseline/xcodebuild.log)、[横竖屏与正文 inset 策略对照](Results/20261111-framework-indicator-axes/xcodebuild.log)。

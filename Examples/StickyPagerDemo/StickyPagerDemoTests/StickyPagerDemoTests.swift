@@ -7,6 +7,74 @@ import StickyPagerKit
 @Suite(.serialized)
 @MainActor
 struct StickyPagerDemoTests {
+    @available(iOS 16, *)
+    @Test(.enabled { await UIDevice.current.userInterfaceIdiom == .phone })
+    func pinnedShortTableIndicatorFollowsRotation() async throws {
+        // 真机测试宿主可在场景激活前开始执行，等应用窗口就绪后再驱动旋转。
+        func activeWindow() -> UIWindow? {
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }?.keyWindow
+        }
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while activeWindow() == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let window = try #require(activeWindow())
+        let scene = try #require(window.windowScene)
+        let navigation = try #require(window.rootViewController as? UINavigationController)
+        let pager = DemoPager()
+        navigation.pushViewController(pager, animated: false)
+        defer {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+            navigation.popViewController(animated: false)
+        }
+        await settle(window)
+        pager.setSelectedIndex(2, animated: false)
+        await settle(window)
+        let page = try #require(pager.children.compactMap { $0 as? DemoList }.first { $0.count == 3 })
+        let table = try #require(page.tableView)
+        #expect(table.numberOfRows(inSection: 0) == 3)
+        for _ in 0 ..< 2 {
+            table.contentOffset.y = table.contentSize.height + table.adjustedContentInset.bottom - table.bounds.height
+            await settle(window)
+        }
+        func currentDirection() -> UIInterfaceOrientation {
+            if #available(iOS 26, *) {
+                return scene.effectiveGeometry.interfaceOrientation
+            }
+            return scene.interfaceOrientation
+        }
+        for direction: UIInterfaceOrientation in [.portrait, .landscapeRight, .landscapeLeft, .portrait] {
+            let mask = UIInterfaceOrientationMask(rawValue: 1 << direction.rawValue)
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { error in
+                Issue.record("场景旋转失败：\(error)")
+            }
+            for _ in 0 ..< 80 {
+                await settle(window)
+                if currentDirection() == direction, navigation.transitionCoordinator == nil {
+                    break
+                }
+            }
+            try #require(currentDirection() == direction)
+            table.flashScrollIndicators()
+            await settle(window)
+            let thumb = try verticalThumbFrame(in: table, window: window)
+            let safe = table.convert(table.safeAreaLayoutGuide.layoutFrame, to: window)
+            let tabs = pager.tabBar.convert(pager.tabBar.bounds, to: window)
+            let nav = navigation.navigationBar.convert(navigation.navigationBar.bounds, to: window)
+            print("短列表方向 \(direction.rawValue)，安全区 \(safe)，滑块 \(thumb)，标签栏 \(tabs)，导航栏 \(nav)")
+            let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).pngData { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            Attachment.record(Array(screenshot), named: "短列表-方向\(direction.rawValue).png")
+            #expect(abs(tabs.minY - nav.maxY) <= 1)
+            #expect(thumb.minX >= safe.minX - 1)
+            #expect(thumb.maxX <= safe.maxX + 1)
+            #expect(thumb.minY >= tabs.maxY - 1)
+            #expect(thumb.maxY <= safe.maxY + 1)
+        }
+    }
+
     @Test func bounceListIndicatorStaysInsideVisibleContent() async throws {
         let pager = BounceDemoPager()
         let navigation = UINavigationController(rootViewController: pager)

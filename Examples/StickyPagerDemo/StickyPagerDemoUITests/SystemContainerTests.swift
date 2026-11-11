@@ -145,7 +145,7 @@ final class SystemContainerTests: XCTestCase {
         // 长／短列表均保留业务默认显隐，框架不按正文范围自动隐藏指示器。
         XCTAssertEqual(try XCTUnwrap(values["showsIndicator"]), 1)
         let indicatorBottom = try XCTUnwrap(values["indicatorBottom"])
-        if #unavailable(iOS 26), safeBottom > 0 {
+        if safeBottom > 0 {
             XCTAssertGreaterThan(indicatorBottom, 0)
             XCTAssertLessThanOrEqual(indicatorBottom, 1, "仅激活系统安全区，不累加整段底边距")
         } else {

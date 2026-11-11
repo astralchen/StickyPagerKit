@@ -2474,6 +2474,28 @@ final class StickyPagerDemoUITests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(after["horizontalHideCount"]), try XCTUnwrap(before["horizontalHideCount"]))
     }
 
+    func testPinnedShortTableAcrossBothLandscapeRotations() {
+        select(2)
+        expect("page=short")
+        let table = app.tables["demo.list"]
+        table.swipeUp()
+        expect("progress=1.00")
+        for orientation: UIDeviceOrientation in [.landscapeLeft, .landscapeRight, .portrait] {
+            rotate(to: orientation)
+            expect("page=short")
+            expect("progress=1.00")
+            XCTAssertTrue(table.staticTexts["内容 1"].isHittable)
+            XCTAssertTrue(table.staticTexts["内容 3"].isHittable)
+            XCTAssertEqual(table.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "吸顶短列表-方向\(orientation.rawValue)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        table.swipeDown()
+        expect("progress=0.00")
+    }
+
     func testScrollIndicatorWithShortEmptyAndLongContent() throws {
         for (index, page) in [(2, "short"), (3, "empty"), (1, "list")] {
             select(index)

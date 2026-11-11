@@ -874,12 +874,7 @@ final class StickyPagerKitTests: XCTestCase {
         let originalLeft = scroll.verticalScrollIndicatorInsets.left
         pager.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 23, bottom: 13, right: 17)
         pager.view.layoutIfNeeded()
-        let pixel: CGFloat
-        if #available(iOS 26, *) {
-            pixel = 0
-        } else {
-            pixel = 1 / scroll.traitCollection.displayScale
-        }
+        let pixel = 1 / scroll.traitCollection.displayScale
         XCTAssertGreaterThan(scroll.safeAreaInsets.left, 0)
         XCTAssertGreaterThan(scroll.safeAreaInsets.bottom, 0)
         XCTAssertGreaterThan(scroll.safeAreaInsets.right, 0)

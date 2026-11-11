@@ -682,7 +682,7 @@ Header 内部由禁用用户滚动的 `UIScrollView` 承载，其 `contentOffset
 
 纵向滚动指示器避让标签栏覆盖区域，不重复添加 Header 避让距离。自动发现和显式绑定共用同一套规则。
 
-- 开启 `automaticallyAdjustsScrollIndicatorInsets`（默认）时，由 UIKit 避让安全区。iOS 15～18 上，若列表的左、右或底边有安全区，且对应的业务指示器边距为 0，绑定会在该方向预留一个物理像素，让 UIKit 计入安全区。已有的非零边距沿用业务值。iOS 26 及以上沿用系统原生轨道。
+- 开启 `automaticallyAdjustsScrollIndicatorInsets`（默认）时，由 UIKit 避让安全区。若列表的左、右或底边有安全区，且对应的业务指示器边距为 0，框架会在该边预留一个物理像素，让 UIKit 将安全区计入轨道。屏幕旋转或系统栏变化后按列表当前的安全区重新计算。已有的非零边距沿用业务值。
 - 关闭自动调整时，绑定只补足顶部的标签栏遮挡，侧边和底边距由业务控制。
 
 `verticalScrollIndicatorInsets` 按方向记录业务基准。修改 bottom／left／right 不会重复计入其他方向的框架贡献，同方向读改写的限制与 `contentInset` 相同。解绑恢复最新业务边距。绑定保留业务的自动调整开关和横向指示器 inset。隐藏的纵向指示器在恢复显示时重新计算边距。
