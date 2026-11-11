@@ -1,6 +1,15 @@
 import UIKit
 import StickyPagerKit
 
+private extension SPTopBounceBehavior {
+    var menuTitle: String {
+        switch self {
+        case .container: "容器回弹"
+        case .page: "页面回弹"
+        }
+    }
+}
+
 /// 顶部回弹演示；显示帧指标仅用于真实触摸回归，不驱动被测交互。
 @MainActor
 final class BounceDemoPager: SPPageViewController, SPPageViewControllerDataSource {
@@ -33,13 +42,7 @@ final class BounceDemoPager: SPPageViewController, SPPageViewControllerDataSourc
         metrics.numberOfLines = 2
         metrics.textAlignment = .center
         navigationItem.titleView = metrics
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "切换模式", primaryAction: UIAction { [weak self] _ in
-            guard let self else {
-                return
-            }
-            self.topBounceBehavior = self.topBounceBehavior == .container ? .page : .container
-            self.peakContainer = 0; self.peakList = 0; self.maximumMismatch = 0; self.frames = 0
-        })
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: topBounceBehavior.menuTitle, menu: makeModeMenu())
         navigationItem.rightBarButtonItem?.accessibilityIdentifier = "bounce.mode"
         reloadData()
         frameTarget.owner = self
@@ -49,6 +52,30 @@ final class BounceDemoPager: SPPageViewController, SPPageViewControllerDataSourc
     }
 
     isolated deinit { link?.invalidate() }
+
+    private func makeModeMenu() -> UIMenu {
+        let modes: [SPTopBounceBehavior] = [.container, .page]
+        let choices = UIDeferredMenuElement.uncached { [weak self] completion in
+            guard let self else {
+                completion([])
+                return
+            }
+            completion(modes.map { mode in
+                UIAction(title: mode.menuTitle, state: self.topBounceBehavior == mode ? .on : .off) { [weak self] _ in
+                    guard let self, self.topBounceBehavior != mode else {
+                        return
+                    }
+                    self.topBounceBehavior = mode
+                    self.navigationItem.rightBarButtonItem?.title = mode.menuTitle
+                    self.peakContainer = 0
+                    self.peakList = 0
+                    self.maximumMismatch = 0
+                    self.frames = 0
+                }
+            })
+        }
+        return UIMenu(title: "默认回弹模式", options: .singleSelection, children: [choices])
+    }
 
     func numberOfPages(in pageViewController: SPPageViewController) -> Int {
         names.count
@@ -183,7 +210,7 @@ private final class BounceDemoPage: UIViewController {
             label.text = "第 \(row + 1) 行 · 下拉观察回弹归属"
             let rowStack = UIStackView(arrangedSubviews: [label])
             rowStack.isLayoutMarginsRelativeArrangement = true
-            rowStack.directionalLayoutMargins = .zero
+            rowStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
             rowStack.backgroundColor = row.isMultiple(of: 2) ? .tertiarySystemBackground : .systemBackground
             rowStack.heightAnchor.constraint(equalToConstant: 52).isActive = true
             stack.addArrangedSubview(rowStack)

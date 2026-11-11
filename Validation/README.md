@@ -6,6 +6,16 @@
 
 阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
 
+## 2026-11-11：顶部回弹 Demo 行文字左右留白
+
+iPhone 18 Pro Max（iOS 27.2）旋转 UI 测试通过。第 5 行文字视图在竖屏的水平范围为 16～424 pt，在两个横屏方向均为 78～878 pt，三个方向距左右安全区边界各 16 pt。[坐标日志](Results/20261111-bounce-row-padding/xcodebuild.log)
+
+## 2026-11-11：顶部回弹 Demo 模式菜单
+
+导航栏按钮改用当前容器默认模式作标题后，在 iPhone 18 Pro Max／iOS 27.2 上复验通过。用例核对初始按钮标题为“容器回弹”，选择“页面回弹”后立即核对按钮标题，重新打开菜单检查勾选，并真实下拉验证列表回弹。[按钮标题复验](Results/20261111-bounce-mode-title-official/summary.json)。
+
+iPhone 18 Pro Max／iOS 27.2 模拟器上，菜单切换与页面独立覆盖两项 UI 用例均通过。首次展开菜单时仅“容器回弹”被勾选，选择“页面回弹”并重新打开后仅该项被勾选，再次点按已选项后下拉长列表，实测由列表呈现回弹。“页面刷新”页在容器默认回弹时也使用自己的页面策略。[测试结果](Results/20261111-bounce-mode-menu/summary.json)、[选中状态截图](Results/20261111-bounce-mode-menu/attachments/859BAA85-67B5-42D4-86F9-0D1A61AF4D0E.png)。
+
 ## 2026-11-11：顶部回弹 Demo 横屏行文字安全区域
 
 原 Demo 直接用全宽 UILabel 同时绘制行背景和文字。改为每行用 UIStackView 承载背景，开启 `isLayoutMarginsRelativeArrangement`，按系统安全区布局行文字。iPhone 18 Pro Max／iOS 27.2 模拟器上，上滑长列表并旋转，在两个实际横屏方向中窗口均宽 956 pt，第 5 行文字视图的横坐标范围均为 62～894 pt，与窗口安全区一致。回到竖屏后范围恢复为 0～440 pt。

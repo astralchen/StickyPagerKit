@@ -48,7 +48,27 @@ final class TopBounceGestureTests: XCTestCase {
             tab.tap()
         }
         if toggleDefault {
-            app.buttons["bounce.mode"].tap()
+            let modeButton = app.buttons["bounce.mode"]
+            func menuOption(_ title: String) -> XCUIElement {
+                app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", title, "bounce.mode"))
+                    .firstMatch
+            }
+            let containerMode = menuOption("容器回弹")
+            let pageMode = menuOption("页面回弹")
+            XCTAssertEqual(modeButton.label, "容器回弹")
+            modeButton.tap()
+            XCTAssertTrue(containerMode.isSelected)
+            XCTAssertFalse(pageMode.isSelected)
+            pageMode.tap()
+            XCTAssertEqual(modeButton.label, "页面回弹")
+            modeButton.tap()
+            XCTAssertFalse(containerMode.isSelected)
+            XCTAssertTrue(pageMode.isSelected)
+            let menu = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            menu.name = "默认回弹模式-页面回弹已选"
+            menu.lifetime = .keepAlways
+            add(menu)
+            pageMode.tap()
         }
         let surface = area == "header" ? app.staticTexts["bounce.header"] : area == "tab" ? tab : page == 4 ? app
             .staticTexts["bounce.fixed"] : app.scrollViews["bounce.scroll"]
@@ -172,8 +192,8 @@ final class TopBounceGestureTests: XCTestCase {
             attachment.name = "列表文字-方向\(interface.rawValue)"
             attachment.lifetime = .keepAlways
             add(attachment)
-            XCTAssertGreaterThanOrEqual(frame.minX, left - 1)
-            XCTAssertLessThanOrEqual(frame.maxX, right + 1)
+            XCTAssertEqual(frame.minX - left, 16, accuracy: 1)
+            XCTAssertEqual(right - frame.maxX, 16, accuracy: 1)
             XCTAssertEqual(scroll.frame.width, window.width, accuracy: 1)
         }
     }
