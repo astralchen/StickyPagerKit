@@ -7,6 +7,94 @@ import StickyPagerKit
 @Suite(.serialized)
 @MainActor
 struct StickyPagerDemoTests {
+    @Test func bounceListIndicatorStaysInsideVisibleContent() async throws {
+        let pager = BounceDemoPager()
+        let navigation = UINavigationController(rootViewController: pager)
+        try await withWindow(root: navigation) { window in
+            let page = try #require(pager.children.first)
+            let scroll = try #require(page.view.subviews.compactMap { $0 as? UIScrollView }.first)
+            for atBottom in [false, true] {
+                if atBottom {
+                    // 先折叠 Header，再按吸顶后的视口高度滚到底。
+                    scroll.contentOffset.y = scroll.contentSize.height / 2
+                    await settle(window)
+                    scroll.contentOffset.y = scroll.contentSize.height + scroll.adjustedContentInset.bottom
+                        - scroll.bounds.height
+                }
+                scroll.flashScrollIndicators()
+                await settle(window)
+                // 读取列表中实际显示的纵向滑块，避免把 inset 的配置值当作 UIKit 的绘制位置。
+                let frame = try verticalThumbFrame(in: scroll, window: window)
+                let top = pager.tabBar.convert(pager.tabBar.bounds, to: window).maxY
+                let bottom = window.safeAreaLayoutGuide.layoutFrame.maxY
+                print("滚动指示器：到底 \(atBottom)，滑块 \(frame)，可见范围 \(top)...\(bottom)")
+                if atBottom {
+                    if #available(iOS 26, *) {
+                        // 新系统按设备圆角布局轨道，用同一窗口中原生滚动视图的底端作参照。
+                        let reference = UIScrollView(frame: scroll.convert(scroll.bounds, to: window))
+                        window.addSubview(reference)
+                        defer { reference.removeFromSuperview() }
+                        reference.contentSize = scroll.contentSize
+                        await settle(window)
+                        reference.contentOffset.y = reference.contentSize.height + reference.adjustedContentInset.bottom
+                            - reference.bounds.height
+                        reference.flashScrollIndicators()
+                        await settle(window)
+                        let native = try verticalThumbFrame(in: reference, window: window)
+                        print("原生滑块 \(native)，滚动视口 \(reference.frame)")
+                        #expect(abs(frame.maxY - native.maxY) <= 1)
+                    } else {
+                        #expect(abs(frame.maxY - bottom) <= 5)
+                    }
+                } else {
+                    #expect(abs(frame.minY - top) <= 5)
+                }
+            }
+        }
+    }
+
+    @Test func explicitlyBoundListHonorsBusinessIndicatorInsets() async throws {
+        let integration = MinimalIntegration()
+        try await withWindow(root: integration) { window in
+            let pager = try pager(in: integration)
+            let scroll = try #require(pager.children.first?.view as? UIScrollView)
+            pager.setScrollViewBinding(.unbound, forPageAt: 0)
+            let base = UIEdgeInsets(top: 0, left: 0, bottom: 11, right: 0)
+            scroll.verticalScrollIndicatorInsets = base
+            let horizontal = scroll.horizontalScrollIndicatorInsets
+            pager.setScrollView(scroll, forPageAt: 0)
+            scroll.contentOffset.y = scroll.contentSize.height / 2
+            await settle(window)
+            scroll.contentOffset.y = scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset
+                .bottom
+            scroll.flashScrollIndicators()
+            await settle(window)
+            let custom = try verticalThumbFrame(in: scroll, window: window)
+            scroll.verticalScrollIndicatorInsets.bottom = 0
+            scroll.flashScrollIndicators()
+            await settle(window)
+            let automatic = try verticalThumbFrame(in: scroll, window: window)
+            print("显式绑定：业务 11 pt 时滑块底端 \(custom.maxY)，业务归零后 \(automatic.maxY)")
+            if #unavailable(iOS 26) {
+                #expect(abs(automatic.maxY - window.safeAreaLayoutGuide.layoutFrame.maxY) <= 5)
+                #expect(abs(automatic.maxY - custom.maxY - base.bottom) <= 1)
+            }
+            #expect(scroll.automaticallyAdjustsScrollIndicatorInsets)
+            scroll.verticalScrollIndicatorInsets.left = 7
+            pager.setScrollViewBinding(.unbound, forPageAt: 0)
+            #expect(scroll.verticalScrollIndicatorInsets == UIEdgeInsets(top: 0, left: 7, bottom: 0, right: 0))
+            #expect(scroll.horizontalScrollIndicatorInsets == horizontal)
+        }
+    }
+
+    private func verticalThumbFrame(in scroll: UIScrollView, window: UIWindow) throws -> CGRect {
+        let thumb = try #require(scroll.subviews.first {
+            $0.alpha > 0 && !$0.isHidden && $0.bounds.width > 0
+                && $0.bounds.width < 10 && $0.bounds.height > $0.bounds.width
+        })
+        return thumb.convert(thumb.bounds, to: window)
+    }
+
     @Test func firstListSelectionKeepsCellsAlignedDuringAnimation() async throws {
         let pager = DemoPager()
         let navigation = UINavigationController(rootViewController: pager)

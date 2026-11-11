@@ -867,6 +867,43 @@ final class StickyPagerKitTests: XCTestCase {
         }
     }
 
+    func testAutomaticIndicatorInsetsFollowListSafeAreaAndRestoreBusinessValues() throws {
+        let pager = mount(inNavigation: true, rootScroll: true)
+        let scroll = try XCTUnwrap(pager.currentScrollView)
+        let horizontal = scroll.horizontalScrollIndicatorInsets
+        let originalLeft = scroll.verticalScrollIndicatorInsets.left
+        pager.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 23, bottom: 13, right: 17)
+        pager.view.layoutIfNeeded()
+        let pixel: CGFloat
+        if #available(iOS 26, *) {
+            pixel = 0
+        } else {
+            pixel = 1 / scroll.traitCollection.displayScale
+        }
+        XCTAssertGreaterThan(scroll.safeAreaInsets.left, 0)
+        XCTAssertGreaterThan(scroll.safeAreaInsets.bottom, 0)
+        XCTAssertGreaterThan(scroll.safeAreaInsets.right, 0)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.left, pixel)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, pixel)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.right, pixel)
+        XCTAssertTrue(scroll.automaticallyAdjustsScrollIndicatorInsets)
+
+        scroll.verticalScrollIndicatorInsets.right = 9
+        scroll.automaticallyAdjustsScrollIndicatorInsets = false
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.left, 0)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, 0)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.right, 9)
+        scroll.automaticallyAdjustsScrollIndicatorInsets = true
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, pixel)
+        pager.additionalSafeAreaInsets = .zero
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.left, originalLeft)
+        pager.setScrollViewBinding(.unbound, forPageAt: 0)
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets, UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 9))
+        XCTAssertTrue(scroll.automaticallyAdjustsScrollIndicatorInsets)
+        XCTAssertEqual(scroll.horizontalScrollIndicatorInsets, horizontal)
+    }
+
     func testManualIndicatorInsetsAvoidTabBarAndRestoreLatestBusinessValues() throws {
         let pager = mount()
         let scroll = try XCTUnwrap(pager.currentScrollView)

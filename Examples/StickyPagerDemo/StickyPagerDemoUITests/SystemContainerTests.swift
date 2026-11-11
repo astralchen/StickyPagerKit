@@ -144,12 +144,13 @@ final class SystemContainerTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(values["automaticIndicators"]), 1)
         // 长／短列表均保留业务默认显隐，框架不按正文范围自动隐藏指示器。
         XCTAssertEqual(try XCTUnwrap(values["showsIndicator"]), 1)
-        XCTAssertEqual(
-            try XCTUnwrap(values["indicatorBottom"]),
-            0,
-            accuracy: 1,
-            "保留 UIKit 自动处理底部指示器避让，不再手动叠加安全区域"
-        )
+        let indicatorBottom = try XCTUnwrap(values["indicatorBottom"])
+        if #unavailable(iOS 26), safeBottom > 0 {
+            XCTAssertGreaterThan(indicatorBottom, 0)
+            XCTAssertLessThanOrEqual(indicatorBottom, 1, "仅激活系统安全区，不累加整段底边距")
+        } else {
+            XCTAssertEqual(indicatorBottom, 0)
+        }
         if pinned {
             expect("progress=1.00")
             XCTAssertEqual(tabs.frame.minY, app.navigationBars.firstMatch.frame.maxY, accuracy: 1)

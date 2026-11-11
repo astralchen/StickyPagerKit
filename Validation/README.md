@@ -6,6 +6,22 @@
 
 阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
 
+## 2026-11-11：框架绑定的纵向滚动指示器安全区
+
+移除顶部回弹 Demo 的专用处理后，iPhone XR（iOS 18.7.11）端点回归先在原框架上失败。屏幕高 896 pt，安全区底边为 862 pt，滑块仍到达 893 pt。对同一列表分别设定 0、0.5、1、7 和 34 pt 的底边距，实测滑块下端依次为 893、858.5、858、852 和 825 pt。两个横屏方向的零边距也让滑块进入侧边安全区。框架据此对旧系统开启自动调整的列表，仅在有安全区且业务边距为零的左、右、底边写入一个物理像素。[真机失败与底边对照](Results/20261111-framework-indicator-baseline/xcodebuild.log)、[横竖屏与正文 inset 策略对照](Results/20261111-framework-indicator-axes/xcodebuild.log)。
+
+框架版通过 XR 真机的四项聚焦测试。自动发现的“整体长列表”在顶部和底部的滑块端点分别为 307 pt 和 858.5 pt。最小接入示例的显式绑定列表，业务设 11 pt 时滑块止于 848 pt，重新设零后为 858.5 pt，解绑恢复最新业务值。另两项 UI 测试真实上滑至标签栏吸顶，并在带 83 pt 底部系统标签栏的表格滑到第 80 行。运行指纹中仅独立库测试夹具的参数顺序在运行中修正，Demo 测试及框架源码一致。[XR 四项摘要](Results/20261111-framework-indicator-xr/summary.json)、[端点与手势日志](Results/20261111-framework-indicator-xr/xcodebuild.log)。
+
+XR 的 RTL 用例另行通过，覆盖真实横向分页、系统标签切换、两个横屏方向以及返回竖屏。iOS 27.2 模拟器两项接入测试通过，同一窗口的原生滑块和绑定列表滑块都止于 891 pt。以上两次运行后仅修改了独立库测试夹具，让侧边距断言取设备原值，框架与 Demo 源码相同。此次运行限于聚焦用例，iOS 15～17 未实测。[XR 旋转结果](Results/20261111-framework-indicator-xr-rtl/summary.json)、[新系统原生轨道对照](Results/20261111-framework-indicator-native/xcodebuild.log)。
+
+iOS 27.2 模拟器的八项库测试覆盖自动和手动边距、安全区变化、临时隐藏、解绑及业务回调重入。首次库测试构建因新增测试夹具的参数顺序错误未执行，修正后八项全部通过。[首轮构建日志](Results/20261111-framework-indicator-library/xcodebuild.log)、[首次通过](Results/20261111-framework-indicator-library-final/summary.json)、[最终源码八项复验](Results/20261111-framework-indicator-library-verified/summary.json)。
+
+## 2026-11-11：顶部回弹 Demo 的纵向滚动指示器
+
+iPhone XR（iOS 18.7.11）竖屏，进入“整体长列表”并滚到底。屏幕高 896 pt，安全区底边为 862 pt。修复前，最后一行已停在安全区底边，实际滑块却延伸到 893 pt。这一版旧系统的 Demo 列表按自身安全区域设置指示器侧边和底部，顶部沿用框架的标签栏遮挡计算。真机复测时滑块底端为 859 pt，回到列表顶部时滑块起点为 307 pt，距标签栏底边 304 pt 同样保留 3 pt。滑块端点、真实上滑吸顶和下拉回弹三项通过。[XR 测试摘要](Results/20261111-xr-bounce-indicator-final/summary.json)、[坐标与触摸日志](Results/20261111-xr-bounce-indicator-final/xcodebuild.log)。
+
+iPhone 18 Pro Max（iOS 27.2）保留原生自动调整。首次手动调整及恢复自动调整后，两轮横竖屏手势用例均通过，底端断言均失败。两次滑块都止于 891 pt，原断言要求与安全区底边 922 pt 相差不超过 5 pt。随后在同一窗口、同一视口用独立的标准 `UIScrollView` 滚到底作为对照，其滑块也止于 891 pt。新版回归直接比较两个滑块端点，测试通过。[首次结果](Results/20261111-bounce-indicator-ios27/summary.json)、[自动调整结果](Results/20261111-bounce-indicator-ios27-final/summary.json)、[原生对照日志](Results/20261111-bounce-indicator-native/xcodebuild.log)。同一份最终测试源码在 XR 上也通过了端点断言。[XR 端点复验](Results/20261111-xr-bounce-indicator-native/summary.json)。
+
 ## 2026-11-11：顶部回弹 Demo 行文字左右留白
 
 iPhone 18 Pro Max（iOS 27.2）旋转 UI 测试通过。第 5 行文字视图在竖屏的水平范围为 16～424 pt，在两个横屏方向均为 78～878 pt，三个方向距左右安全区边界各 16 pt。[坐标日志](Results/20261111-bounce-row-padding/xcodebuild.log)

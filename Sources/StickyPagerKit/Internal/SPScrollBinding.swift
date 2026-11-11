@@ -734,6 +734,21 @@ internal final class SPScrollBinding {
             let automaticTop = scrollView.automaticallyAdjustsScrollIndicatorInsets ? scrollView.safeAreaInsets.top : 0
             inset.top += max(0, overlappingTop - automaticTop)
             inset.top += max(0, range - SPScrollGeometry.collapse(position, range: range) - pageDisplacement)
+            if #unavailable(iOS 26), scrollView.automaticallyAdjustsScrollIndicatorInsets {
+                // 旧版 UIKit 的嵌套列表在零边距时可能把滑块画到屏幕边缘。
+                // 显式预留一个物理像素即可让 UIKit 计入安全区；再加整段安全区会重复避让。
+                let safe = scrollView.safeAreaInsets
+                let pixel = 1 / max(1, scrollView.traitCollection.displayScale)
+                if inset.left == 0, safe.left > 0 {
+                    inset.left = pixel
+                }
+                if inset.bottom == 0, safe.bottom > 0 {
+                    inset.bottom = pixel
+                }
+                if inset.right == 0, safe.right > 0 {
+                    inset.right = pixel
+                }
+            }
             if scrollView.verticalScrollIndicatorInsets != inset {
                 writeInset(inset, kind: .indicator)
             }
