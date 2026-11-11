@@ -432,7 +432,7 @@ final class StickyPagerKitTests: XCTestCase {
             pager.setScrollView(scroll, forPageAt: 0)
             pager.view.layoutIfNeeded()
             // 分页与 Header 宿主均退出系统回顶部，业务配置和 delegate 保持所有权。
-            let hosts = pager.view.subviews.compactMap { $0 as? UIScrollView }
+            let hosts = pager.bounceContentView.subviews.compactMap { $0 as? UIScrollView }
             XCTAssertEqual(hosts.count, 2)
             XCTAssertTrue(hosts.allSatisfy { !$0.scrollsToTop })
             pager.setSelectedIndex(1, animated: false)
@@ -2657,6 +2657,7 @@ final class StickyPagerKitTests: XCTestCase {
             for height: CGFloat in [0, 100, 1800] {
                 for direction: UISemanticContentAttribute in [.forceLeftToRight, .forceRightToLeft] {
                     let pager = mount(plain: plain ? [0] : [], height: height)
+                    pager.topBounceBehavior = .page
                     pager.view.semanticContentAttribute = direction
                     pager.view.layoutIfNeeded()
                     let binding = pager.records[0]!.binding
@@ -3018,6 +3019,7 @@ final class StickyPagerKitTests: XCTestCase {
 
     func testPlainPageDragGeometryAndSharedPosition() throws {
         let pager = mount(plain: [1])
+        pager.topBounceBehavior = .page
         pager.setSelectedIndex(1, animated: false)
         let plain = try XCTUnwrap(pager.records[1]?.controller.view)
         let pan = FixturePan()
@@ -3117,6 +3119,8 @@ final class StickyPagerKitTests: XCTestCase {
         pan.send(to: pager, state: .cancelled)
         pager.headerView = nil
         XCTAssertEqual(pager.collapseOffset, 0)
+        XCTAssertTrue(pager.gestureRecognizerShouldBegin(pan))
+        pager.topBounceBehavior = .page
         XCTAssertFalse(pager.gestureRecognizerShouldBegin(pan))
         source?.ids = []
         pager.reloadData()

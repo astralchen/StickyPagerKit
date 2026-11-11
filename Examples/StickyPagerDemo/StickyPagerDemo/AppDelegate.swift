@@ -42,13 +42,19 @@ final class DemoLauncher: UIViewController {
         systemButton.addAction(UIAction { [weak self] _ in
             self?.present(DemoSystemContainer(), animated: true)
         }, for: .touchUpInside)
-        let stack = UIStackView(arrangedSubviews: [button, systemButton])
+        let bounceButton = UIButton(type: .system)
+        bounceButton.setTitle("顶部回弹演示", for: .normal)
+        bounceButton.accessibilityIdentifier = "demo.openBounce"
+        bounceButton.addAction(UIAction { [weak self] _ in
+            self?.navigationController?.pushViewController(BounceDemoPager(), animated: true)
+        }, for: .touchUpInside)
+        let stack = UIStackView(arrangedSubviews: [button, systemButton, bounceButton])
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = 24
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
-        for entry in [button, systemButton] {
+        for entry in [button, systemButton, bounceButton] {
             entry.titleLabel?.adjustsFontForContentSizeCategory = true
             entry.titleLabel?.numberOfLines = 0
             entry.titleLabel?.textAlignment = .center
@@ -440,6 +446,17 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         tabBarItemAt index: Int
     ) -> SPTabBarItem {
         SPTabBarItem(title: names[pageIDs[index]] ?? "新增")
+    }
+
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        topBounceBehaviorForPageAt index: Int
+    ) -> SPTopBounceBehavior? {
+        switch pageIDs[index] {
+        case "grid", "compositional", "plain", "async": nil
+        case "list" where ProcessInfo.processInfo.arguments.contains("--mixed-page"): nil
+        default: .page // 使用 DemoList 的页面通过 UIRefreshControl 下拉刷新。
+        }
     }
 
     func pageViewController(

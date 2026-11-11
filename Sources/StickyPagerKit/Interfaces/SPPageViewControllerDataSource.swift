@@ -3,6 +3,11 @@ import UIKit
 /// 同步提供页面快照。每个页面必须具有唯一且稳定的标识。
 @MainActor
 public protocol SPPageViewControllerDataSource: AnyObject {
+    /// 返回页面的顶部回弹策略；nil 继承容器默认值。有效快照重载时查询，不加载页面。
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        topBounceBehaviorForPageAt index: Int
+    ) -> SPTopBounceBehavior?
     func numberOfPages(in pageViewController: SPPageViewController) -> Int
     func pageViewController(_ pageViewController: SPPageViewController, identifierForPageAt index: Int) -> AnyHashable
     /// 返回内容页。根视图顶部始终与标签栏顶部对齐，铺满容器宽度并延伸至底边。
@@ -21,6 +26,13 @@ public protocol SPPageViewControllerDataSource: AnyObject {
 }
 
 public extension SPPageViewControllerDataSource {
+    func pageViewController(
+        _ pageViewController: SPPageViewController,
+        topBounceBehaviorForPageAt index: Int
+    ) -> SPTopBounceBehavior? {
+        nil
+    }
+
     func pageViewController(
         _ pageViewController: SPPageViewController,
         scrollViewBindingFor viewController: UIViewController,

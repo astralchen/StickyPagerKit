@@ -5,6 +5,7 @@ import UIKit
 internal struct SPPageSnapshot {
     let identifiers: [AnyHashable]
     let items: [SPTabBarItem]
+    var topBounceBehaviors: [AnyHashable: SPTopBounceBehavior] = [:]
     private let indices: [AnyHashable: Int]
 
     static let empty = SPPageSnapshot(identifiers: [], items: [])!
@@ -38,12 +39,25 @@ internal final class SPPageStore {
     private(set) var records: [AnyHashable: SPPageRecord] = [:]
     private var positions: [AnyHashable: CGFloat] = [:]
     private var bindingSelections: [AnyHashable: SPScrollViewBindingSelection] = [:]
+    private var topBounceOverrides: [AnyHashable: SPTopBounceBehavior] = [:]
     private var accessCounter: UInt = 0
 
     func apply(_ snapshot: SPPageSnapshot) {
         positions = positions.filter { snapshot.index(of: $0.key) != nil }
         bindingSelections = bindingSelections.filter { snapshot.index(of: $0.key) != nil }
+        topBounceOverrides = topBounceOverrides.filter { snapshot.index(of: $0.key) != nil }
         self.snapshot = snapshot
+    }
+
+    func topBounceBehavior(for identifier: AnyHashable) -> SPTopBounceBehavior? {
+        topBounceOverrides[identifier] ?? snapshot.topBounceBehaviors[identifier]
+    }
+
+    func setTopBounceBehavior(_ behavior: SPTopBounceBehavior?, for identifier: AnyHashable) {
+        guard snapshot.index(of: identifier) != nil else {
+            return
+        }
+        topBounceOverrides[identifier] = behavior
     }
 
     func advanceAccess() {

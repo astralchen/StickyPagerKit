@@ -118,7 +118,8 @@ internal final class SPVerticalScrollCoordinator {
                 self.align(record)
                 return
             }
-            self.stopAnimation()
+            self.stopAnimation(preservingTopBounce: true)
+            self.host?.topBounce.coordinate(binding)
             self.consume(binding, for: record)
         }
         record.binding?.indicatorsHiddenForPaging = host.selection.isPaging && host
@@ -147,7 +148,7 @@ internal final class SPVerticalScrollCoordinator {
         binding.setPosition(min(binding.maximumPosition, position))
     }
 
-    private func consume(_ binding: SPScrollBinding, for record: SPPageRecord) {
+    func consume(_ binding: SPScrollBinding, for record: SPPageRecord) {
         guard let host else {
             return
         }
@@ -179,7 +180,8 @@ internal final class SPVerticalScrollCoordinator {
             (record.binding != nil || record.scrollViewSelection.mode != .automatic) {
             return false
         }
-        if record.binding == nil && host.pageLayout.effectiveLayout.collapseRange <= 0 {
+        if record.binding == nil && host.pageLayout.effectiveLayout.collapseRange <= 0,
+           host.effectiveTopBounceBehavior != .container {
             return false
         }
         let v = pan.velocity(in: host.view)
@@ -238,7 +240,7 @@ internal final class SPVerticalScrollCoordinator {
         }
         switch pan.state {
         case .began:
-            stopAnimation()
+            stopAnimation(preservingTopBounce: true)
             dragRecord = record; dragBinding = binding; dragPan = pan
             // 先登记交互，让停止原生减速时的同步业务回调也能取消本次拖动。
             binding?.stopDeceleration()
@@ -246,13 +248,17 @@ internal final class SPVerticalScrollCoordinator {
                 return
             }
             dragStart = binding?.position ?? collapseOffset
+            host.topBounce.beginHeader(pan, position: dragStart)
+            dragStart -= host.topBounce.rawDistance
         case .changed:
             let translation = pan.translation(in: host.view).y
             let raw = dragStart - translation
             let maximum = binding?.maximumPosition ?? host.pageLayout.effectiveLayout.collapseRange
             let bound = min(max(0, raw), maximum)
             // 丢弃越界距离并同步手势基准，反向拖动立即生效，不积累边界外的空行程。
-            dragStart = bound + translation
+            if !host.topBounce.updateHeader(raw: raw) {
+                dragStart = bound + translation
+            }
             if let binding {
                 // 框架拖动仅协调合法范围，列表原生回弹由业务配置和 UIKit 管理。
                 let generation = interactionGeneration
@@ -270,11 +276,15 @@ internal final class SPVerticalScrollCoordinator {
         case .ended:
             dragRecord = nil; dragBinding = nil; dragPan = nil
             animationVelocity = -pan.velocity(in: host.view).y
-            startAnimation()
+            if !host.topBounce.endHeader(velocity: -animationVelocity) {
+                startAnimation()
+            }
         case .cancelled, .failed:
             dragRecord = nil; dragBinding = nil; dragPan = nil
             animationVelocity = 0
-            if binding != nil {
+            if host.topBounce.endHeader(velocity: 0) {
+                return
+            } else if binding != nil {
                 startAnimation()
             } else {
                 stopAnimation()
@@ -290,7 +300,12 @@ internal final class SPVerticalScrollCoordinator {
         link.add(to: .main, forMode: .common)
     }
 
-    func stopAnimation() {
+    func stopAnimation(preservingTopBounce: Bool = false, settlingTopBounce: Bool = false) {
+        if settlingTopBounce {
+            host?.topBounce.settleForPaging()
+        } else if !preservingTopBounce {
+            host?.topBounce.cancel()
+        }
         interactionGeneration &+= 1
         displayLink?.invalidate(); displayLink = nil
         dragRecord = nil; dragBinding = nil; dragPan = nil
@@ -309,6 +324,10 @@ internal final class SPVerticalScrollCoordinator {
             let raw = collapseOffset + animationVelocity * dt
             collapseOffset = SPScrollGeometry.collapse(raw, range: host.pageLayout.effectiveLayout.collapseRange)
             publishHeader()
+            if raw < 0, host.topBounce.absorbHeaderInertia(overshoot: -raw, velocity: -animationVelocity) {
+                stopAnimation(preservingTopBounce: true)
+                return
+            }
             if abs(animationVelocity) < 2 || collapseOffset <= 0 || collapseOffset >= host.pageLayout.effectiveLayout
                 .collapseRange {
                 stopAnimation()
@@ -320,7 +339,8 @@ internal final class SPVerticalScrollCoordinator {
             return
         }
         animationVelocity *= pow(binding.scrollView.decelerationRate.rawValue, dt * 1000)
-        let position = min(max(0, binding.position + animationVelocity * dt), binding.maximumPosition)
+        let raw = binding.position + animationVelocity * dt
+        let position = min(max(0, raw), binding.maximumPosition)
         let generation = interactionGeneration
         binding.setPosition(position)
         guard generation == interactionGeneration, displayLink === link,
@@ -331,7 +351,11 @@ internal final class SPVerticalScrollCoordinator {
         guard generation == interactionGeneration, displayLink === link else {
             return
         }
-        // 到达边界即停止，不为业务列表制造越界位移或弹簧回弹。
+        if raw < 0, host.topBounce.absorbHeaderInertia(overshoot: -raw, velocity: -animationVelocity) {
+            stopAnimation(preservingTopBounce: true)
+            return
+        }
+        // 页面策略保持到边界停止；容器策略的顶部惯性由独立回弹协调器承接。
         if abs(animationVelocity) < 2 || position <= 0 || position >= binding.maximumPosition {
             stopAnimation()
         }

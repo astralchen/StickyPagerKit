@@ -1,10 +1,46 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-11-09。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-11-11。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
 阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
+
+## 2026-11-11：顶部回弹 Demo 吸顶间距
+
+顶部回弹 Demo 使用 `SPPageLayout(headerHeight: 260)`，折叠后使用默认保留高度 0 pt。iPhone 18 Pro Max／iOS 27.2 模拟器上，真实上滑长列表至吸顶后，标签栏顶边和导航栏底边均为 116 pt，间距为 0 pt。吸顶和下拉容器回弹两项 UI 测试均通过。[测试结果](Results/20261111-bounce-demo-pinned-official/summary.json)、[坐标日志](Results/20261111-bounce-demo-pinned-official/xcodebuild.log)。
+
+## 2026-11-11：容器默认承担顶部回弹
+
+`SPPageViewController.topBounceBehavior` 默认值改为 `.container`。回弹 Demo 直接使用框架默认值，带原生刷新的 DemoList 页面通过 DataSource 返回 `.page`。设备为 iPhone 18 Pro Max 模拟器，运行 iOS 27.2。
+
+回弹、覆盖优先级与边界库测试共 14 项。首轮断言 14/14 通过，日志出现 2 条 appearance 转场不平衡诊断，仓库诊断检查失败。串行使用同一份宿主和测试产物复验后，14/14 通过，四类诊断均为 0。首轮警告的原因未确定。[首轮库结果](Results/20261111-default-container-library/summary.json)、[串行库复验](Results/20261111-default-container-library-serial/summary.json)。
+
+Demo 真实触摸首轮 3/4 通过，覆盖未赋值时的容器回弹、单页原生回弹和运行时切换。短列表刷新用例记录到刷新开始、返回页面仍在刷新和刷新结束，但随后的上拖采样为 0 帧，触发断言失败。[首轮 UI 结果](Results/20261111-default-container-ui/summary.json)。
+
+短列表刷新使用相同源码和断言独立复验通过。上拖采集 22 帧，Header 最大反向位移为 0 pt，刷新结束前后正文位置均为 104 pt。两轮结果均保留，首轮缺帧的原因未确定。本次执行范围为聚焦测试。[短列表刷新复验](Results/20261111-default-container-refresh-serial/summary.json)。
+
+## 2026-11-10：顶部下拉回弹策略
+
+基于 `64b05867cfb982a172c954521acaf0a4a3a1db91`，在 `codex/top-bounce-behavior` 开发；本轮未提交或推送。新增容器／页面顶部回弹策略、DataSource 覆盖及按稳定标识保存的运行时覆盖，默认保持 `.page`。容器模式使用独立呈现层，保留正常折叠与页面位置；覆盖手指下拉、松手惯性越顶、回位接续及中断清理。Demo 新增“顶部回弹演示”。
+
+**设备与执行路径：** 按用户要求使用 iPhone 18 Pro Max／iOS 27.2。官方 Xcode MCP 执行 Demo 构建和测试，UI 测试使用 Xcode 创建的同型号隔离测试设备。根 Package 使用 `Scripts/validate.sh` 生成 UIKit application host 后运行；没有把库测试加入 Demo target 或 scheme。部署目标仍为 iOS 15，未改签名配置。[工具链](Results/20261110-top-bounce-library-build-final/toolchain.txt)。
+
+**完整库回归（RTL 最后修复前）：501 项，500 通过、1 失败、0 跳过。** 当时新增 `SPTopBounceTests` 9/9 通过，覆盖页面、视口、缓存、生命周期、绑定、分页和标签栏。最后的方向修复使该次源码指纹与当前存在差异，不能将这次全量结果当作最终源码全量通过。[完整库摘要](Results/20261110-top-bounce-library-final-03/summary.json)。
+
+**最终源码聚焦库验证：13/13 通过。** 回弹组增至 10 项，新增真实 UIWindow 中的 RTL/LTR 运行时切换与回弹期间标签横向几何检查；另补 3 项既有方向回归，覆盖容器 RTL 物理顺序／逻辑索引、标签继承方向与显式覆盖、RTL 首项可见性。两批 `sourceChangedSinceRun` 均为空，四类运行时诊断均为 0，无 runtimeWarnings。[回弹组 10/10](Results/20261110-top-bounce-rtl-library-02/summary.json)、[方向回归 3/3](Results/20261110-top-bounce-direction-regression/summary.json)。
+
+唯一失败是既有 `SPTabBarIconFastPathTests/testEligibleUpdatesAndHighlightFallbackAreSynchronous()` 的图标高亮颜色断言。在临时目录通过 `git archive HEAD` 导出修改前源码，并在同型号、同系统、同测试注入配置下独立构建和运行，复现相同错误值 `0.75 0 0.25 0.75` 与 `0.8 0.2 0.4 1`。未改动相关颜色实现，也未删除或放宽断言。[基线来源](Results/20261110-top-bounce-icon-head-baseline/provenance.json)、[基线运行日志](Results/20261110-top-bounce-icon-head-baseline/xcodebuild.log)。不能把完整库回归报告为全部通过。
+
+**运行配置与保留失败：** 初轮完整库回归发现呈现层未继续传递标签栏高度布局通知，已修复；原来直接枚举根视图子项的宿主测试改为检查呈现层内的实际宿主，保留数量、`scrollsToTop` 和业务 delegate 所有权断言。颜色序列测试明确要求不加载 MainThreadChecker，默认生成的宿主却注入该库；最终执行仅在本地生成的 xctestrun 中移除该注入，保留 XCTest、其他环境变量和全部测试断言，没有改工程诊断配置。[初轮失败](Results/20261110-top-bounce-library-final/xcodebuild.log)、[修复后聚焦](Results/20261110-top-bounce-library-layout-fix/xcodebuild.log)、[最终执行协议](Results/20261110-top-bounce-library-final-03/execution-protocol.json)。
+
+**Demo 扩展回归：41 项，40 通过、1 失败。** 其中 Demo 单元测试 15/15、既有 UI 回归 14/14 通过；新回弹手势 11/12 通过，失败发生在 RTL 固定控件页选择目标标签前。增加物理方向断言后确认：Demo 根视图需要显式设置 RTL，新增呈现层还必须传递容器方向并在方向改变时使标签布局失效。早期 41 项结果不是最终源码的整批重跑。[41 项结果](Results/20261110-top-bounce-demo-final/summary.json)。
+
+**最终源码真实触摸：14/14 通过。** 12 项回弹用例覆盖长／短／空列表、普通页、RTL 固定控件页、Header／标签起拖、正文连续回顶、松手惯性越顶、业务关闭 `bounces`、页面原生回弹及刷新接入、运行时切换默认策略；另补嵌套横向 Section 的 RTL 边界交接，以及系统容器 RTL 分页／旋转／系统标签恢复。RTL 混合页保留物理方向前置断言，再执行真实标签滚动、点击和下拉。`sourceChangedSinceRun` 为空，四类运行时诊断均为 0，无 runtimeWarnings。[最终 UI 摘要](Results/20261110-top-bounce-rtl-ui/summary.json)、[逐项官方结果](Results/20261110-top-bounce-rtl-ui/official-result.json)。
+
+**RTL 失败证据：** 保留最初找不到屏幕外标签、补齐 Demo RTL 后物理排列仍错误，以及仅传递方向而未失效布局的库测试失败；没有移除方向断言或放宽回弹阈值。[前置失败](Results/20261110-top-bounce-ui-fixture-failure/test-summary.txt)、[物理方向失败](Results/20261110-top-bounce-ui-final/summary.json)、[运行时方向失效失败](Results/20261110-top-bounce-rtl-library/summary.json)。
+
+**覆盖边界：** 本轮设备运行证据限于 iPhone 18 Pro Max／iOS 27.2；iPad、iOS 15 运行时、真机和系统减少动态效果开关未执行，不以 SDK 编译或既有历史记录代替。回位中重新起拖、配置变更和解绑等内部状态由库测试覆盖；实际触摸覆盖以最终 UI 用例列表为准。未将测试输出或生成截图强制加入 Git。
 
 ## 2026-11-09：动画环境变化、旁白动态标签与生命周期补验
 

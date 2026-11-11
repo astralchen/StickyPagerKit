@@ -20,6 +20,21 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         }
     }
 
+    /// 默认由容器整体回弹。当前拖动／回位结束后应用新值；页面可覆盖该默认值。
+    public var topBounceBehavior: SPTopBounceBehavior = .container
+
+    /// 设置有效快照中页面的运行时覆盖；nil 清除覆盖。未知标识忽略，不加载页面。
+    public func setTopBounceBehavior(_ behavior: SPTopBounceBehavior?, forPageIdentifier identifier: AnyHashable) {
+        store.setTopBounceBehavior(behavior, for: identifier)
+    }
+
+    internal var effectiveTopBounceBehavior: SPTopBounceBehavior {
+        currentRecord.flatMap { store.topBounceBehavior(for: $0.identifier) } ?? topBounceBehavior
+    }
+
+    internal let bounceContentView = SPBounceContentView()
+    internal lazy var topBounce = SPTopBounceCoordinator(host: self)
+
     public var maximumCachedPageCount = 3 {
         didSet { evictPages() }
     }
@@ -107,7 +122,12 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         pagingView.delegate = self
         pagingView.isScrollEnabled = isPagingEnabled
         pagingView.accessibilityIdentifier = "sp.pages"
-        view.addSubview(pagingView)
+        bounceContentView.frame = view.bounds
+        bounceContentView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        bounceContentView.clipsToBounds = false
+        view.clipsToBounds = true
+        view.addSubview(bounceContentView)
+        bounceContentView.addSubview(pagingView)
         headerHost.clipsToBounds = true
         // Header 的位移仍由共享折叠逻辑驱动；原生滚动宿主为导航栏提供边缘效果。
         headerHost.isScrollEnabled = false
@@ -118,7 +138,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         if #available(iOS 26.0, *) {
             headerHost.topEdgeEffect.style = .soft
         }
-        view.addSubview(headerHost)
+        bounceContentView.addSubview(headerHost)
         setContentScrollView(headerHost, for: .top)
         configureTabBar()
         mountHeader()
@@ -134,6 +154,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
             host.addGestureRecognizer(pan)
         }
         vertical.configureAnimation()
+        topBounce.install()
     }
 
     open override func viewWillAppear(_ animated: Bool) {
@@ -250,7 +271,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
     }
 
     internal func configureTabBar() {
-        view.addSubview(storedTabBar)
+        bounceContentView.addSubview(storedTabBar)
         storedTabBar.selectionRequest = { [weak self] item in
             guard let self, let index = self.items.firstIndex(where: { $0 === item }) else {
                 return

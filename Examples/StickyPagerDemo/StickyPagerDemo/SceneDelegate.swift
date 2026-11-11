@@ -25,7 +25,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = navigation
         self.window = window
         window.makeKeyAndVisible()
-        if ProcessInfo.processInfo.arguments.contains("--open-gallery") {
+        if ProcessInfo.processInfo.arguments.contains("--open-bounce") {
+            navigation.pushViewController(BounceDemoPager(), animated: false)
+        } else if ProcessInfo.processInfo.arguments.contains("--open-gallery") {
             navigation.pushViewController(TabBarGallery(), animated: false)
         } else if ProcessInfo.processInfo.arguments.contains("--open-demo") {
             navigation.pushViewController(DemoPager(), animated: false)

@@ -650,7 +650,7 @@ pager.tabBar.layoutConfiguration.itemSpacing = 8 // 相邻 Item 间距；默认 
 - `Header 折叠量 = clamp(q, 0...C)`。
 - `内容位移 = max(0, q - C)`。
 - 向上先消耗 Header 距离，再滚动内容；向下先回到内容顶部，再展开 Header。
-- 负位移为列表自身回弹，Header 不额外拉伸。
+- 默认 `.container` 策略下，顶部越界让容器整体向下平移。选择 `.page` 时，负位移由列表原生回弹呈现。
 
 所有内容页的根视图顶部始终与当前 `SPTabBar` 顶部对齐，底边固定在容器底边；标签栏显示在页面上方，并优先接收重叠区域内的触摸。令当前 Header 折叠量为 `c`、标签栏实际高度为 `T`，分页视口从 `S + minimumHeaderHeight` 开始，根视图在其中下移 `C - c`，因此根视图顶部为 `headerHeight - c`。这是真实 frame 布局，不使用 transform 或单独移动滚动内容模拟。
 
@@ -694,7 +694,7 @@ pager.scrollIndicatorVisibilityPolicy = .preserve
 
 `.hideDuringPaging` 在横向分页拖动、减速及切页转场期间临时隐藏两个方向的指示器，覆盖缓存页及途中加载、重新绑定的主要滚动视图。完成、取消、解绑或切回 `.preserve` 时恢复最新业务设置；没有分页时不接管显隐。隐藏期间读取显隐属性得到实际值 `false`，业务赋值会更新待恢复配置，包括再次赋值 `false` 及显隐回调中的嵌套赋值，并在本次分页内继续保持隐藏。该策略不改变列表滚动位置、回弹、刷新和指示器 inset 契约，也不影响框架自身的分页滚动视图或标签栏选中指示器。
 
-列表原生拖动保留 UIKit 的减速和回弹。Header / 标签栏纵向拖动由框架 pan 识别器驱动同一坐标，Header 完全折叠后可继续滚动正文；拖动与 display link 惯性均限制在合法滚动范围内，到达边界即停止，不模拟列表越界或弹簧回弹；同一次拖动到达边界后立即反向移动即可响应，不需要先抵消越界距离。Header 内按钮、输入控件和独立手势区域优先处理自身操作。
+显式选择 `.page` 策略时，列表原生拖动保留 UIKit 的减速和回弹。Header / 标签栏纵向拖动由框架 pan 识别器驱动同一坐标，Header 完全折叠后可继续滚动正文；拖动与 display link 惯性均限制在合法滚动范围内，到达边界即停止，不模拟列表越界或弹簧回弹；同一次拖动到达边界后立即反向移动即可响应，不需要先抵消越界距离。Header 内按钮、输入控件和独立手势区域优先处理自身操作。
 
 Header／标签栏开始纵向拖动或横向分页开始时，仅在业务列表 `isDecelerating == true` 时发送停止原生减速的定位请求。同一次分页的开始、候选页建立与候选页变化共用一次交接，不重复停止；每次新的分页拖动仍会取消框架自身的旧拖动和惯性。静止列表与业务程序化滚动动画不额外发送停止请求。后续用户拖动正文、必要布局及切页位置恢复仍可写入坐标，不保证业务动画跨这些位置协调继续运行。
 
@@ -760,11 +760,44 @@ func pageViewController(
 
 明确不绑定或显式对象失效时，框架不为列表创建绑定，不直接叠加滚动 inset、驱动正文或恢复正文位置；退出已有绑定时移除框架贡献并按原解绑坐标契约保留正文位移。页面根视图布局、附加安全区域及横向分页继续生效，因此 UIKit 仍可能因布局变化调整列表几何。Header／标签栏拖动只折叠或展开 Header，正文区域不启用框架的普通页面兜底拖动，业务列表仍可独立滚动。重新绑定时沿用已有页面位置历史；无历史时采用业务当前正文位置。
 
-自动模式下没有发现滚动视图的普通页面继续保留共享 Header 状态，并支持在内容区、Header 和标签栏上下拖动以折叠或展开 Header，不额外包装滚动容器。此时纵向位移仅作用于 Header 折叠范围，松手后惯性运动在边界停止；内容区的按钮、输入控件和独立手势区域优先处理自身操作。异步创建滚动视图并重新发现后，自动恢复由列表驱动的联动。
+自动模式下没有发现滚动视图的普通页面继续保留共享 Header 状态，并支持在内容区、Header 和标签栏上下拖动以折叠或展开 Header，不额外包装滚动容器。默认 `.container` 允许在 Header 完全展开后继续下拉，使容器整体回弹。选择 `.page` 时，普通页面的纵向位移限于 Header 折叠范围，惯性在边界停止。内容区的按钮、输入控件和独立手势区域优先处理自身操作。异步创建滚动视图并重新发现后，自动恢复由列表驱动的联动。
+
+### 顶部下拉回弹
+
+`SPPageViewController.topBounceBehavior` 控制顶部越界由谁呈现，`.container` 是默认策略。`.container` 让 Header、标签栏和页面一起向下平移，Header 高度不变；顶部露出容器背景，导航栏及系统 Tab Bar 不随之移动。正常布局、折叠进度和页面历史不保存临时回弹距离。
+
+```swift
+// 某页运行时改用列表回弹；页面标识必须属于当前有效快照。
+pager.setTopBounceBehavior(.page, forPageIdentifier: "comments")
+
+// 清除运行时覆盖，重新使用 DataSource 配置或容器默认值。
+pager.setTopBounceBehavior(nil, forPageIdentifier: "comments")
+```
+
+DataSource 可按页面覆盖默认策略；默认实现返回 nil：
+
+```swift
+func pageViewController(
+    _ pageViewController: SPPageViewController,
+    topBounceBehaviorForPageAt index: Int
+) -> SPTopBounceBehavior? {
+    pageIDs[index] == "comments" ? .page : nil
+}
+```
+
+优先级为运行时页面覆盖、DataSource 页面配置、容器默认配置。DataSource 配置在有效快照重载时查询，不为查询加载控制器。运行时覆盖按稳定标识保留，重排及缓存重建不丢失；删除标识时清理，未知标识请求忽略。拖动期间修改策略不改变该次手势的归属，回位完成后的新手势使用最新配置。
+
+两种模式都先让正文回顶、Header 完全展开，再进入顶部回弹。`.container` 支持从主要列表、Header／标签栏可拖动区域及自动发现模式下的普通页起拖，短／空内容和无 Header 也可使用。列表的 `bounces = false` 不关闭容器回弹。显式 `.unbound` 或失效的显式绑定不会因此接管业务正文区域；主要列表关闭 `isScrollEnabled` 时继续暂停纵向联动。按钮、输入控件、独立手势、横向分页及系统返回保留交互优先级。
+
+`.page` 将回弹控制权交还业务列表，不强制开启 `bounces` 或 `alwaysBounceVertical`；没有绑定的主要滚动视图时不产生页面回弹。从 Header／标签栏起拖仍在合法滚动范围内停止。两种模式均不改写业务回弹开关或替换业务 delegate；列表底部回弹不由本策略控制。
+
+容器回弹不新增刷新任务或容器级刷新入口，也不承诺通过容器下拉触发页面的 `UIRefreshControl`。需要列表原生下拉刷新的页面选择 `.page`。框架不调用业务刷新控件的 `beginRefreshing()`／`endRefreshing()`；切换策略不会结束已经开始的刷新。
+
+Demo 首页的“顶部回弹演示”展示整体长列表、独立页面刷新、短列表、空列表、普通页及固定控件页面；导航栏“切换模式”调整容器默认策略，“页面刷新”页始终覆盖为 `.page`。
 
 ### 下拉刷新
 
-业务在内容滚动视图上安装 `UIRefreshControl`，监听 `.valueChanged`，管理刷新任务并在完成后调用 `endRefreshing()`。短／空列表若需要原生下拉回弹，由业务自行设置 `alwaysBounceVertical` 等配置；Demo 的列表页显式开启纵向回弹。
+以下约定适用于 `.page` 顶部回弹策略。业务在内容滚动视图上安装 `UIRefreshControl`，监听 `.valueChanged`，管理刷新任务并在完成后调用 `endRefreshing()`。短／空列表若需要原生下拉回弹，由业务自行设置 `alwaysBounceVertical` 等配置；Demo 的列表页显式开启纵向回弹。
 
 先展开 Header，再由列表的原生下拉触发刷新。框架不读取刷新状态，不因刷新而强制展开 Header、重置正文位置或禁止 Header / 标签栏拖动；刷新期间仍按实际滚动位置协调，向上滚动可正常折叠 Header。Header / 标签栏拖动仅在合法范围内协调，不制造下拉越界，也不手动触发刷新。
 

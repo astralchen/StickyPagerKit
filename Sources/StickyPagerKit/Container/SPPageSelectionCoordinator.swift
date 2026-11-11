@@ -125,8 +125,12 @@ internal final class SPPageSelectionCoordinator {
             newIDs.append(source.pageViewController(host, identifierForPageAt: index))
             newItems.append(source.pageViewController(host, tabBarItemAt: index))
         }
-        guard let snapshot = SPPageSnapshot(identifiers: newIDs, items: newItems) else {
+        guard var snapshot = SPPageSnapshot(identifiers: newIDs, items: newItems) else {
             return
+        }
+        for (index, identifier) in newIDs.enumerated() {
+            snapshot.topBounceBehaviors[identifier] = host.dataSource?
+                .pageViewController(host, topBounceBehaviorForPageAt: index)
         }
         // 只有完整且合法的快照才使旧选择失效；拒绝更新不触碰已有转场。
         snapshotGeneration &+= 1
@@ -241,7 +245,7 @@ internal final class SPPageSelectionCoordinator {
             withAppearanceUpdates { host.storedTabBar.completeUserSelection() }
             return
         }
-        host.vertical.stopAnimation()
+        host.vertical.stopAnimation(settlingTopBounce: true)
         host.view.layoutIfNeeded()
         guard generation == selectionGeneration, let index = host.store.snapshot.index(of: id) else {
             return
@@ -472,7 +476,7 @@ internal final class SPPageSelectionCoordinator {
         }
         host.storedTabBar.cancelUserSelection()
         // 每次真实分页输入都取消框架旧交互；只对业务原生减速交接去重。
-        host.vertical.stopAnimation()
+        host.vertical.stopAnimation(settlingTopBounce: true)
         beginPaging()
         host.pagingView.preserveAcceptedPanDisplacement()
     }
@@ -486,7 +490,7 @@ internal final class SPPageSelectionCoordinator {
         }
         // 手势开始、候选页建立及候选页变化共用一次交接。
         isPaging = true
-        host.vertical.stopAnimation()
+        host.vertical.stopAnimation(settlingTopBounce: true)
         host.currentRecord?.binding?.stopDeceleration()
     }
 

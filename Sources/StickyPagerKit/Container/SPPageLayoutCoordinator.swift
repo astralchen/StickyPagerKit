@@ -78,6 +78,12 @@ internal final class SPPageLayoutCoordinator {
         guard let host else {
             return
         }
+        // UIKit 的内容方向不自动传递到整棵子树；呈现层保持原容器的方向。
+        let direction: UISemanticContentAttribute = host.isRTL ? .forceRightToLeft : .forceLeftToRight
+        if host.bounceContentView.semanticContentAttribute != direction {
+            host.bounceContentView.semanticContentAttribute = direction
+            host.storedTabBar.setNeedsLayout()
+        }
         let l = effectiveLayout
         let wasLayingOut = isLayingOutPages
         isLayingOutPages = true
@@ -192,8 +198,8 @@ internal final class SPPageLayoutCoordinator {
             layoutPage(record, at: index, layout: l)
         }
         isLayingOutPages = wasLayingOut
-        host.view.bringSubviewToFront(host.headerHost)
-        host.view.bringSubviewToFront(host.storedTabBar)
+        host.bounceContentView.bringSubviewToFront(host.headerHost)
+        host.bounceContentView.bringSubviewToFront(host.storedTabBar)
     }
 
     func layoutPage(_ record: SPPageRecord, at index: Int, layout: SPPageLayout) {
