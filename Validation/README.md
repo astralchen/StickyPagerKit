@@ -6,6 +6,12 @@
 
 阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
 
+## 2026-11-11：顶部回弹 Demo 横屏行文字安全区域
+
+原 Demo 直接用全宽 UILabel 同时绘制行背景和文字。改为每行用 UIStackView 承载背景，开启 `isLayoutMarginsRelativeArrangement`，按系统安全区布局行文字。iPhone 18 Pro Max／iOS 27.2 模拟器上，上滑长列表并旋转，在两个实际横屏方向中窗口均宽 956 pt，第 5 行文字视图的横坐标范围均为 62～894 pt，与窗口安全区一致。回到竖屏后范围恢复为 0～440 pt。
+
+横屏文字、吸顶和下拉回弹三项 UI 测试通过。首次官方测试因无法结束已有 Demo 进程而在测量前失败，独立测试副本完成验证。随后将截图范围从应用改为整屏，按相同断言复验旋转用例通过，四类运行时诊断均为 0。[启动失败记录](Results/20261111-bounce-row-startup/official-summary.txt)、[三项手势结果](Results/20261111-bounce-row-fixed/summary.json)、[旋转复验](Results/20261111-bounce-row-screen/summary.json)、[完整横屏截图](Results/20261111-bounce-row-screen/attachments/C511966C-2897-4FB1-90E0-643EA4CAAA5E.png)。
+
 ## 2026-11-11：顶部回弹 Demo 吸顶间距
 
 顶部回弹 Demo 使用 `SPPageLayout(headerHeight: 260)`，折叠后使用默认保留高度 0 pt。iPhone 18 Pro Max／iOS 27.2 模拟器上，真实上滑长列表至吸顶后，标签栏顶边和导航栏底边均为 116 pt，间距为 0 pt。吸顶和下拉容器回弹两项 UI 测试均通过。[测试结果](Results/20261111-bounce-demo-pinned-official/summary.json)、[坐标日志](Results/20261111-bounce-demo-pinned-official/xcodebuild.log)。

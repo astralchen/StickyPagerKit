@@ -80,7 +80,7 @@ final class BounceDemoPager: SPPageViewController, SPPageViewControllerDataSourc
     }
 
     fileprivate func sample() {
-        guard let headerView else {
+        guard let headerView, let window = view.window else {
             return
         }
         let delta = headerView.convert(.zero, to: view).y
@@ -93,7 +93,16 @@ final class BounceDemoPager: SPPageViewController, SPPageViewControllerDataSourc
             let tabDelta = tabBar.convert(.zero, to: view).y - layout.headerHeight
             maximumMismatch = max(maximumMismatch, abs(tabDelta - delta), abs(q))
         }
+        let orientation: UIInterfaceOrientation
+        if #available(iOS 26, *) {
+            orientation = window.windowScene?.effectiveGeometry.interfaceOrientation ?? .unknown
+        } else {
+            orientation = window.windowScene?.interfaceOrientation ?? .unknown
+        }
         let values: [String: Double] = [
+            "interfaceOrientation": Double(orientation.rawValue),
+            "safeLeft": Double(window.safeAreaInsets.left),
+            "safeRight": Double(window.safeAreaInsets.right),
             "container": Double(delta),
             "position": Double(q),
             "peakContainer": Double(peakContainer),
@@ -143,8 +152,8 @@ private final class BounceDemoPage: UIViewController {
         view.addSubview(fixed)
         NSLayoutConstraint.activate([
             fixed.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            fixed.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            fixed.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            fixed.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            fixed.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             fixed.heightAnchor.constraint(equalToConstant: 50)
         ])
         guard index != 4 else {
@@ -172,9 +181,12 @@ private final class BounceDemoPage: UIViewController {
         for row in 0 ..< (index == 3 ? 0 : index == 2 ? 3 : 45) {
             let label = UILabel()
             label.text = "第 \(row + 1) 行 · 下拉观察回弹归属"
-            label.backgroundColor = row.isMultiple(of: 2) ? .tertiarySystemBackground : .systemBackground
-            label.heightAnchor.constraint(equalToConstant: 52).isActive = true
-            stack.addArrangedSubview(label)
+            let rowStack = UIStackView(arrangedSubviews: [label])
+            rowStack.isLayoutMarginsRelativeArrangement = true
+            rowStack.directionalLayoutMargins = .zero
+            rowStack.backgroundColor = row.isMultiple(of: 2) ? .tertiarySystemBackground : .systemBackground
+            rowStack.heightAnchor.constraint(equalToConstant: 52).isActive = true
+            stack.addArrangedSubview(rowStack)
         }
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),

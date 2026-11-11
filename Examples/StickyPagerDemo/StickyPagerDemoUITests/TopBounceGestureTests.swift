@@ -123,6 +123,61 @@ final class TopBounceGestureTests: XCTestCase {
         try verify(page: 0, container: true)
     }
 
+    func testRowTextStaysInsideSafeAreaAcrossLandscapeRotations() throws {
+        continueAfterFailure = false
+        UITestOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = ["--open-bounce"]
+        app.launch()
+        defer {
+            UITestOrientation.set(.portrait)
+            app.terminate()
+        }
+        let scroll = app.scrollViews["bounce.scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+        for (device, interface) in [
+            (UIDeviceOrientation.landscapeLeft, UIInterfaceOrientation.landscapeRight),
+            (.landscapeRight, .landscapeLeft),
+            (.portrait, .portrait)
+        ] {
+            UITestOrientation.set(device)
+            let rotated = NSPredicate { _, _ in
+                (try? self.values(app)["interfaceOrientation"]) == Double(interface.rawValue)
+            }
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: rotated, object: nil)], timeout: 8),
+                .completed
+            )
+            if device == .landscapeLeft {
+                let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+                start.press(
+                    forDuration: 0.1,
+                    thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)),
+                    withVelocity: .slow,
+                    thenHoldForDuration: 0.4
+                )
+            }
+            let window = app.windows.firstMatch.frame
+            let metrics = try values(app)
+            let left = window.minX + CGFloat(try XCTUnwrap(metrics["safeLeft"]))
+            let right = window.maxX - CGFloat(try XCTUnwrap(metrics["safeRight"]))
+            if interface.isLandscape {
+                XCTAssertGreaterThan(window.width - (right - left), 0)
+            }
+            let row = scroll.staticTexts["第 5 行 · 下拉观察回弹归属"]
+            XCTAssertTrue(row.isHittable)
+            let frame = row.frame
+            print("文字安全区域：方向 \(interface.rawValue)，可用 \(left)...\(right)，第 5 行 \(frame)")
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "列表文字-方向\(interface.rawValue)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            XCTAssertGreaterThanOrEqual(frame.minX, left - 1)
+            XCTAssertLessThanOrEqual(frame.maxX, right + 1)
+            XCTAssertEqual(scroll.frame.width, window.width, accuracy: 1)
+        }
+    }
+
     func testCollapsedTabBarAlignsWithSafeAreaTop() {
         continueAfterFailure = false
         UITestOrientation.set(.portrait)
