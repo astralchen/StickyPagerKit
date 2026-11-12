@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """为 SwiftPM 生成的测试包配置独立 UIKit 宿主；不修改原始 xctestrun。"""
 import argparse
+import os
 import plistlib
 import shutil
 import subprocess
 from pathlib import Path
 
 
-def prepare(source, host, destination, output):
+def prepare(source, host, destination, output, *, disable_main_thread_checker=False):
     source, host, destination, output = map(Path, (source, host, destination, output))
     source, host, destination, output = (p.resolve() for p in (source, host, destination, output))
     products = source.parent
@@ -42,6 +43,14 @@ def prepare(source, host, destination, output):
     target['IsAppHostedTestBundle'] = True
     target['TestBundlePath'] = f'__TESTHOST__/PlugIns/{bundle.name}'
     target['DependentProductPaths'] = [str(app), str(embedded)]
+    if disable_main_thread_checker:
+        # 颜色序列采样要求无 Checker。只过滤生成宿主的注入列表，保留其余诊断库。
+        for key in ('EnvironmentVariables', 'TestingEnvironmentVariables'):
+            variables = target.get(key, {})
+            if 'DYLD_INSERT_LIBRARIES' in variables:
+                libraries = variables['DYLD_INSERT_LIBRARIES'].split(':')
+                variables['DYLD_INSERT_LIBRARIES'] = ':'.join(
+                    lib for lib in libraries if Path(lib).name != 'libMainThreadChecker.dylib')
     environment = target['TestingEnvironmentVariables']
     injection = '__PLATFORMS__/iPhoneSimulator.platform/Developer/usr/lib/libXCTestBundleInject.dylib'
     existing = environment.get('DYLD_INSERT_LIBRARIES', '').split(':')
@@ -57,4 +66,5 @@ if __name__ == '__main__':
     parser.add_argument('destination')
     parser.add_argument('output')
     args = parser.parse_args()
-    prepare(args.source, args.host, args.destination, args.output)
+    prepare(args.source, args.host, args.destination, args.output,
+            disable_main_thread_checker=os.environ.get('SP_DISABLE_MAIN_THREAD_CHECKER') == '1')

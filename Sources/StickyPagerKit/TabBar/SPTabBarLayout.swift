@@ -14,6 +14,7 @@ final class SPTabBarLayout: UICollectionViewLayout {
     var itemWidths: [CGFloat] = [] {
         didSet {
             if oldValue != itemWidths {
+                preparedSize = nil
                 invalidateLayout()
             }
         }
@@ -22,6 +23,7 @@ final class SPTabBarLayout: UICollectionViewLayout {
     var configuration = SPTabBarLayoutConfiguration() {
         didSet {
             if oldValue != configuration {
+                preparedSize = nil
                 invalidateLayout()
             }
         }
@@ -38,11 +40,13 @@ final class SPTabBarLayout: UICollectionViewLayout {
     var isRightToLeft = false {
         didSet {
             if oldValue != isRightToLeft {
+                preparedSize = nil
                 invalidateLayout()
             }
         }
     }
 
+    private var preparedSize: CGSize?
     private var itemCount = 0
     // 按从左到右的视觉顺序缓存，RTL 仅改变逻辑索引映射。
     private var frames: [CGRect] = []
@@ -53,8 +57,16 @@ final class SPTabBarLayout: UICollectionViewLayout {
         guard let collectionView else {
             return
         }
-        itemCount = collectionView.numberOfItems(inSection: 0)
-        let size = collectionView.bounds.size
+        prepareGeometry(itemCount: collectionView.numberOfItems(inSection: 0), size: collectionView.bounds.size)
+    }
+
+    /// 宿主提交指示器和偏移时也需要本次几何。UIKit 可能稍后才调用 prepare()。
+    func prepareGeometry(itemCount: Int, size: CGSize) {
+        guard self.itemCount != itemCount || preparedSize != size else {
+            return
+        }
+        self.itemCount = itemCount
+        preparedSize = size
         let widths = (0 ..< itemCount).map { index -> CGFloat in
             let width = itemWidths.indices.contains(index) ? itemWidths[index] : Self.fallbackItemWidth
             return width.isFinite ? max(0, width) : Self.fallbackItemWidth

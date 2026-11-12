@@ -7,7 +7,26 @@ internal final class SPScrollBinding {
     var onScroll: (@MainActor (SPScrollBinding) -> Void)?
     var onScrollDisabled: (@MainActor (SPScrollBinding) -> Void)?
     private var observations: [NSKeyValueObservation] = []
-    private var updating = false
+    private var updating = false {
+        didSet { notifyLayoutAvailability() }
+    }
+
+    /// 页面准备需要写入视口和 inset，不能插入尚未完成的 UIKit setter。
+    var isLayoutBusy: Bool {
+        !detached && (updating || changingExternalInset)
+    }
+
+    var onLayoutAvailable: (@MainActor () -> Void)?
+
+    private func notifyLayoutAvailability() {
+        guard let resume = onLayoutAvailable, !isLayoutBusy else {
+            return
+        }
+        onLayoutAvailable = nil
+        // setter 或解绑还可能继续写入 offset。退出当前同步栈后按最新快照重新检查。
+        DispatchQueue.main.async(execute: resume)
+    }
+
     private struct Coordinates: Equatable {
         let offset: CGFloat
         let adjustedTop: CGFloat
@@ -175,7 +194,13 @@ internal final class SPScrollBinding {
         ]
     }
 
-    isolated deinit { detach() }
+    // 页面记录由容器在主线程释放。同步恢复业务设置，避免旧系统的隔离析构兼容路径。
+    nonisolated deinit {
+        guard !detached else {
+            return
+        }
+        MainActor.assumeIsolated { detach() }
+    }
 
     func setRange(_ newRange: CGFloat) {
         let position = positionBeforePendingRetraction
@@ -272,6 +297,7 @@ internal final class SPScrollBinding {
             }
         }
         detached = true
+        notifyLayoutAvailability()
         observations.forEach { $0.invalidate() }
         observations.removeAll()
         onScroll = nil
@@ -506,7 +532,10 @@ internal final class SPScrollBinding {
             observation.externalDepth += 1
             return
         }
-        defer { observation.depth -= 1 }
+        defer {
+            observation.depth -= 1
+            notifyLayoutAvailability()
+        }
         guard observation.depth != observation.internalDepth else {
             // 后续 KVO 观察者还可同步赋值；本次框架通知结束后不能继续占用该层级。
             observation.internalDepth = nil

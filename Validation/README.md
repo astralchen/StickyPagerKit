@@ -1,10 +1,92 @@
 # StickyPagerKit 验证记录
 
-验证日期：2026-10-15 至 2026-11-11。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
+验证日期：2026-10-15 至 2026-11-12。范围为首版框架、Demo 和本仓库测试。各次结果与运行时源码 SHA-256 绑定；工程迁移前后的结果分别记录。
 
 各节的源码一致性、提交状态和未覆盖范围均以对应验证阶段结束时为准。`Validation/Results/` 与 `Validation/Products/` 中的原始证据保留在本地忽略目录，不随 Git 提交分发。
 
 阶段导航：[SPTabBar P0～P4 契约与验收索引](SPTabBar-Contract-Acceptance.md)；[P5C2～P5C4 实验归档](Experiments/P5C2-P5C4/README.md)。历史节中的旧文件路径和当时提交状态保持原样，迁移后的文件位置见归档来源清单。
+
+## 2026-11-12 缓存页准备期间重入切页
+
+iPhone XR（iOS 18.7.11）上，候选页布局回调把缓存上限降至 1 后，原实现仍选中旧页，分页状态未结束，随后纵向滚动也未带动 Header。修复后同一用例验证目标页成为唯一缓存页、滚动指示器恢复，列表滚动使 Header 折叠 65 pt。[修复前运行](Results/20261112-xr-assert-review-red/xcodebuild.log)
+
+首次 inset 用例的 Swift 替身没有使用动态 setter，不能可靠覆盖 UIKit KVO 写入。修正替身后，用例明确检查绑定正处于写入中，再从该回调发起程序化切页或重载。两条路径都在 setter 返回后转发 appearance，目标视口和正文已对齐，业务设置的 11 pt 左边距保留。另一用例连续发出两个选择请求，只收到最后一个选中通知。[首次修复后运行](Results/20261112-xr-assert-review-green/xcodebuild.log) · [最终聚焦 23 项](Results/20261112-xr-assert-review-dynamic/summary.json)
+
+新增真实窗口用例在 LTR 和 RTL 下通过 UIKit 自然布局触发缓存表格的布局回调。当前列表和 Header 保持在 45 pt，接下来的业务滚动将 Header 移到 75 pt，吸顶后切走再返回仍保留 83 pt 阅读位置。既有嵌套布局用例继续检查布局事务内的保护状态。
+
+XR 的 6 项相关 Demo UI 测试均通过，覆盖有／无 Header 的真实状态栏点按、列表回顶后 Header 完全展开、跨页保留 Header、异步替换、重排删除清空和分页取消后旋转。iPhone 13（iOS 27.2）在安装 UI Runner 时连接中断，重试时 Xcode 已无法找到真机，CoreDevice 随后报告恢复模式，执行用例数为 0。[XR UI 结果](Results/20261112-xr-assert-ui-review-xr-complete/summary.json) · [iPhone 13 安装日志](Results/20261112-xr-assert-ui-review-iphone13/xcodebuild.log) · [iPhone 13 重试结果](Results/20261112-xr-assert-ui-review-iphone13-retry/summary.json)
+
+iOS 27.2 模拟器首轮运行中，连续动画切页用例在固定等待 0.6 秒后只收到第一次选中通知。保留这次失败日志，改为等待代理报告第二次选中后再核对两次回调的顺序、视口偏移和最终页面。[首轮模拟器日志](Results/20261112-cached-selection-simulator-final/xcodebuild.log)
+
+最终源码在 XR 上串行运行全部 512 项库测试，511 通过、0 失败，1 项 UIKit 自动观察因需要 iOS 26 跳过。六项 UI 和完整库测试均与本轮源码指纹一致，xcresult 无运行时警告，四类运行时诊断均为 0。[XR 完整库测试](Results/20261112-xr-assert-review-final-library/summary.json)
+
+iOS 27.2 模拟器开启 Main Thread Checker 的全量对照为 506 通过、6 失败，均来自要求检查器未加载的颜色序列用例，其中弹簧图标用例还在采样结束时读到中间色。动态字体和 UIKit 自动观察两项均通过。关闭该注入后首次启动宿主时，模拟器服务退出（Mach error -308），未执行测试方法。[开启检查器的完整结果](Results/20261112-cached-selection-simulator-verified/summary.json) · [宿主启动失败](Results/20261112-cached-selection-simulator-uninstrumented/summary.json)
+
+重新启动同一台 iPhone 18 Pro Max 模拟器后，使用同一份已编译的测试包，仅从宿主配置移除 Main Thread Checker 注入。完整库测试 512/512 通过，0 失败、0 跳过，动态字体、UIKit 自动观察、连续切页和六项颜色采样均通过。源码指纹一致，xcresult 无运行时警告，四类运行时诊断均为 0。[模拟器最终完整库测试](Results/20261112-cached-selection-simulator-recovered/summary.json)
+
+## 2026-11-12 iPhone XR 标签布局与 17 项断言回归
+
+在 iPhone XR（iOS 18.7.11，22H384）独立复跑上轮剩余的 17 项断言，17 项均复现。标签间距从 0 改为 24 pt 后，标签栏提交指示器时读到第三项旧起点 176 pt，随后 UICollectionView 才准备好新起点 224 pt。宿主与 UIKit 的 `prepare()` 现在共用同一次项布局计算，提交指示器、分页端点和手动偏移时可立即取得当前几何。项宽、配置、方向、数量或视口尺寸变化时重新计算。[修复前 17 项结果](Results/20261112-xr-assert-probe/summary.json) · [布局顺序与环境探针](Results/20261112-xr-assert-probe/xcodebuild.log)
+
+三个环境用例在 XR 上读取到了尚未传播的浅色外观或水平尺寸类，现使用系统的同步 trait 更新接口后核对原有断言。字体用例按真实环境的 UIFontMetrics 比较完整字体。嵌套布局探针显示，原先注入回写时已在容器布局事务之外。用例现明确进入外层事务，并在重入前和内层返回后检查保护状态，仍验证 Header、列表和切回缓存页后的 45 pt 位置。
+
+最终构建在同一台 XR 上聚焦复验 17/17 通过，随后使用同一份测试包串行执行完整库测试。共 508 项，507 通过、0 失败、0 崩溃，1 项因 `updateProperties` 自动观察需要 iOS 26 跳过。此前稳定崩溃的异步重绑和重载切回缓存页也通过。[最终 17 项](Results/20261112-xr-assert-final-focused/summary.json) · [完整库测试](Results/20261112-xr-assert-final-library/summary.json)
+
+同一台 XR 的 8 项相关 Demo UI 用例全部通过，覆盖标签间距、不同标题的固定宽度下划线、左右布局方向的指示器与内容切换、附件高度恢复、RTL 分页取消与旋转、跨页保留 Header 以及真实状态栏回顶。库测试与 UI 测试均无 xcresult 运行时警告，源码指纹一致。[真机 UI 测试](Results/20261112-xr-assert-ui-final/summary.json)
+
+## 2026-11-12 iPhone XR 析构崩溃修复
+
+iPhone XR（iOS 18.7.11，22H384）上，旧版测试宿主在异步重绑释放旧列表、重载释放缓存页时可稳定触发非法释放，详细栈经过 `swift_task_deinitOnExecutorMainActorBackDeploy`。框架的 7 处显式隔离析构已改为普通析构，容器释放时在主线程解绑，停止显示时钟，恢复安全区域与业务滚动设置。以同一台 XR 的独立签名宿主复测，原两项与 6 项相关释放用例全部通过。新增用例把容器的最后一个业务引用交给后台队列，验证仍被持有的子页面恢复安全区域与列表边距。[修复前的栈分类](Results/20261112-xr-native-library/crash-breakdown.json) · [8 项聚焦结果](Results/20261112-xr-cleanup-focused/summary.json)
+
+同一份测试包串行运行全部 508 项，490 通过、17 项断言失败、1 跳过，宿主崩溃从上次的 221 项降为 0。跳过的是需要 iOS 26 的自动属性观察。17 项中，8 项在修复前已有断言失败，另 9 项修复前以宿主崩溃结束。本轮仍测到嵌套布局后 Header 折叠量为 172 pt（期望 45 pt）、自定义指示器回退宽度为 46 pt（期望 80 pt）等偏差。源码指纹一致，xcresult 未报告运行时警告，仓库检查的四类运行时诊断均为 0。[完整库测试](Results/20261112-xr-cleanup-library/summary.json) · [17 项逐项对照](Results/20261112-xr-cleanup-library/failure-comparison.json)
+
+完整库测试按颜色序列测试的既有要求关闭 Main Thread Checker。使用同一份二进制重新启用检查器后，两个原崩溃用例与后台释放用例 3/3 通过，xcresult 无运行时警告。当前 Demo 在同一台 XR 上通过 4 项 UI 测试，覆盖有／无 Header 的状态栏点击、异步发现与替换，以及页面重排、删除和清空。[开启检查器的对照](Results/20261112-xr-cleanup-checker/summary.json) · [4 项真机 UI 结果](Results/20261112-xr-cleanup-ui/summary.json)
+
+## 2026-11-12 iPhone XR 状态栏、缓存页和标签栏回归
+
+iPhone XR 真机（iOS 18.7.11，22H384）竖屏横向分页，两项真实状态栏点击均通过。网格回顶时，后台列表回顶询问为 0，滚动回调增量为 0，位置误差不超过 1 pt。有 Header 时，列表自身回顶后 Header 完全展开；无 Header 时，切回列表恢复原阅读位置。[状态栏 UI 结果](Results/20261112-xr-status-ui/summary.json)
+
+独立签名的 UIKit 宿主以 Swift 6 编译仓库的 40 个库测试源文件，并链接本地 Package。六项聚焦测试中，动态字体、浅深色图标高亮和首次加载第三页通过；iOS 26 起提供的自动属性更新跳过。另两项在主线程触发 `SIGABRT`。异步重绑释放旧 `SPScrollBinding`，重载切回缓存页释放 `SPPageSafeArea`，两者的栈都经过 `swift_task_deinitOnExecutorMainActorBackDeploy` 和 `TaskLocal::StopLookupScope`，malloc 报告释放了未分配的指针。关闭 Main Thread Checker 后，同一测试包独立复跑两项均再次崩溃。[聚焦库测试](Results/20261112-xr-native-focus/summary.json) · [异步重绑崩溃栈](Results/20261112-xr-native-focus/attachments/D47EE9AF-243E-4F69-A2C9-6CF9B126B6A2.ips) · [重载崩溃栈](Results/20261112-xr-native-focus/attachments/45DCECFB-0DA4-4E24-884C-5C35F36E0170.ips) · [关闭 Checker 的复验](Results/20261112-xr-deinit-control/summary.json)
+
+在同一 XR 的 Demo 中通过真实界面异步发现和替换滚动视图，以及重排、删除当前页、清空页面，两项 UI 测试均通过。这些操作没有复现独立库测试宿主内的析构崩溃。[Demo 缓存操作 UI 结果](Results/20261112-xr-cache-ui/summary.json)
+
+XR 完整库测试共 507 项，277 通过、229 失败、1 跳过，源码指纹一致。按 xcresult 为各失败用例显示的首要错误，221 项为宿主崩溃（含 1 项在准备运行时崩溃），8 项为断言失败。导出的 221 份崩溃附件中，36 份有详细堆栈，均显示同一 Swift 析构兼容路径和 `SIGABRT`：`SPScrollBinding` 15 份、`SPTopBounceCoordinator` 8 份、`SPTabBarAccessoryHost` 7 份、`SPPageSafeArea` 6 份。其余 185 份仅含 CrashReporter 的限流提示，无法逐项归因。[完整库测试](Results/20261112-xr-native-library/summary.json) · [崩溃栈分类与样例](Results/20261112-xr-native-library/crash-breakdown.json)
+
+将首要错误为断言的 8 项另行成组复跑，5 项仍以断言失败结束，3 项以宿主崩溃结束。可重复的偏差包括嵌套布局后 Header 折叠量为 172 pt（期望 45 pt），以及自定义指示器几何无效时回退宽度为 46 pt（期望 80 pt）。[八项独立复验](Results/20261112-xr-assertions/summary.json)
+
+## 2026-11-12 动态字体、UIKit 自动观察与高亮图标
+
+将上次全量测试时间与 SpringBoard 日志对齐，10:45:24 系统把同一模拟器的主场景交给另一个 App，正在运行的 `UIKitTestHost` 转入后台。原测试包包含一次颜色序列采样的三项组合通过；保留更多前序用例、采集场景状态的 149 项组合在前台也全部通过。[原设备场景日志](Results/20261112-suite-background-steady/original-springboard.log) · [前台分组对照](Results/20261112-suite-order-cohort/summary.json)
+
+在新建的同型号模拟器中，用带诊断的测试包执行相同的三项用例，在第一项运行期间打开系统设置。首次启动设置时，采样到的是前台非活动状态，三项均通过；设置再次启动、宿主确实进入后台后，动态字体和自动观察均复现失败。后台窗口仍是 key window，子控制器已收到目标字号，子视图和标签栏在动画结束后仍是 Large。观察探针只执行一次初始更新，模型改变后仍显示 0。前台对照中标签栏收到目标字号，探针在模型第一次改变后更新到 1。两项验收用例现检查窗口的前台场景状态；完整运行使用专用模拟器。[前台非活动对照](Results/20261112-suite-background-control/summary.json) · [后台失败结果](Results/20261112-suite-background-steady/summary.json) · [后台测量值](Results/20261112-suite-background-steady/observations.txt)
+
+原高亮颜色用例将被测按钮放在浅色标签栏中，将原生 UIButton 放在继承系统深色外观的根视图中。原生对照改为挂在同一标签栏，分别在浅色和深色外观中比较调用返回时的图标颜色、标题颜色和配置写入次数。诊断组记录了实际外观不一致和颜色不一致的两条断言。[外观差异诊断](Results/20261112-suite-order-perf/xcodebuild.log) · [三项聚焦测试](Results/20261112-suite-focused-resolved/summary.json)
+
+首次在深色专用模拟器运行完整库测试时，本轮原三项全部通过，507 项中另有两项自然颜色动画用例失败。图标颜色采样的第七轮只收到 12 个显示回调，最后一个回调距该轮结束 1.42 秒；标题颜色序列在首次选择时的相邻显示时间戳最大间隔为 230 ms。固定采样时间结束时均读到了中间色。使用同一份测试包，在同一设备一起复跑这两项与原三项，5/5 通过。保留原计时窗口及颜色断言。[首次完整结果](Results/20261112-suite-foreground-full/summary.json) · [图标逐帧采样](Results/20261112-suite-foreground-full/attachments-0/A345B339-9E1A-45BF-8346-D68CC9302B56.json) · [标题颜色序列](Results/20261112-suite-foreground-full/attachments-1/D1CECF58-2734-4DF8-8725-4E3BFA5BE6A6.json) · [五项复验](Results/20261112-suite-animation-control/summary.json)
+
+在同一台 iPhone 18 Pro Max／iOS 27.2 模拟器上，使用上述同一份已编译测试包再次串行执行全部 507 项，507 通过、0 失败、0 跳过。源码指纹一致，xcresult 无运行时警告，仓库检查的四类运行时诊断均为 0。颜色序列按既有采样要求，通过 `SP_DISABLE_MAIN_THREAD_CHECKER=1` 生成宿主配置；脚本测试 22 项全部通过。[最终完整库测试](Results/20261112-suite-foreground-verified/summary.json) · [验证脚本测试](Results/20261112-suite-foreground-full/script-tests.log)
+
+## 2026-11-12 三页缓存、异步重绑与重载切页
+
+修复前三项新增库测试均失败。第二页展开 Header 后，首次加载第三页或异步替换第三页的滚动视图，都会使第一页面板移动 200 pt，列表偏移从 406 pt 变为 606 pt，并触发一次业务滚动回调。移除选中页并执行 `reloadData()` 时，缓存列表在 `viewWillAppear` 和 `viewDidAppear` 中读到的页面顶边都是 102 pt，当时标签栏顶边为 302 pt。[修复前的三项失败](Results/20261112-cached-review-red/summary.json)
+
+修复后，在 iPhone 18 Pro Max 模拟器（iOS 27.2）上，三项新增测试和 17 项切页重入测试全部通过。加载和重绑均保留后台列表的 frame、inset、offset、业务滚动回调次数与 450 pt 阅读位置。重载切回缓存列表时，两次 appearance 回调均读到展开后的几何和正文位置，保存的阅读位置仍为 450 pt。首次聚焦运行出现一次 appearance 配对诊断；测试改为仅在异步替换发生时等待主队列，最终聚焦运行的四类运行时诊断均为 0。[首次聚焦运行](Results/20261112-cached-review-focused/summary.json) · [最终聚焦结果](Results/20261112-cached-review-focused-sync/summary.json)
+
+iPhone 13 真机（iOS 27.2）竖屏横向分页的两项状态栏点击用例全部通过。网格回顶时，后台列表的回顶询问与滚动回调增量均为 0，位置误差不超过 1 pt。有 Header 时，列表自身回顶后同时验证正文位于顶部和 `progress=0.00`；无 Header 时直接切回即可恢复阅读位置。框架、Demo 和 UI 测试源码均与运行指纹一致。运行期间仅调整了独立库测试的异步等待方式。[真机 UI 结果](Results/20261112-cached-review-iphone13/summary.json)
+
+同一模拟器完整运行 507 项库测试，504 通过、3 失败、0 跳过，四类运行时诊断均为 0。按颜色序列测试的既有要求，仅在本次测试宿主配置中移除 MainThreadChecker 注入。失败项分别为标签栏动态字体更新、图标高亮颜色和 UIKit 自动观察；三项在前一天的完整库测试中也曾失败。在同一模拟器分别使用当前与修复前保存的测试包单独复跑这三项，两次均为动态字体和自动观察通过，图标高亮颜色以相同实际值和期望值失败。前两项在全量运行中失败的触发条件尚未定位。[完整库测试](Results/20261112-cached-review-library-final/summary.json) · [当前测试包复跑](Results/20261112-cached-review-recheck/summary.json) · [修复前测试包对照](Results/20261112-cached-review-control/summary.json)
+
+## 2026-11-11 状态栏回顶与缓存页
+
+最终版在 iPhone 13 真机和 iPhone 18 Pro Max 模拟器（iOS 27.2）上各通过两项真实状态栏点击测试。网格回顶后，后台列表的回顶询问为 0，滚动回调增量为 0，位置误差不超过 1 pt。无 Header 时直接切回即可恢复阅读位置。有 Header 时先验证展开对齐，再从吸顶状态切回并核对原阅读位置，最后点击时间确认列表自身能正常回顶。[真机结果](Results/20261111-status-bar-device-final/summary.json) · [模拟器结果](Results/20261111-status-bar-sim-final/summary.json)
+
+iPhone 18 Pro 模拟器的 39 项聚焦库测试全部通过，覆盖缓存、部分展开、取消分页、视口、重入和业务滚动配置。框架和库测试源码与运行指纹一致，运行期间仅更新了独立 Demo UI 测试的前台检查。本轮 UI 测试在竖屏下执行横向分页，未执行设备横屏点按、iPad、旧版 iOS 或全量测试。[库测试摘要](Results/20261111-status-bar-library-final/summary.json)
+
+iPhone 13（iOS 27.2）上先滚动列表，再横向切到网格并点状态栏时间。列表的 `scrollViewShouldScrollToTop` 调用次数为 0。回顶展开了共享 Header，此时切回列表按当前 Header 对齐，正文读数从 522 pt 变为 0 pt。进一步分别统计回顶询问和纵向滚动回调后，无 Header 的对照用例通过，有 Header 的后台列表在网格回顶期间却收到了 33 次 `scrollViewDidScroll`（152 → 185）。[首次真机观察](Results/20261111-status-bar-baseline/xcodebuild.log) · [两种 Header 配置的真机对照](Results/20261111-status-bar-device-2/xcodebuild.log)
+
+纵向滚动和后续常规布局保留离屏页的 frame 和滚动 inset。缓存页进入横向视口时重新对齐共享 Header。库测试分别核对了离屏页的原始偏移、页面几何和保存的正文位置。首次只修改纵向滚动路径时，常规布局仍使后台页偏移改变 200 pt。扩大验证后还发现业务主动请求的缓存页布局必须在容器的防重入范围内结算。[后台偏移回归](Results/20261111-status-bar-library-2/summary.json) · [布局重入回归](Results/20261111-status-bar-library-3/summary.json)
+
+中间真机诊断保留了测试探针调用父类未实现的可选代理方法导致的崩溃，以及旧坐标探针未读到 UITableView 的一次失败。修正后的探针直接读取对应页面的位置和代理计数。另一次真机点击后截图显示“显示与亮度”，Demo 已在后台。最终 UI 用例从主屏幕启动，并断言点击前后 Demo 都在前台。[探针崩溃栈](Results/20261111-status-bar-callback-baseline/attachments/0209A69A-3586-4244-B31C-5CB8C6DDC61E.ips) · [旧坐标探针日志](Results/20261111-status-bar-device-1/xcodebuild.log) · [前台条件失败时的截图](Results/20261111-status-bar-device-3/attachments/2AC8D218-A14F-437A-83A2-BF84F1A4EE36.png)
 
 ## 2026-11-11：iPhone 13 短列表吸顶后旋转
 

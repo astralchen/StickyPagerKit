@@ -272,6 +272,9 @@ final class SPTabBarCustomContentTests: XCTestCase {
             bar.layoutIfNeeded()
             collection(bar).contentOffset.x = 130
             bar.overrideUserInterfaceStyle = .dark
+            if #available(iOS 17, *) {
+                bar.updateTraitsIfNeeded()
+            }
             bar.layoutIfNeeded()
             XCTAssertEqual(provider.context?.state.traitCollection.userInterfaceStyle, .dark)
             XCTAssertEqual(collection(bar).contentOffset.x, 130, accuracy: 0.01)
@@ -632,6 +635,9 @@ final class SPTabBarCustomContentTests: XCTestCase {
             UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge),
             UITraitCollection(horizontalSizeClass: nextSizeClass)
         ]), forChild: child)
+        if #available(iOS 17, *) {
+            child.view.updateTraitsIfNeeded()
+        }
         child.view.layoutIfNeeded()
         bar.layoutIfNeeded()
         XCTAssertEqual(provider.context?.state.traitCollection.horizontalSizeClass, nextSizeClass)

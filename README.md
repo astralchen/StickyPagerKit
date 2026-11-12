@@ -734,6 +734,12 @@ Demo 的 Header 进度由独立状态保存，不通过无障碍诊断 getter �
 
 框架内部的横向分页容器、Header 宿主和标签栏列表均设置 `scrollsToTop = false`，退出点状态栏回顶部。业务列表的 `scrollsToTop` 和 `UIScrollViewDelegate` 保持由业务管理，绑定、切页、布局及解绑不改写该配置；回顶部的触发、代理决定和动画由 UIKit 与业务处理，框架只按实际滚动位置协调 Header。业务页面包含多个列表时，回顶部对象仍由业务配置，不由框架统一开启或关闭。
 
+当前页响应状态栏回顶时，纵向联动只更新当前页。新页面首次加载或异步替换滚动视图并重新绑定时，只更新该页的视口与滚动 inset，其他离屏页保留原来的位置。普通切页和 `reloadData()` 改选缓存页时，容器会在目标页的 `viewWillAppear` 之前同步其纵向布局和正文位置。若请求发生在目标页的滚动 inset 正在写入时，容器会等该次写入完成再处理。期间发起新的切页请求时，以最新的有效选择为准。切回旧页时的显示取决于共享 Header 的状态。
+
+- 没有可折叠的 Header 时，直接恢复该页的正文位置。
+- Header 已吸顶时，保持吸顶并恢复该页的正文位置。
+- Header 展开或部分折叠时，目标页先对齐当前 Header。若未在该页重新滚动，之后从吸顶状态切回时仍可恢复之前的阅读位置。
+
 ### 自动发现和复杂页面
 
 检查根视图并递归遍历子视图，排除隐藏、透明、不可交互、禁用滚动的子树；优先具有纵向滚动证据的候选，其次是短列表及空列表，排除明显只横向滚动的视图。同级候选按可见面积和遍历顺序排序。
@@ -815,15 +821,19 @@ UIKit 收回额外顶部 adjusted inset 时，如果 offset 尚未移动、页�
 主工具链验证命令：
 
 ```sh
-# 根目录 Package 库测试。
-SP_SCOPE=library Scripts/validate.sh test
+# 完整库测试含颜色序列采样，使用独立模拟器的 UUID。
+SP_SCOPE=library SP_DISABLE_MAIN_THREAD_CHECKER=1 Scripts/validate.sh test
 # Demo 单元测试和 UI 测试。
 SP_SCOPE=demo Scripts/validate.sh test
 # Release 库测试允许 @testable 导入。
-SP_SCOPE=library SP_CONFIGURATION=Release Scripts/validate.sh test ENABLE_TESTABILITY=YES
+SP_SCOPE=library SP_DISABLE_MAIN_THREAD_CHECKER=1 SP_CONFIGURATION=Release Scripts/validate.sh test ENABLE_TESTABILITY=YES
 # 指定工具链构建 Demo。
 SP_DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer Scripts/validate.sh build
 ```
+
+`SP_SIMULATOR_ID` 应指向本轮库测试专用的模拟器。在同一设备另行启动 App 会让 `UIKitTestHost` 进入后台，即使测试窗口仍是 key window，动态字体和自动属性更新也可能停在旧值。可在 Xcode 的 Devices and Simulators 中新建同型号、同系统的模拟器，并将它的 UUID 传给验证脚本。
+
+`SP_DISABLE_MAIN_THREAD_CHECKER=1` 仅在生成的库测试宿主配置中移除 Main Thread Checker 注入，供要求无 Checker 的颜色序列采样使用。其他聚焦测试可省略此变量以沿用 scheme 的诊断设置。
 
 `SP_SCOPE=library` 先以根 Swift Package 的 `StickyPagerKit` scheme 执行 `build-for-testing`，再将同次测试包嵌入 `Tests/UIKitTestHost` 的独立最小应用，通过生成的 `Hosted.xctestrun` 执行 `test-without-building`。测试定义及编译仍由 `Package.swift` 管理，宿主不链接 StickyPagerKit，也不包含 Demo 页面；库测试及其宿主均独立于 Demo 工程。`SP_SCOPE=demo`（默认）使用共享 scheme `StickyPagerDemo`，执行 `test` 时运行 `StickyPagerDemoTests` 和 `StickyPagerDemoUITests`，不包含根目录库测试。两种流程都要求显式核对 `SP_DEVELOPER_DIR` 和 `SP_SIMULATOR_ID`，不修改全局 `xcode-select`。
 

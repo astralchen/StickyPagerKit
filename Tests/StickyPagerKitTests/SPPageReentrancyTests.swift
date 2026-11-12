@@ -74,6 +74,101 @@ final class SPPageReentrancyTests: XCTestCase {
         }
     }
 
+    private func cacheCollapsedPageBeforeExpandingHeader() -> ReentrantPage {
+        mount()
+        let target = pager.currentRecord!.controller as! ReentrantPage
+        target.scroll.contentOffset.y = 400 - target.scroll.adjustedContentInset.top
+        pager.setSelectedIndex(1, animated: false)
+        let current = pager.currentScrollView!
+        current.contentOffset.y = -current.adjustedContentInset.top
+        pager.view.layoutIfNeeded()
+        return target
+    }
+
+    func testCandidateSurvivesCacheLimitChangeDuringSelectionLayout() {
+        let target = cacheCollapsedPageBeforeExpandingHeader()
+        pager.scrollIndicatorVisibilityPolicy = .hideDuringPaging
+        var reducedLimit = false
+        target.onLayout = { [unowned self] in
+            guard pager.selection.isPaging, !reducedLimit else {
+                return
+            }
+            reducedLimit = true
+            pager.maximumCachedPageCount = 1
+        }
+        pager.setSelectedIndex(0, animated: false)
+        target.onLayout = nil
+        XCTAssertTrue(reducedLimit)
+        assertSelection(0)
+        XCTAssertEqual(pager.records.count, 1)
+        XCTAssertFalse(pager.selection.isPaging)
+        XCTAssertTrue(target.scroll.showsVerticalScrollIndicator)
+        target.scroll.contentOffset.y = 65 - target.scroll.adjustedContentInset.top
+        XCTAssertEqual(pager.collapseOffset, 65, accuracy: 0.01)
+    }
+
+    func testInsetReentrantRequestsPrepareCachedGeometryBeforeAppearance() {
+        for reload in [false, true] {
+            let target = cacheCollapsedPageBeforeExpandingHeader()
+            let appeared = expectation(description: "完成布局后交付 appearance")
+            var insideSetter = false
+            target.onEvent = { [unowned self] event in
+                guard event == "willAppear" else {
+                    return
+                }
+                XCTAssertFalse(insideSetter)
+                XCTAssertEqual(
+                    target.view.convert(target.view.bounds, to: pager.view).minY,
+                    pager.tabBar.frame.minY,
+                    accuracy: 0.01
+                )
+                XCTAssertEqual(
+                    target.scroll.contentOffset.y + target.scroll.adjustedContentInset.top,
+                    0,
+                    accuracy: 0.01
+                )
+                appeared.fulfill()
+            }
+            target.scroll.onInset = { [unowned self] in
+                target.scroll.onInset = nil
+                XCTAssertTrue(pager.records[0]?.binding?.isLayoutBusy == true, "目标列表正在写入 inset")
+                insideSetter = true
+                defer { insideSetter = false }
+                if reload {
+                    source.ids = [0]
+                    pager.reloadData()
+                } else {
+                    pager.setSelectedIndex(0, animated: false)
+                }
+            }
+            target.scroll.contentInset.left = 11
+            wait(for: [appeared], timeout: 2)
+            target.onEvent = nil
+            assertSelection(0)
+            XCTAssertEqual(target.scroll.contentInset.left, 11)
+        }
+    }
+
+    func testNewSelectionSupersedesCachedPageWaitingForInsetSetter() {
+        let target = cacheCollapsedPageBeforeExpandingHeader()
+        let previousEvents = target.events
+        recorder.selected.removeAll()
+        target.scroll.onInset = { [unowned self] in
+            target.scroll.onInset = nil
+            pager.setSelectedIndex(0, animated: false)
+            pager.setSelectedIndex(2, animated: false)
+        }
+        target.scroll.contentInset.left = 13
+        // 已排队的布局完成通知也必须丢弃被取代的请求。
+        let drained = expectation(description: "已处理 inset 完成通知")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 2)
+        assertSelection(2)
+        XCTAssertEqual(target.events, previousEvents)
+        XCTAssertEqual(recorder.selected, [2])
+        XCTAssertEqual(target.scroll.contentInset.left, 13)
+    }
+
     func testUnloadedContainerCanBeReleased() {
         weak var released: SPPageViewController?
         autoreleasepool {
@@ -106,6 +201,31 @@ final class SPPageReentrancyTests: XCTestCase {
         let position = scroll.contentOffset
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(scroll.contentOffset, position, "容器释放后不再由旧 displayLink 写入正文")
+    }
+
+    func testContainerDroppedOnBackgroundQueueRestoresRetainedPage() {
+        let queue = DispatchQueue(label: "StickyPagerKitTests.release")
+        queue.suspend()
+        weak var released: SPPageViewController?
+        var page: ReentrantPage!
+        autoreleasepool {
+            mount()
+            released = pager
+            page = pager.currentRecord!.controller as? ReentrantPage
+            XCTAssertGreaterThan(page.additionalSafeAreaInsets.top, 0)
+            XCTAssertGreaterThan(page.scroll.contentInset.top, 0)
+            queue.async { [owner = pager!] in withExtendedLifetime(owner) {} }
+            window?.closeForTesting()
+            window?.rootViewController = nil
+            pager = nil
+        }
+        let finished = expectation(description: "后台队列释放容器并交回主线程清理")
+        queue.async { DispatchQueue.main.async { finished.fulfill() } }
+        queue.resume()
+        wait(for: [finished], timeout: 5)
+        XCTAssertNil(released)
+        XCTAssertEqual(page.additionalSafeAreaInsets, .zero)
+        XCTAssertEqual(page.scroll.contentInset, .zero)
     }
 
     func testAppearanceQueuesSnapshotThenSelectionUsingStableIdentity() {
@@ -333,15 +453,18 @@ final class SPPageReentrancyTests: XCTestCase {
     func testAnimationCompletionCallbackCanStartAnotherAnimatedSelection() {
         mount()
         let pager = pager!
+        let committed = expectation(description: "第二次动画切页完成并提交")
         recorder.onSelect = { index in
             if index == 1 {
                 pager.setSelectedIndex(2, animated: true)
+            } else if index == 2 {
+                committed.fulfill()
             }
         }
         pager.setSelectedIndex(1, animated: true)
         pager.pagingView.setContentOffset(CGPoint(x: pager.pagingView.bounds.width, y: 0), animated: false)
         pager.scrollViewDidEndScrollingAnimation(pager.pagingView)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.6))
+        wait(for: [committed], timeout: 10)
         assertSelection(2)
         XCTAssertEqual(recorder.selected, [1, 2])
     }
@@ -500,6 +623,12 @@ private final class ReentrantPage: UIViewController {
     let scroll = ReentrantScrollView()
     var events: [String] = []
     var onEvent: ((String) -> Void)?
+    var onLayout: (() -> Void)?
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        onLayout?()
+    }
+
     var onMount: (() -> Void)?
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -540,6 +669,12 @@ private final class ReentrantPage: UIViewController {
 
 @MainActor
 private final class ReentrantScrollView: UIScrollView {
+    var onInset: (() -> Void)?
+    // 保留 UIKit 的动态 setter 分派，使业务回调位于 KVO 的 prior/post 通知之间。
+    override dynamic var contentInset: UIEdgeInsets {
+        didSet { onInset?() }
+    }
+
     var onOffset: (() -> Void)?
     override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
         super.setContentOffset(contentOffset, animated: animated)

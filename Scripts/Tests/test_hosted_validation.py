@@ -32,8 +32,10 @@ class HostedValidationTests(unittest.TestCase):
                 'BlueprintName': 'StickyPagerKitTests',
                 'TestBundlePath': '__TESTROOT__/Debug/StickyPagerKitTests.xctest',
                 'OnlyTestIdentifiers': ['SPUIKitEnvironmentTests'],
+                'EnvironmentVariables': {
+                    'DYLD_INSERT_LIBRARIES': '/tools/libMainThreadChecker.dylib:/tools/extra.dylib'},
                 'TestingEnvironmentVariables': {
-                    'DYLD_INSERT_LIBRARIES': 'MainThreadChecker.dylib',
+                    'DYLD_INSERT_LIBRARIES': '/sim/libMainThreadChecker.dylib:/sim/extra.dylib',
                     'DYLD_FRAMEWORK_PATH': '__TESTROOT__/Debug'},
             }
             source = products / 'Original.xctestrun'
@@ -53,6 +55,14 @@ class HostedValidationTests(unittest.TestCase):
             self.assertIn('libXCTestBundleInject.dylib', environment['DYLD_INSERT_LIBRARIES'])
             self.assertIn('MainThreadChecker.dylib', environment['DYLD_INSERT_LIBRARIES'])
             self.assertEqual(environment['DYLD_FRAMEWORK_PATH'], str((products / 'Debug').resolve()))
+            with patch('prepare_hosted_tests.subprocess.run'):
+                prepare(source, host, root / 'Sampling', output, disable_main_thread_checker=True)
+            sampled = plistlib.loads(output.read_bytes())['TestConfigurations'][0]['TestTargets'][0]
+            self.assertEqual(sampled['EnvironmentVariables']['DYLD_INSERT_LIBRARIES'], '/tools/extra.dylib')
+            self.assertEqual(sampled['TestingEnvironmentVariables']['DYLD_INSERT_LIBRARIES'].split(':'),
+                             ['__PLATFORMS__/iPhoneSimulator.platform/Developer/usr/lib/libXCTestBundleInject.dylib',
+                              '/sim/extra.dylib'])
+            self.assertEqual(source.read_bytes(), original)
             self.assertEqual((root / 'Frozen/Host.app/PlugIns/StickyPagerKitTests.xctest/binary').read_bytes(), b'test bundle')
             with self.assertRaises(FileExistsError):
                 prepare(source, host, root / 'Frozen', output)

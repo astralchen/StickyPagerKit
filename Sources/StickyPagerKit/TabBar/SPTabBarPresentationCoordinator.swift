@@ -81,7 +81,6 @@ internal final class SPTabBarPresentationCoordinator {
 
     private var motion: Motion = .idle
     private var generation: UInt = 0
-    private var displayLink: CADisplayLink?
     private let displayTarget = SPDisplayLinkTarget()
     private(set) var pendingSelection: SPTabBarItem?
     private(set) var requestGeneration: UInt = 0
@@ -90,7 +89,7 @@ internal final class SPTabBarPresentationCoordinator {
 
     init() {
         displayTarget.tick = { [weak self] link in
-            guard let self, link === self.displayLink, let animation = self.animation else {
+            guard let self, link === self.displayTarget.current, let animation = self.animation else {
                 return
             }
             self
@@ -99,7 +98,9 @@ internal final class SPTabBarPresentationCoordinator {
         }
     }
 
-    isolated deinit { displayLink?.invalidate() }
+    nonisolated deinit {
+        spPerformMainActorCleanup { [displayTarget] in displayTarget.invalidate() }
+    }
 
     var animation: Animation? {
         guard case let .selection(value) = motion else {
@@ -219,14 +220,11 @@ internal final class SPTabBarPresentationCoordinator {
         guard current == generation, self.animation != nil else {
             return
         }
-        let link = CADisplayLink(target: displayTarget, selector: #selector(SPDisplayLinkTarget.step(_:)))
-        displayLink = link
-        link.add(to: .main, forMode: .common)
+        displayTarget.start()
     }
 
     func stopAnimation() {
-        displayLink?.invalidate()
-        displayLink = nil
+        displayTarget.invalidate()
         if animation != nil {
             contentProgress = nil
             springSnapshot = nil

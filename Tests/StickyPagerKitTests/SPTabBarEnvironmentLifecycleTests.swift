@@ -54,7 +54,8 @@ final class SPTabBarEnvironmentLifecycleTests: XCTestCase {
 
     func testNaturalSpringHandlesTraitResizeAndRetargetInBothContentModes() throws {
         for custom in [false, true] {
-            try withBar(custom: custom) { bar, _, child in
+            try withBar(custom: custom) { bar, window, child in
+                try window.requireForegroundForTesting()
                 let initial = try XCTUnwrap(scale(bar, index: 2))
                 bar.setSelectedIndex(2, animated: true)
                 XCTAssertTrue(waitUntil { abs((self.scale(bar, index: 2) ?? initial) - initial) > 0.001 })
@@ -68,6 +69,7 @@ final class SPTabBarEnvironmentLifecycleTests: XCTestCase {
                 bar.layoutIfNeeded()
                 bar.setSelectedIndex(1, animated: true)
                 XCTAssertTrue(waitUntil { self.scale(bar, index: 1) == 1 })
+                try window.requireForegroundForTesting()
                 XCTAssertEqual(bar.selectedIndex, 1)
                 XCTAssertEqual(bar.traitCollection.preferredContentSizeCategory, .accessibilityExtraExtraExtraLarge)
                 XCTAssertEqual(bar.traitCollection.userInterfaceStyle, .dark)

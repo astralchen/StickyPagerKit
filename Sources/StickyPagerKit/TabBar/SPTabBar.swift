@@ -558,7 +558,7 @@ open class SPTabBar: UIView {
         fatalError("请使用 init(frame:)")
     }
 
-    isolated deinit { NotificationCenter.default.removeObserver(self) }
+    nonisolated deinit { NotificationCenter.default.removeObserver(self) }
 
     private struct AccessoryGeometry: Equatable {
         let leadingSize: CGSize
@@ -723,7 +723,7 @@ open class SPTabBar: UIView {
         needsSelectionAlignment = false
         updateMetrics(preservingContentCache: previousAppearance === appearance)
         updateAppearance()
-        collectionView.layoutIfNeeded()
+        synchronizeCollectionLayout()
         superview?.setNeedsLayout()
         updateVisibleCells()
         let targetIndicator = selectedIndex.map(indicatorFrame) ?? .zero
@@ -807,6 +807,11 @@ open class SPTabBar: UIView {
     /// 切页入口需要当前实际几何；保留同步边界及公开 layoutSubviews 的动态分发。
     private func synchronizeLayoutBeforeTransition() {
         layoutIfNeeded()
+        synchronizeCollectionLayout()
+    }
+
+    private func synchronizeCollectionLayout() {
+        tabLayout.prepareGeometry(itemCount: items.count, size: collectionView.bounds.size)
         collectionView.layoutIfNeeded()
     }
 
@@ -879,7 +884,7 @@ open class SPTabBar: UIView {
             invalidateIntrinsicContentSize()
             superview?.setNeedsLayout()
         }
-        collectionView.layoutIfNeeded()
+        synchronizeCollectionLayout()
     }
 
     private func resolvePresentationAfterLayout(_ changes: LayoutChanges) {

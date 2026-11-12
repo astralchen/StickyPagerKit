@@ -53,6 +53,7 @@ final class SPUIKitEnvironmentTests: XCTestCase {
         }
         let window = try makeWindow()
         defer { window.closeForTesting(); window.rootViewController = nil }
+        try window.requireForegroundForTesting()
         let model = ObservationModel()
         let probe = ObservationProbe(model: model)
         window.rootViewController!.view.addSubview(probe)
@@ -69,6 +70,7 @@ final class SPUIKitEnvironmentTests: XCTestCase {
                     break
                 }
             }
+            try window.requireForegroundForTesting()
             XCTAssertEqual(probe.renderedValue, value, "模型变化应自动更新 UI")
             XCTAssertLessThanOrEqual(probe.updateCount - before, 3, "单次变化不应反复安排属性更新")
         }

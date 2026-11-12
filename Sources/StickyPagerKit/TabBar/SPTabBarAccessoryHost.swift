@@ -19,9 +19,11 @@ final class SPTabBarAccessoryHost: UIView {
         fatalError("请使用 init(frame:)")
     }
 
-    isolated deinit {
-        NSLayoutConstraint.deactivate(measurementConstraints)
-        accessory?.translatesAutoresizingMaskIntoConstraints = originalTranslatesAutoresizingMask
+    nonisolated deinit {
+        spPerformMainActorCleanup { [measurementConstraints, accessory, originalTranslatesAutoresizingMask] in
+            NSLayoutConstraint.deactivate(measurementConstraints)
+            accessory?.translatesAutoresizingMaskIntoConstraints = originalTranslatesAutoresizingMask
+        }
     }
 
     func replace(with view: UIView?) {

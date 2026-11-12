@@ -153,16 +153,18 @@ final class SPPageViewportTests: XCTestCase {
             var reentered = false
             cached.onNextLayout = {
                 reentered = true
+                XCTAssertTrue(pager.pageLayout.isLayingOutPages)
                 // 缓存页布局重入父容器后，外层 Header 布局的保护仍应有效。
                 pager.viewDidLayoutSubviews()
+                XCTAssertTrue(pager.pageLayout.isLayingOutPages)
                 let position = binding.position
                 table.contentOffset.y = collapseRange - table.adjustedContentInset.top
                 // 模拟外层几何事务将实际位置恢复；中间回写不能改变共享折叠量。
                 binding.setPosition(position)
             }
             cached.setNeedsLayout()
-            pager.view.setNeedsLayout()
-            pager.view.layoutIfNeeded()
+            // 直接进入外层容器布局，保证注入的回写确实发生在被测事务内。
+            pager.viewDidLayoutSubviews()
             XCTAssertTrue(reentered)
             XCTAssertEqual(binding.position, 45, accuracy: 0.5)
             XCTAssertEqual(pager.collapseOffset, 45, accuracy: 0.5)
@@ -172,6 +174,45 @@ final class SPPageViewportTests: XCTestCase {
             XCTAssertEqual(pager.collapseOffset, 45, accuracy: 0.5)
             window.closeForTesting()
             window.rootViewController = nil
+        }
+    }
+
+    func testNaturalCachedTableLayoutPreservesCurrentHeaderAndBusinessScrolling() {
+        for rtl in [false, true] {
+            let window = SPTestWindow(frame: CGRect(x: 0, y: 0, width: 511, height: 900))
+            let pager = SPPageViewController()
+            let source = ViewportTableSource(rowCount: 80, rowHeight: 84)
+            window.rootViewController = pager
+            window.showForTesting()
+            pager.view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            pager.dataSource = source
+            pager.headerView = UIView()
+            pager.layout = SPPageLayout(headerHeight: 220)
+            pager.reloadData()
+            pager.setSelectedIndex(1, animated: false)
+            pager.setSelectedIndex(0, animated: false)
+            let current = source.pages[0].tableView!
+            current.contentOffset.y = 45 - current.adjustedContentInset.top
+            let cached = source.pages[1].tableView as! DeferredOffsetTableView
+            var layouts = 0
+            cached.onNextLayout = {
+                layouts += 1
+                cached.contentOffset.y += 60
+            }
+            cached.setNeedsLayout()
+            pager.view.setNeedsLayout()
+            pager.view.layoutIfNeeded()
+            XCTAssertEqual(layouts, 1)
+            XCTAssertEqual(pager.collapseOffset, 45, accuracy: 0.5)
+            XCTAssertEqual(current.contentOffset.y + current.adjustedContentInset.top, 45, accuracy: 0.5)
+            current.contentOffset.y = 75 - current.adjustedContentInset.top
+            XCTAssertEqual(pager.collapseOffset, 75, accuracy: 0.5)
+            let range = pager.pageLayout.effectiveLayout.collapseRange
+            current.contentOffset.y = range + 83 - current.adjustedContentInset.top
+            pager.setSelectedIndex(1, animated: false)
+            pager.setSelectedIndex(0, animated: false)
+            XCTAssertEqual(current.contentOffset.y + current.adjustedContentInset.top - range, 83, accuracy: 0.5)
+            window.closeForTesting()
         }
     }
 

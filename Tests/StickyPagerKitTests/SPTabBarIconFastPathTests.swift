@@ -7,14 +7,25 @@ import XCTest
 final class SPTabBarIconFastPathTests: XCTestCase {
     /// 计数只约束局部路径，呈现颜色在调用返回时核对，不以强制布局补齐高亮颜色。
     func testEligibleUpdatesAndHighlightFallbackAreSynchronous() throws {
+        for style: UIUserInterfaceStyle in [.light, .dark] {
+            try verifyHighlightFallback(style: style)
+        }
+    }
+
+    private func verifyHighlightFallback(style: UIUserInterfaceStyle) throws {
         let fixture = try SPTabColorFixture(colors: true)
         defer { fixture.close() }
+        fixture.bar.overrideUserInterfaceStyle = style
         fixture.bar.standardAppearance.itemAppearance.selected.titleColor = .red
         fixture.beginSelection()
         let button = try fixture.button(at: 1)
         let reference = UIButton(type: .system)
         reference.frame = CGRect(x: 0, y: 200, width: 100, height: 64)
-        fixture.window.rootViewController!.view.addSubview(reference)
+        // 两个按钮继承同一标签栏的外观，UIKit 会按外观解析图标高亮色。
+        fixture.bar.addSubview(reference)
+        reference.layoutIfNeeded()
+        XCTAssertEqual(reference.traitCollection.userInterfaceStyle, style)
+        XCTAssertEqual(button.traitCollection.userInterfaceStyle, style)
         let base = try XCTUnwrap(button.configuration)
         let diagnostics = SPTabColorDiagnostics()
         try fixture.attach(diagnostics)

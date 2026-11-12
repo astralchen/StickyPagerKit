@@ -31,7 +31,6 @@ internal final class SPTopBounceCoordinator: NSObject, UIGestureRecognizerDelega
     private var settlingForPaging = false
     private var generation: UInt = 0
     private var velocity: CGFloat = 0
-    private var link: CADisplayLink?
     private let target = SPDisplayLinkTarget()
     private(set) var displacement: CGFloat = 0
     private(set) var rawDistance: CGFloat = 0
@@ -42,7 +41,9 @@ internal final class SPTopBounceCoordinator: NSObject, UIGestureRecognizerDelega
         target.tick = { [weak self] link in self?.step(link) }
     }
 
-    isolated deinit { link?.invalidate() }
+    nonisolated deinit {
+        spPerformMainActorCleanup { [target] in target.invalidate() }
+    }
 
     func install() {
         guard let host else {
@@ -272,8 +273,7 @@ internal final class SPTopBounceCoordinator: NSObject, UIGestureRecognizerDelega
     }
 
     private func stopLink() {
-        link?.invalidate()
-        link = nil
+        target.invalidate()
         velocity = 0
     }
 
@@ -281,9 +281,7 @@ internal final class SPTopBounceCoordinator: NSObject, UIGestureRecognizerDelega
         stopLink()
         // 映射至阻力后的显示速度，限制极端输入，避免短距离松手反而大幅跳动。
         self.velocity = min(1200, max(-1200, velocity * 0.3))
-        let link = CADisplayLink(target: target, selector: #selector(SPDisplayLinkTarget.step(_:)))
-        self.link = link
-        link.add(to: .main, forMode: .common)
+        target.start()
     }
 
     private func step(_ link: CADisplayLink) {

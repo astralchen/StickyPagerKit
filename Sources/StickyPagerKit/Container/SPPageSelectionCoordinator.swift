@@ -34,7 +34,7 @@ internal final class SPPageSelectionCoordinator {
     private var snapshotGeneration: UInt = 0
     private var selectionGeneration: UInt = 0
     var loadingIdentifiers: Set<AnyHashable> = []
-    var finishingIdentifiers: Set<AnyHashable> = []
+    private(set) var protectedTransitionIdentifiers: Set<AnyHashable> = []
     var operationDepth = 0
     private var appearanceDepth = 0
     private var isDrainingRequests = false
@@ -53,6 +53,40 @@ internal final class SPPageSelectionCoordinator {
 
     private var pendingRequests: [Request] = []
 
+    private func nextIndex(in snapshot: SPPageSnapshot) -> Int? {
+        guard let host else {
+            return nil
+        }
+        let oldIndex = host.selectedIndex
+        let oldID = oldIndex.flatMap { host.identifiers.indices.contains($0) ? host.identifiers[$0] : nil }
+        return SPScrollGeometry.selectedIndex(oldID: oldID, oldIndex: oldIndex, identifiers: snapshot.identifiers)
+    }
+
+    /// 在提交快照、取消旧转场或转发 appearance 之前，先检查目标页能否完成布局。
+    private func waitsForLayout(_ request: Request) -> Bool {
+        guard let host else {
+            return false
+        }
+        let id: AnyHashable
+        switch request {
+        case let .selection(target, _, _, generation):
+            guard generation == selectionGeneration else {
+                return false
+            }
+            id = target
+        case let .snapshot(snapshot, generation):
+            guard generation == snapshotGeneration, let index = nextIndex(in: snapshot) else {
+                return false
+            }
+            id = snapshot.identifiers[index]
+        }
+        guard let binding = host.records[id]?.binding, binding.isLayoutBusy else {
+            return false
+        }
+        binding.onLayoutAvailable = { [weak self] in self?.drainRequests() }
+        return true
+    }
+
     func endOperation() {
         operationDepth -= 1
         drainRequests()
@@ -65,8 +99,11 @@ internal final class SPPageSelectionCoordinator {
         }
         isDrainingRequests = true
         defer { isDrainingRequests = false }
-        while !pendingRequests.isEmpty {
-            let request = pendingRequests.removeFirst()
+        while let request = pendingRequests.first {
+            guard !waitsForLayout(request) else {
+                return
+            }
+            pendingRequests.removeFirst()
             switch request {
             case let .snapshot(snapshot, generation): applySnapshot(snapshot, generation: generation)
             case let .selection(id, animated, source, generation):
@@ -136,8 +173,9 @@ internal final class SPPageSelectionCoordinator {
         snapshotGeneration &+= 1
         selectionGeneration &+= 1
         let generation = snapshotGeneration
-        if appearanceDepth > 0 {
-            pendingRequests.append(.snapshot(snapshot, generation: generation))
+        let request = Request.snapshot(snapshot, generation: generation)
+        if appearanceDepth > 0 || !pendingRequests.isEmpty || waitsForLayout(request) {
+            pendingRequests.append(request)
         } else {
             applySnapshot(snapshot, generation: generation)
         }
@@ -160,7 +198,7 @@ internal final class SPPageSelectionCoordinator {
         host.vertical.stopAnimation()
         let oldIndex = host.selectedIndex
         let oldID = oldIndex.flatMap { host.identifiers.indices.contains($0) ? host.identifiers[$0] : nil }
-        let next = SPScrollGeometry.selectedIndex(oldID: oldID, oldIndex: oldIndex, identifiers: newIDs)
+        let next = nextIndex(in: snapshot)
         let nextID = next.map { newIDs[$0] }
         if oldID != nextID, let old = host.currentRecord {
             appear(old.controller, false)
@@ -171,10 +209,9 @@ internal final class SPPageSelectionCoordinator {
         host.store.apply(snapshot)
         host.commitSelection(next)
         host.storedTabBar.setItems(host.items)
-        if let next {
-            let record = host.loadPage(next)
-            host.vertical.align(record)
-            if oldID != nextID, let record {
+        if let next, let record = host.loadPage(next) {
+            prepareForSelection(record)
+            if oldID != nextID {
                 appear(record.controller, true)
             }
         }
@@ -209,13 +246,16 @@ internal final class SPPageSelectionCoordinator {
         }
         selectionGeneration &+= 1
         let generation = selectionGeneration
-        if appearanceDepth > 0 || isReloading || loadingIdentifiers.contains(id) {
-            pendingRequests.append(.selection(
-                id,
-                animated: animated,
-                source: userItem.map(SelectionSource.tab) ?? .programmatic,
-                generation: generation
-            ))
+        let request = Request.selection(
+            id,
+            animated: animated,
+            source: userItem.map(SelectionSource.tab) ?? .programmatic,
+            generation: generation
+        )
+        if appearanceDepth > 0 || isReloading || loadingIdentifiers.contains(id) || !pendingRequests.isEmpty ||
+            waitsForLayout(request) {
+            pendingRequests.append(request)
+            drainRequests()
             return
         }
         performSelection(id, animated: animated, userItem: userItem, generation: generation)
@@ -323,6 +363,20 @@ internal final class SPPageSelectionCoordinator {
         }
     }
 
+    /// 先更新目标页的视口，再恢复正文位置，appearance 回调由调用方随后转发。
+    private func prepareForSelection(_ record: SPPageRecord) {
+        guard let host else {
+            return
+        }
+        let generation = selectionGeneration
+        host.pageLayout.layoutPage(record)
+        // 应用快照时新选择已排队；普通切页若已被回调接管，则停止旧定位。
+        guard host.records[record.identifier] === record, isReloading || generation == selectionGeneration else {
+            return
+        }
+        host.vertical.align(record)
+    }
+
     private func beginTransition(to index: Int, animated: Bool = true) {
         guard let host else {
             return
@@ -345,11 +399,23 @@ internal final class SPPageSelectionCoordinator {
               host.records[id] === incoming else {
             return
         }
+        // 准备阶段也可能经业务布局回调缩减缓存，直到转场接手前始终保护候选记录。
+        let previousProtected = protectedTransitionIdentifiers
+        protectedTransitionIdentifiers.insert(id)
+        defer {
+            protectedTransitionIdentifiers = previousProtected
+            if transition == nil {
+                if isPaging, !host.pagingView.isDragging, !host.pagingView.isDecelerating {
+                    finishTransition(commit: false)
+                }
+                host.evictPages()
+            }
+        }
         beginPaging()
         guard generation == selectionGeneration, host.records[id] === incoming else {
             return
         }
-        host.vertical.align(incoming)
+        prepareForSelection(incoming)
         guard generation == selectionGeneration, host.records[id] === incoming else {
             return
         }
@@ -385,9 +451,10 @@ internal final class SPPageSelectionCoordinator {
         defer { endOperation() }
         // 先移走活动上下文，再调用 UIKit；回调不能递归结束同一转场。
         transition = nil
-        let previousFinishing = finishingIdentifiers
-        finishingIdentifiers.formUnion([context.outgoing?.identifier, context.incoming.identifier].compactMap { $0 })
-        defer { finishingIdentifiers = previousFinishing; host.evictPages() }
+        let previousFinishing = protectedTransitionIdentifiers
+        protectedTransitionIdentifiers
+            .formUnion([context.outgoing?.identifier, context.incoming.identifier].compactMap { $0 })
+        defer { protectedTransitionIdentifiers = previousFinishing; host.evictPages() }
         withAppearanceUpdates {
             let hadAppearance = context.outgoingBegan || context.incomingBegan
             if context.outgoingBegan {

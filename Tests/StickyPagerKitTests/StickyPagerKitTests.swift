@@ -3023,6 +3023,120 @@ final class StickyPagerKitTests: XCTestCase {
         XCTAssertEqual(pager.records[0]!.binding!.position, 650, accuracy: 0.01)
     }
 
+    func testScrollingToTopLeavesCachedPageUntouchedUntilPaging() throws {
+        for hasHeader in [true, false] {
+            let pager = mount(hasHeader: hasHeader)
+            let first = try XCTUnwrap(pager.currentScrollView)
+            let range = pager.pageLayout.effectiveLayout.collapseRange
+            first.contentOffset.y = range + 450 - first.adjustedContentInset.top
+            pager.setSelectedIndex(1, animated: false)
+            let second = try XCTUnwrap(pager.currentScrollView)
+            second.contentOffset.y = range + 200 - second.adjustedContentInset.top
+            let offset = first.contentOffset
+            let frame = pager.records[0]?.controller.view.frame
+            second.contentOffset.y = -second.adjustedContentInset.top
+            pager.view.layoutIfNeeded()
+            XCTAssertEqual(first.contentOffset, offset)
+            XCTAssertEqual(pager.records[0]?.controller.view.frame, frame)
+            XCTAssertEqual(pager.store.position(for: 0), 450)
+            pager.setSelectedIndex(0, animated: false)
+            XCTAssertEqual(pager.collapseOffset, 0)
+            XCTAssertEqual(pager.currentRecord?.binding?.position, hasHeader ? 0 : 450)
+
+            if hasHeader {
+                pager.setSelectedIndex(1, animated: false)
+                second.contentOffset.y = range + 50 - second.adjustedContentInset.top
+                pager.setSelectedIndex(0, animated: false)
+                XCTAssertEqual(pager.currentRecord?.binding?.position, range + 450)
+            }
+        }
+    }
+
+    func testLoadingThirdPagePreservesOffscreenList() throws {
+        try verifyOffscreenListWhilePreparingThirdPage(rebinding: false)
+    }
+
+    func testAsyncRebindingThirdPagePreservesOffscreenList() throws {
+        try verifyOffscreenListWhilePreparingThirdPage(rebinding: true)
+    }
+
+    private func verifyOffscreenListWhilePreparingThirdPage(rebinding: Bool) throws {
+        let pager = mount(ids: [0, 1, 2])
+        if rebinding {
+            pager.rediscoverScrollView(forPageAt: 2)
+        }
+        let first = try XCTUnwrap(pager.currentScrollView)
+        let firstRoot = try XCTUnwrap(pager.currentRecord?.controller.view)
+        let delegate = ScrollDelegate()
+        first.delegate = delegate
+        let range = pager.pageLayout.effectiveLayout.collapseRange
+        first.contentOffset.y = range + 450 - first.adjustedContentInset.top
+        pager.setSelectedIndex(1, animated: false)
+        let second = try XCTUnwrap(pager.currentScrollView)
+        second.contentOffset.y = -second.adjustedContentInset.top
+        pager.view.layoutIfNeeded()
+        let frame = firstRoot.frame
+        let offset = first.contentOffset
+        let inset = first.contentInset
+        let events = delegate.scrollEvents
+
+        if rebinding {
+            let third = try XCTUnwrap(pager.records[2]?.controller as? FixturePage)
+            let old = try XCTUnwrap(third.scroll)
+            let rebound = expectation(description: "第三页异步重绑完成")
+            DispatchQueue.main.async {
+                old.removeFromSuperview()
+                let replacement = UIScrollView(frame: third.view.bounds)
+                replacement.contentSize.height = 2400
+                third.view.addSubview(replacement)
+                pager.rediscoverScrollView(forPageAt: 2)
+                XCTAssertTrue(pager.records[2]?.binding?.scrollView === replacement)
+                rebound.fulfill()
+            }
+            wait(for: [rebound], timeout: 5)
+            XCTAssertEqual(pager.selectedIndex, 1)
+        } else {
+            XCTAssertNil(pager.records[2])
+            pager.setSelectedIndex(2, animated: false)
+            XCTAssertEqual(pager.selectedIndex, 2)
+        }
+        pager.view.layoutIfNeeded()
+        XCTAssertEqual(pager.records.count, 3)
+        XCTAssertEqual(firstRoot.frame, frame)
+        XCTAssertEqual(first.contentOffset, offset)
+        XCTAssertEqual(first.contentInset, inset)
+        XCTAssertEqual(delegate.scrollEvents, events)
+        XCTAssertEqual(pager.store.position(for: 0), 450)
+    }
+
+    func testReloadPreparesCachedPageBeforeAppearance() throws {
+        let pager = mount(ids: [0, 1])
+        let first = try XCTUnwrap(pager.currentRecord?.controller as? FixturePage)
+        let scroll = try XCTUnwrap(first.scroll)
+        let expandedInset = scroll.contentInset
+        let range = pager.pageLayout.effectiveLayout.collapseRange
+        scroll.contentOffset.y = range + 450 - scroll.adjustedContentInset.top
+        pager.setSelectedIndex(1, animated: false)
+        let second = try XCTUnwrap(pager.currentScrollView)
+        second.contentOffset.y = -second.adjustedContentInset.top
+        pager.view.layoutIfNeeded()
+
+        var appearances = 0
+        first.onAppear = {
+            appearances += 1
+            let frame = first.view.convert(first.view.bounds, to: pager.view)
+            XCTAssertEqual(frame.minY, pager.tabBar.frame.minY, accuracy: 0.01)
+            XCTAssertEqual(scroll.contentInset, expandedInset)
+            XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 0, accuracy: 0.01)
+        }
+        defer { first.onAppear = nil }
+        source!.ids.removeLast()
+        pager.reloadData()
+        XCTAssertTrue(pager.currentRecord?.controller === first)
+        XCTAssertEqual(appearances, 2)
+        XCTAssertEqual(pager.store.position(for: 0), 450)
+    }
+
     func testPartiallyExpandedHeaderAlignsDestination() {
         let pager = mount()
         let scroll = pager.currentScrollView!
@@ -4103,6 +4217,7 @@ private final class FixturePage: UIViewController {
     let plain: Bool
     var scroll: UIScrollView?
     var appearCount = 0, disappearCount = 0
+    var onAppear: (() -> Void)?
     var onDisappear: (() -> Void)?
     var onLayout: (() -> Void)?
     var onLoad: (() -> Void)?
@@ -4141,8 +4256,14 @@ private final class FixturePage: UIViewController {
         onLoad?()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        onAppear?()
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated); appearCount += 1
+        onAppear?()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -4150,7 +4271,13 @@ private final class FixturePage: UIViewController {
     }
 }
 
-@MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {}
+@MainActor private final class ScrollDelegate: NSObject, UIScrollViewDelegate {
+    private(set) var scrollEvents = 0
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        scrollEvents += 1
+    }
+}
+
 @MainActor private final class InsetCallbackScrollView: UIScrollView {
     var onContentInsetChange: (() -> Void)?
     var onIndicatorInsetChange: (() -> Void)?

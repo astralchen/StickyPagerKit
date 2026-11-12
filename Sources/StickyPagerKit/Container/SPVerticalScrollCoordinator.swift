@@ -18,7 +18,6 @@ internal final class SPVerticalScrollCoordinator {
     private weak var dragPan: UIPanGestureRecognizer?
     private var dragStart: CGFloat = 0
     private var animationVelocity: CGFloat = 0
-    private var displayLink: CADisplayLink?
     private let displayTarget = SPDisplayLinkTarget()
     func configureAnimation() {
         displayTarget.tick = { [weak self] link in self?.stepAnimation(link) }
@@ -28,11 +27,11 @@ internal final class SPVerticalScrollCoordinator {
         collapseOffset = preservingCollapsed ? range : min(collapseOffset, range)
     }
 
-    func publishHeader() {
+    func publishHeader(currentPageOnly: Bool = false) {
         guard let host else {
             return
         }
-        host.pageLayout.layoutHeader()
+        host.pageLayout.layoutHeader(currentPageOnly: currentPageOnly)
         let range = host.pageLayout.effectiveLayout.collapseRange
         let progress = range == 0 ? 0 : collapseOffset / range
         let state: SPHeaderState = progress <= 0 ? .expanded : (progress >= 1 ? .collapsed : .collapsing)
@@ -128,7 +127,10 @@ internal final class SPVerticalScrollCoordinator {
         guard !record.needsBinding, host.records[record.identifier] === record else {
             return
         }
-        host.pageLayout.layoutHeader()
+        host.pageLayout.layoutPage(record)
+        guard !record.needsBinding, host.records[record.identifier] === record else {
+            return
+        }
         align(record)
         host.view.setNeedsLayout()
     }
@@ -159,7 +161,7 @@ internal final class SPVerticalScrollCoordinator {
         let range = host.pageLayout.effectiveLayout.collapseRange
         collapseOffset = SPScrollGeometry.collapse(binding.position, range: range)
         host.store.setPosition(SPScrollGeometry.content(binding.position, range: range), for: record.identifier)
-        publishHeader()
+        publishHeader(currentPageOnly: true)
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -271,7 +273,7 @@ internal final class SPVerticalScrollCoordinator {
             } else {
                 // 普通页面只消耗 Header 范围，不生成内容位移或越界回弹。
                 collapseOffset = bound
-                publishHeader()
+                publishHeader(currentPageOnly: true)
             }
         case .ended:
             dragRecord = nil; dragBinding = nil; dragPan = nil
@@ -294,10 +296,7 @@ internal final class SPVerticalScrollCoordinator {
     }
 
     private func startAnimation() {
-        displayLink?.invalidate()
-        let link = CADisplayLink(target: displayTarget, selector: #selector(SPDisplayLinkTarget.step(_:)))
-        displayLink = link
-        link.add(to: .main, forMode: .common)
+        displayTarget.start()
     }
 
     func stopAnimation(preservingTopBounce: Bool = false, settlingTopBounce: Bool = false) {
@@ -307,7 +306,7 @@ internal final class SPVerticalScrollCoordinator {
             host?.topBounce.cancel()
         }
         interactionGeneration &+= 1
-        displayLink?.invalidate(); displayLink = nil
+        displayTarget.invalidate()
         dragRecord = nil; dragBinding = nil; dragPan = nil
     }
 
@@ -323,7 +322,7 @@ internal final class SPVerticalScrollCoordinator {
             animationVelocity *= pow(UIScrollView.DecelerationRate.normal.rawValue, dt * 1000)
             let raw = collapseOffset + animationVelocity * dt
             collapseOffset = SPScrollGeometry.collapse(raw, range: host.pageLayout.effectiveLayout.collapseRange)
-            publishHeader()
+            publishHeader(currentPageOnly: true)
             if raw < 0, host.topBounce.absorbHeaderInertia(overshoot: -raw, velocity: -animationVelocity) {
                 stopAnimation(preservingTopBounce: true)
                 return
@@ -343,12 +342,12 @@ internal final class SPVerticalScrollCoordinator {
         let position = min(max(0, raw), binding.maximumPosition)
         let generation = interactionGeneration
         binding.setPosition(position)
-        guard generation == interactionGeneration, displayLink === link,
+        guard generation == interactionGeneration, displayTarget.current === link,
               record === host.currentRecord, record.binding === binding else {
             return
         }
         consume(binding, for: record)
-        guard generation == interactionGeneration, displayLink === link else {
+        guard generation == interactionGeneration, displayTarget.current === link else {
             return
         }
         if raw < 0, host.topBounce.absorbHeaderInertia(overshoot: -raw, velocity: -animationVelocity) {

@@ -122,6 +122,15 @@ internal final class SPPageLayoutCoordinator {
             guard let index = host.store.snapshot.index(of: id) else {
                 continue
             }
+            // UIKit 也会在回顶动画中请求常规布局。离屏页等到再次进入视口才跟随 Header，
+            // 尺寸、安全区折叠范围及页面物理顺序变化仍在本次布局处理。
+            let frame = record.controller.view.frame
+            guard sizeChanged || rangeChanged || index == host.selectedIndex ||
+                frame.intersects(host.pagingView.bounds) || frame.minX != physicalIndex(index) * pageFrame.width else {
+                // 业务请求的内部布局仍在当前防重入范围内结算，保留页面已有的 frame 和 inset。
+                record.controller.view.layoutIfNeeded()
+                continue
+            }
             layoutPage(record, at: index, layout: l)
             if rangeChanged || sizeChanged {
                 host.vertical.align(record)
@@ -139,7 +148,7 @@ internal final class SPPageLayoutCoordinator {
         if rangeChanged {
             host.vertical.publishHeader()
         } else {
-            layoutHeader()
+            layoutHeader(currentPageOnly: true)
         }
     }
 
@@ -166,7 +175,7 @@ internal final class SPPageLayoutCoordinator {
         host.vertical.publishHeader()
     }
 
-    func layoutHeader() {
+    func layoutHeader(currentPageOnly: Bool) {
         guard let host else {
             return
         }
@@ -191,15 +200,38 @@ internal final class SPPageLayoutCoordinator {
         )
         let wasLayingOut = isLayingOutPages
         isLayingOutPages = true
-        for (id, record) in host.records {
-            guard let index = host.store.snapshot.index(of: id) else {
-                continue
+        // 纵向滚动只移动当前页。候选页进入横向视口时再按共享 Header 布局。
+        if currentPageOnly {
+            if let index = host.selectedIndex, let record = host.currentRecord {
+                layoutPage(record, at: index, layout: l)
             }
-            layoutPage(record, at: index, layout: l)
+        } else {
+            for (id, record) in host.records {
+                guard let index = host.store.snapshot.index(of: id) else {
+                    continue
+                }
+                layoutPage(record, at: index, layout: l)
+            }
         }
         isLayingOutPages = wasLayingOut
         host.bounceContentView.bringSubviewToFront(host.headerHost)
         host.bounceContentView.bringSubviewToFront(host.storedTabBar)
+    }
+
+    /// 单页加载、重绑或再次显示时，仅同步该页。测量可能重入，测量后再解析当前索引。
+    func layoutPage(_ record: SPPageRecord) {
+        guard let host else {
+            return
+        }
+        let layout = effectiveLayout
+        guard host.records[record.identifier] === record,
+              let index = host.store.snapshot.index(of: record.identifier) else {
+            return
+        }
+        let wasLayingOut = isLayingOutPages
+        isLayingOutPages = true
+        defer { isLayingOutPages = wasLayingOut }
+        layoutPage(record, at: index, layout: layout)
     }
 
     func layoutPage(_ record: SPPageRecord, at index: Int, layout: SPPageLayout) {

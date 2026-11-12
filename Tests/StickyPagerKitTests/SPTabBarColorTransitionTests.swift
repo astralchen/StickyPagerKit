@@ -201,6 +201,9 @@ final class SPTabBarColorTransitionTests: XCTestCase {
         bar.tintColor = .red
         assertColor(try title(button(bar, 1)), .red)
         bar.overrideUserInterfaceStyle = .dark
+        if #available(iOS 17, *) {
+            bar.updateTraitsIfNeeded()
+        }
         bar.layoutIfNeeded()
         assertColor(try title(button(bar, 1)), UIColor(red: 0.25, green: 0.75, blue: 0, alpha: 1))
         XCTAssertEqual(bar.selectedIndex, 0)

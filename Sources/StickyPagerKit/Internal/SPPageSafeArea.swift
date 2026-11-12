@@ -26,7 +26,13 @@ internal final class SPPageSafeArea {
         }
     }
 
-    isolated deinit { detach() }
+    // 页面记录由容器在主线程释放。同步恢复业务设置，避免旧系统的隔离析构兼容路径。
+    nonisolated deinit {
+        guard controller != nil else {
+            return
+        }
+        MainActor.assumeIsolated { detach() }
+    }
 
     func setTopContribution(_ height: CGFloat) {
         topContribution = max(0, height)

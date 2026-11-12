@@ -344,7 +344,11 @@ final class SPTabBarModelTests: XCTestCase {
         XCTAssertEqual(button(bar).configuration?.title, "基类标题")
         XCTAssertEqual(item.tag, 42)
         XCTAssertNotNil(button(bar).configuration?.image)
-        XCTAssertGreaterThanOrEqual(button(bar).titleLabel!.font.pointSize, 23)
+        let expectedFont = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+            for: .systemFont(ofSize: 23),
+            compatibleWith: bar.traitCollection
+        )
+        XCTAssertEqual(button(bar).titleLabel!.font, expectedFont)
         base.isEnabled = false
         XCTAssertFalse(button(bar).isEnabled)
         base.title = nil

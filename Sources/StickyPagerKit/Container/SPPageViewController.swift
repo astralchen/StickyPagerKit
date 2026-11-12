@@ -218,12 +218,13 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         evictPages(limit: 1)
     }
 
-    isolated deinit {
-        // 未使用纵向协调器的容器也可以直接释放；析构期间不能创建新的 weak self。
-        verticalStorage?.stopAnimation()
-        records.values.forEach {
-            $0.binding?.detach()
-            $0.safeArea.detach()
+    nonisolated deinit {
+        spPerformMainActorCleanup { [store, verticalStorage] in
+            verticalStorage?.stopAnimation()
+            for record in store.records.values {
+                record.binding?.detach()
+                record.safeArea.detach()
+            }
         }
     }
 
@@ -405,7 +406,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         record.isPreparingBinding = false
         vertical.bind(record)
         // 首次绑定后同步页面位移和滚动 inset；根视图与标签栏顶部对齐，内容避让标签栏。
-        pageLayout.layoutHeader()
+        pageLayout.layoutPage(record)
         guard records[id] === record, identifiers.contains(id) else {
             return nil
         }
@@ -439,7 +440,7 @@ open class SPPageViewController: UIViewController, UIScrollViewDelegate, UIGestu
         let protected = protectedIndices.filter { identifiers.indices.contains($0) }.map { identifiers[$0] }
         let candidates = store
             .evictionCandidates(protecting: Set(protected).union(selection.loadingIdentifiers)
-                .union(selection.finishingIdentifiers))
+                .union(selection.protectedTransitionIdentifiers))
         for record in candidates where records.count > capacity {
             removeRecord(record.identifier)
         }

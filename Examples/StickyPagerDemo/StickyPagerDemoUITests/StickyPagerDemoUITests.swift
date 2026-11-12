@@ -8,6 +8,14 @@ final class StickyPagerDemoUITests: XCTestCase {
         UITestOrientation.set(.portrait)
         app = XCUIApplication()
         app.launchArguments = ["--window-regression"]
+        if name.contains("testStatusBarTap") {
+            // 从主屏幕进入 Demo，避免时间区域显示返回前一个应用的系统入口。
+            XCUIDevice.shared.press(.home)
+            app.launchArguments.append("--status-bar-regression")
+        }
+        if name.contains("testStatusBarTapWithoutHeader") {
+            app.launchArguments.append("--no-demo-header")
+        }
         if name.contains("testUnboundListScrollsIndependentlyAndPreservesPaging") {
             app.launchArguments.append("--unbound-list-regression")
         }
@@ -1247,19 +1255,75 @@ final class StickyPagerDemoUITests: XCTestCase {
     }
 
     func testStatusBarTapReturnsBusinessListToTop() throws {
+        try verifyStatusBarTap(hasHeader: true)
+    }
+
+    func testStatusBarTapWithoutHeaderKeepsInactivePagePosition() throws {
+        try verifyStatusBarTap(hasHeader: false)
+    }
+
+    private func verifyStatusBarTap(hasHeader: Bool) throws {
+        func metric(_ key: String) throws -> CGFloat {
+            let state = try XCTUnwrap(status.value as? String)
+            let entry = try XCTUnwrap(state.split(separator: ";").first { $0.hasPrefix(key + "=") })
+            return CGFloat(try XCTUnwrap(Double(entry.dropFirst(key.count + 1))))
+        }
+
         select(1)
         expect("page=list")
         let table = app.tables["demo.list"]
         table.swipeUp()
-        expect("progress=1.00")
-        XCTAssertGreaterThan(contentPosition(), 0)
+        let savedPosition = try metric("listPosition")
+        XCTAssertGreaterThan(savedPosition, 220)
+        table.swipeRight()
+        expect("page=grid")
+        let grid = app.collectionViews["demo.grid"]
+        grid.swipeUp()
+        XCTAssertGreaterThan(try metric("gridPosition"), 220)
         let statusBar = app.statusBars.firstMatch.exists ? app.statusBars
             .firstMatch : XCUIApplication(bundleIdentifier: "com.apple.springboard").statusBars.firstMatch
         XCTAssertTrue(statusBar.waitForExistence(timeout: 5))
-        // 点击实际状态栏左侧，避开中央系统区域；由 UIKit 发起原生回顶部。
-        statusBar.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
-        expect("progress=0.00")
-        XCTAssertEqual(contentPosition(), 0, accuracy: 1)
+        let time = statusBar.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+        let inactiveEvents = try metric("listScrollEvents")
+        let inactivePosition = try metric("listPosition")
+        XCTAssertEqual(app.state, .runningForeground)
+        time.tap()
+        XCTAssertEqual(app.state, .runningForeground)
+        let gridAtTop = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ AND value CONTAINS %@",
+            "demo.status",
+            ";gridPosition=0.0;"
+        )).firstMatch
+        XCTAssertTrue(gridAtTop.waitForExistence(timeout: 5))
+        XCTAssertEqual(try metric("listTopRequests"), 0)
+        XCTAssertEqual(try metric("listScrollEvents"), inactiveEvents)
+        XCTAssertEqual(try metric("listPosition"), inactivePosition, accuracy: 1)
+        if hasHeader {
+            expect("progress=0.00")
+            select(1)
+            expect("page=list")
+            XCTAssertEqual(try metric("listPosition"), 0, accuracy: 1)
+            select(0)
+            expect("page=grid")
+            grid.swipeUp()
+            expect("progress=1.00")
+        }
+        select(1)
+        expect("page=list")
+        XCTAssertEqual(try metric("listPosition"), savedPosition, accuracy: 1)
+        XCTAssertEqual(app.state, .runningForeground)
+        time.tap()
+        XCTAssertEqual(app.state, .runningForeground)
+        let listAtTop = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ AND value CONTAINS %@",
+            "demo.status",
+            ";listPosition=0.0;"
+        )).firstMatch
+        XCTAssertTrue(listAtTop.waitForExistence(timeout: 5))
+        if hasHeader {
+            expect("progress=0.00")
+        }
+        XCTAssertGreaterThan(try metric("listTopRequests"), 0)
         XCTAssertTrue(app.buttons["sp.tab.1"].isSelected)
     }
 

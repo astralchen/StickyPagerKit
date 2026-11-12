@@ -3,6 +3,18 @@ import XCTest
 
 @MainActor
 extension UIWindow {
+    /// 自然 trait 传播和属性更新依赖前台场景。宿主被其他 App 遮住时，报告实际运行条件。
+    func requireForegroundForTesting(file: StaticString = #filePath, line: UInt = #line) throws {
+        let scene = try XCTUnwrap(windowScene, "测试窗口应已连接 UIWindowScene", file: file, line: line)
+        let isForeground = scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive
+        _ = try XCTUnwrap(
+            isForeground ? scene : nil,
+            "UIKit 测试宿主需要保持前台，请在独立模拟器上运行。当前场景状态为 \(scene.activationState.rawValue)",
+            file: file,
+            line: line
+        )
+    }
+
     /// 在测试方法实际挂载时调用，不跨越 XCTest 的异步 setUp 显示边界。
     /// 真实 application host 会提交控制器的 appearance 更新；让显示转场先完成再操作夹具。
     func showForTesting() {

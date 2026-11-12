@@ -149,7 +149,9 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
         if ProcessInfo.processInfo.arguments.contains("--custom-tabs") {
             tabBar.contentStyle = .custom
         }
-        headerView = DemoHeaderView()
+        if !ProcessInfo.processInfo.arguments.contains("--no-demo-header") {
+            headerView = DemoHeaderView()
+        }
         layout = SPPageLayout(headerHeight: 220)
         let headerAction = UIAction(title: "切换 Header 类型") { [weak self] _ in self?.toggleHeader() }
         let header = UIBarButtonItem(title: "Header", primaryAction: headerAction)
@@ -470,6 +472,19 @@ final class DemoPager: SPPageViewController, SPPageViewControllerDataSource, SPP
             if ProcessInfo.processInfo.arguments.contains("--mixed-page") {
                 return DemoMixedPage()
             }
+            if ProcessInfo.processInfo.arguments.contains("--status-bar-regression") {
+                let page = StatusBarRegressionList(count: 80)
+                status.supplementaryRegressionState = { [weak self, weak page] in
+                    guard let table = page?.tableView, let page,
+                          let grid = self?.children.compactMap({ $0 as? DemoGrid }).first?.collectionView else {
+                        return ""
+                    }
+                    let listPosition = table.contentOffset.y + table.adjustedContentInset.top
+                    let gridPosition = grid.contentOffset.y + grid.adjustedContentInset.top
+                    return ";listPosition=\(listPosition);gridPosition=\(gridPosition);listTopRequests=\(page.topRequests);listScrollEvents=\(page.scrollEvents)"
+                }
+                return page
+            }
             return DemoList(count: 80)
         case "short": return DemoList(count: 3)
         case "empty": return DemoList(count: 0)
@@ -749,7 +764,7 @@ final class DemoMixedPage: UIViewController, UITableViewDataSource {
 }
 
 @MainActor
-final class DemoList: UITableViewController {
+class DemoList: UITableViewController {
     private var refreshProbe: RefreshRegressionProbe?
     override func loadView() {
         tableView = RegressionTableView(frame: .zero, style: .plain)
@@ -836,6 +851,22 @@ final class DemoList: UITableViewController {
         content.secondaryText = "原生 UITableView · 已刷新 \(refreshCount) 次"
         cell.contentConfiguration = content
         return cell
+    }
+}
+
+/// 记录 UIKit 是否询问该页；切回时框架会恢复位置，仅比较位置可能漏掉后台回调。
+@MainActor
+private final class StatusBarRegressionList: DemoList {
+    private(set) var topRequests = 0
+    private(set) var scrollEvents = 0
+
+    override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        scrollEvents += 1
+    }
+
+    override func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        topRequests += 1
+        return true
     }
 }
 
